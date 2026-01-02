@@ -277,6 +277,57 @@ exports.suspendVendor = async (req, res, next) => {
   }
 };
 
+exports.updateVendorRadius = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { serviceRadius } = req.body;
+    const vendor = await Vendor.findById(req.params.id);
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    if (!vendor.storeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor registration not completed',
+      });
+    }
+
+    vendor.serviceRadius = parseFloat(serviceRadius);
+    await vendor.save();
+
+    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+
+    const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor service radius updated successfully',
+      data: populatedVendor,
+    });
+  } catch (error) {
+    logger.error('Update vendor radius error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 exports.deleteVendor = async (req, res, next) => {
   try {
     const vendor = await Vendor.findById(req.params.id);

@@ -2,7 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogin, vendorVerifyOTP } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendor, suspendVendor, deleteVendor } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendor, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
 const { protect } = require('../middleware/superadminAuth');
 const { uploadFields } = require('../middleware/upload');
 
@@ -239,6 +239,19 @@ router.put(
       .withMessage('Permissions must be a valid JSON object'),
   ],
   updateVendor
+);
+
+router.put(
+  '/:id/radius',
+  protect,
+  [
+    body('serviceRadius')
+      .notEmpty()
+      .withMessage('Service radius is required')
+      .isFloat({ min: 0.1 })
+      .withMessage('Service radius must be a number greater than or equal to 0.1 km'),
+  ],
+  updateVendorRadius
 );
 
 router.put('/:id/suspend', protect, suspendVendor);

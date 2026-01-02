@@ -180,6 +180,14 @@ const VendorSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  serviceRadius: {
+    type: Number,
+    default: 5,
+    min: [0.1, 'Service radius must be at least 0.1 km'],
+    required: function() {
+      return !!this.storeId;
+    },
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SuperAdmin',

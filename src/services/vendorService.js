@@ -152,6 +152,7 @@ const createVendorData = async (vendor, data, files, superadminId) => {
     bankName: finalBankName,
   };
   vendor.createdBy = superadminId;
+  vendor.serviceRadius = 5; // Default service radius of 5 km
 
   updateVendorPermissions(vendor, permissions);
 
