@@ -17,7 +17,7 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-const superadminRoutes = require('./routes/superadmin');
+const authRoutes = require('./routes/auth');
 const vendorRoutes = require('./routes/vendor');
 const userRoutes = require('./routes/user');
 const riderRoutes = require('./routes/rider');
@@ -26,7 +26,7 @@ const subCategoryRoutes = require('./routes/subCategory');
 const productRoutes = require('./routes/product');
 const queueRoutes = require('./routes/queue');
 
-app.use('/api/superadmin', superadminRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/vendor', vendorRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/rider', riderRoutes);

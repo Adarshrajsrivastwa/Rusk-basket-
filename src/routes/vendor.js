@@ -1,44 +1,13 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
-const { vendorLogin, vendorVerifyOTP } = require('../controllers/vendorAuth');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendor, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
 const { protect } = require('../middleware/superadminAuth');
 const { uploadFields } = require('../middleware/upload');
 
 const router = express.Router();
 
-router.post(
-  '/login',
-  [
-    body('contactNumber')
-      .trim()
-      .notEmpty()
-      .withMessage('Contact number is required')
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit contact number'),
-  ],
-  vendorLogin
-);
-
-router.post(
-  '/verify-login-otp',
-  [
-    body('contactNumber')
-      .trim()
-      .notEmpty()
-      .withMessage('Contact number is required')
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit contact number'),
-    body('otp')
-      .trim()
-      .notEmpty()
-      .withMessage('OTP is required')
-      .matches(/^[0-9]{4}$/)
-      .withMessage('OTP must be a 4-digit number'),
-  ],
-  vendorVerifyOTP
-);
+// Login routes have been moved to /api/auth
 
 router.post(
   '/send-otp',
