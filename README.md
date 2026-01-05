@@ -1,41 +1,30 @@
-# Rush Basket - E-Commerce Backend API
+# Rusk Basket - E-Commerce Backend API
 
-A scalable, secure, and production-ready backend API for an e-commerce platform built with Node.js, Express, and MongoDB.
+A comprehensive e-commerce backend API built with Node.js, Express, and MongoDB. This platform supports multi-vendor operations with user, vendor, rider, and admin roles.
 
 ## Features
 
-- **Security First**: Comprehensive security middleware including DDoS protection, rate limiting, XSS protection, SQL injection prevention, and more
-- **Scalable Architecture**: Designed for horizontal scaling
-- **Authentication & Authorization**: JWT-based authentication with role-based access control
-- **RESTful API**: Clean and well-structured REST API endpoints
-- **Error Handling**: Centralized error handling with detailed logging
-- **Input Validation**: Request validation using express-validator
-- **Logging**: Winston-based logging system with file and console outputs
-- **Database**: MongoDB with Mongoose ODM
-- **Caching**: Redis integration for session management and caching
-- **Production Ready**: Optimized for production with compression, security headers, and best practices
-
-## Security Features
-
-- **Rate Limiting**: Prevents API abuse and DDoS attacks
-- **Slow Down**: Progressive delay for repeated requests
-- **Helmet**: Sets various HTTP headers for security
-- **CORS**: Configurable Cross-Origin Resource Sharing
-- **XSS Protection**: Prevents Cross-Site Scripting attacks
-- **MongoDB Sanitization**: Prevents NoSQL injection attacks
-- **HPP**: Protects against HTTP Parameter Pollution
-- **Password Hashing**: Bcrypt with configurable salt rounds
-- **JWT Tokens**: Secure token-based authentication
-- **Session Management**: Redis-backed session storage
-- **Input Validation**: Request body validation and sanitization
+- **Multi-Role System**: User, Vendor, Rider, and Admin roles with role-based access control
+- **Vendor Management**: Complete vendor registration, product management, and order handling
+- **Order Management**: Full order lifecycle from cart to delivery with status tracking
+- **Product Management**: Product approval system, categories, subcategories, and SKU management
+- **Authentication**: OTP-based authentication for users, vendors, and riders
+- **File Upload**: Cloudinary integration for image and document uploads
+- **Queue System**: Bull queue with Redis for background jobs (email, SMS, notifications, image processing)
+- **Payment Integration**: Support for multiple payment methods (COD, prepaid, wallet, UPI, card)
+- **Coupon System**: Discount coupon management and application
+- **Location Services**: Post office API integration for address validation
+- **Logging**: Winston-based logging system with file outputs
+- **Security**: Rate limiting, input validation, MongoDB sanitization, and security headers
 
 ## Tech Stack
 
 - **Runtime**: Node.js 18+
 - **Framework**: Express.js
 - **Database**: MongoDB with Mongoose
-- **Cache/Session**: Redis
+- **Cache/Queue**: Redis with Bull
 - **Authentication**: JWT (JSON Web Tokens)
+- **File Storage**: Cloudinary
 - **Validation**: express-validator
 - **Logging**: Winston
 - **Security**: Helmet, express-rate-limit, xss-clean, express-mongo-sanitize
@@ -43,34 +32,84 @@ A scalable, secure, and production-ready backend API for an e-commerce platform 
 ## Project Structure
 
 ```
-rush-basket-backend/
+Rusk-basket-/
 ├── src/
-│   ├── controllers/       # Route controllers
-│   │   ├── auth.js
-│   │   ├── users.js
-│   │   ├── products.js
-│   │   ├── categories.js
-│   │   └── orders.js
-│   ├── middleware/        # Custom middleware
-│   │   ├── auth.js        # Authentication & authorization
-│   │   ├── security.js    # Security middleware
-│   │   └── errorHandler.js
-│   ├── models/           # Mongoose models
-│   │   ├── User.js
-│   │   ├── Product.js
+│   ├── controllers/          # Route controllers
+│   │   ├── category.js
+│   │   ├── checkout.js
+│   │   ├── coupon.js
+│   │   ├── productAdd.js
+│   │   ├── productApproval.js
+│   │   ├── productGet.js
+│   │   ├── productUpdate.js
+│   │   ├── rider.js
+│   │   ├── riderAuth.js
+│   │   ├── riderOTP.js
+│   │   ├── subCategory.js
+│   │   ├── unifiedAuth.js
+│   │   ├── user.js
+│   │   ├── userAuth.js
+│   │   ├── userOTP.js
+│   │   ├── userProduct.js
+│   │   ├── vendor.js
+│   │   ├── vendorAuth.js
+│   │   └── vendorOTP.js
+│   ├── middleware/           # Custom middleware
+│   │   ├── adminAuth.js
+│   │   ├── categoryUpload.js
+│   │   ├── productAuth.js
+│   │   ├── productUpload.js
+│   │   ├── riderAuth.js
+│   │   ├── riderUpload.js
+│   │   ├── subCategoryUpload.js
+│   │   ├── upload.js
+│   │   ├── userAuth.js
+│   │   ├── userUpload.js
+│   │   ├── vendorAuth.js
+│   │   └── vendorOrAdminAuth.js
+│   ├── models/              # Mongoose models
+│   │   ├── Admin.js
+│   │   ├── Cart.js
 │   │   ├── Category.js
-│   │   └── Order.js
-│   ├── routes/           # API routes
-│   │   ├── index.js
+│   │   ├── Coupon.js
+│   │   ├── Order.js
+│   │   ├── Product.js
+│   │   ├── Rider.js
+│   │   ├── SubCategory.js
+│   │   ├── User.js
+│   │   └── Vendor.js
+│   ├── routes/             # API routes
 │   │   ├── auth.js
-│   │   ├── users.js
-│   │   ├── products.js
-│   │   ├── categories.js
-│   │   └── orders.js
-│   ├── utils/           # Utility functions
-│   │   └── logger.js
-│   └── server.js        # Application entry point
-├── logs/                # Application logs
+│   │   ├── category.js
+│   │   ├── checkout.js
+│   │   ├── coupon.js
+│   │   ├── product.js
+│   │   ├── queue.js
+│   │   ├── rider.js
+│   │   ├── subCategory.js
+│   │   ├── superadmin.js
+│   │   ├── user.js
+│   │   └── vendor.js
+│   ├── services/           # Business logic services
+│   │   ├── checkoutService.js
+│   │   ├── productService.js
+│   │   ├── riderService.js
+│   │   ├── userService.js
+│   │   └── vendorService.js
+│   ├── utils/             # Utility functions
+│   │   ├── cloudinary.js
+│   │   ├── logger.js
+│   │   ├── postOfficeAPI.js
+│   │   ├── queryManager.js
+│   │   ├── queue.js
+│   │   └── smsService.js
+│   ├── workers/           # Background job workers
+│   │   ├── emailWorker.js
+│   │   ├── imageProcessingWorker.js
+│   │   ├── notificationWorker.js
+│   │   └── smsWorker.js
+│   └── server.js          # Application entry point
+├── logs/                  # Application logs
 ├── package.json
 └── README.md
 ```
@@ -81,14 +120,15 @@ rush-basket-backend/
 
 - Node.js 18+ and npm
 - MongoDB 5+
-- Redis 6+ (optional but recommended)
+- Redis 6+ (for queues and caching)
+- Cloudinary account (for file uploads)
 
-### Local Development Setup
+### Setup
 
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd rush-basket-backend
+cd Rusk-basket-
 ```
 
 2. Install dependencies:
@@ -96,25 +136,38 @@ cd rush-basket-backend
 npm install
 ```
 
-3. Create environment file:
+3. Create `.env` file:
 ```bash
 cp .env.example .env
 ```
 
-4. Update `.env` file with your configuration:
+4. Configure environment variables in `.env`:
 ```env
 NODE_ENV=development
 PORT=3000
+
+# MongoDB
 MONGODB_URI=mongodb://localhost:27017/rushbasket
+MONGO_URI=mongodb://localhost:27017/rushbasket
+
+# JWT
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRE=7d
-BCRYPT_SALT_ROUNDS=12
+
+# Redis
 REDIS_HOST=localhost
 REDIS_PORT=6379
-SESSION_SECRET=your-super-secret-session-key-change-this-in-production
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
-CORS_ORIGIN=http://localhost:3000
+REDIS_PASSWORD=
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# CORS
+CORS_ORIGIN=http://localhost:5173
+
+# Logging
 LOG_LEVEL=info
 ```
 
@@ -142,130 +195,109 @@ The API will be available at `http://localhost:3000`
 ## API Endpoints
 
 ### Authentication
-- `POST /api/auth/register` - Register a new user
-- `POST /api/auth/login` - Login user
-- `POST /api/auth/logout` - Logout user (protected)
-- `GET /api/auth/me` - Get current user (protected)
-- `PUT /api/auth/updatepassword` - Update password (protected)
-- `POST /api/auth/forgotpassword` - Request password reset
-- `PUT /api/auth/resetpassword/:resettoken` - Reset password
+
+#### Unified Auth
+- `POST /api/auth/login` - Login (user/vendor/rider)
+- `POST /api/auth/register` - Register user
+
+#### User Auth
+- `POST /api/user/login` - Send OTP for user login
+- `POST /api/user/verify-login-otp` - Verify OTP and login
+
+#### Vendor Auth
+- `POST /api/vendor/send-otp` - Send OTP to vendor
+- `POST /api/vendor/verify-otp` - Verify vendor OTP
+
+#### Rider Auth
+- `POST /api/rider/send-otp` - Send OTP to rider
+- `POST /api/rider/verify-otp` - Verify rider OTP
 
 ### Users
-- `GET /api/users` - Get all users (admin/moderator)
-- `GET /api/users/:id` - Get user by ID
-- `POST /api/users` - Create user (admin)
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user (admin)
+
+- `GET /api/user/profile` - Get user profile (protected)
+- `PUT /api/user/profile` - Update user profile (protected)
+- `GET /api/user/products` - Get all products (public)
+
+### Vendors
+
+- `POST /api/vendor/create` - Create vendor (admin only)
+- `GET /api/vendor` - Get all vendors (admin only)
+- `GET /api/vendor/:id` - Get vendor by ID (admin only)
+- `PUT /api/vendor/:id/permissions` - Update vendor permissions (admin only)
+- `PUT /api/vendor/:id/documents` - Update vendor documents (admin only)
+- `PUT /api/vendor/:id/radius` - Update service radius (vendor/admin)
+- `PUT /api/vendor/:id/suspend` - Suspend/activate vendor (admin only)
+- `DELETE /api/vendor/:id` - Delete vendor (admin only)
+
+#### Vendor Orders
+- `GET /api/vendor/orders` - Get all vendor orders (vendor only)
+- `GET /api/vendor/orders/:id` - Get order by ID (vendor only)
+- `PUT /api/vendor/orders/:id/status` - Update order status (vendor only)
 
 ### Products
-- `GET /api/products` - Get all products (with pagination, filtering, sorting)
-- `GET /api/products/:id` - Get product by ID
-- `POST /api/products` - Create product (admin/moderator)
-- `PUT /api/products/:id` - Update product (admin/moderator)
-- `DELETE /api/products/:id` - Delete product (admin)
+
+- `POST /api/product/add` - Add product (vendor only)
+- `GET /api/product` - Get all products (public)
+- `GET /api/product/:id` - Get product by ID (public)
+- `PUT /api/product/:id` - Update product (vendor/admin)
+- `DELETE /api/product/:id` - Delete product (vendor/admin)
+- `GET /api/product/pending` - Get pending products (admin only)
+- `PUT /api/product/:id/approve` - Approve product (admin only)
 
 ### Categories
-- `GET /api/categories` - Get all categories
-- `GET /api/categories/:id` - Get category by ID
-- `POST /api/categories` - Create category (admin/moderator)
-- `PUT /api/categories/:id` - Update category (admin/moderator)
-- `DELETE /api/categories/:id` - Delete category (admin)
 
-### Orders
-- `GET /api/orders` - Get all orders (admin/moderator)
-- `GET /api/orders/myorders` - Get current user's orders (protected)
-- `GET /api/orders/:id` - Get order by ID
-- `POST /api/orders` - Create order (protected)
-- `PUT /api/orders/:id` - Update order (admin/moderator)
+- `POST /api/category` - Create category (admin only)
+- `GET /api/category` - Get all categories (public)
+- `GET /api/category/:id` - Get category by ID (public)
+- `PUT /api/category/:id` - Update category (admin only)
+- `DELETE /api/category/:id` - Delete category (admin only)
+
+### Sub Categories
+
+- `POST /api/subcategory` - Create subcategory (admin only)
+- `GET /api/subcategory` - Get all subcategories (public)
+- `GET /api/subcategory/:id` - Get subcategory by ID (public)
+- `PUT /api/subcategory/:id` - Update subcategory (admin only)
+- `DELETE /api/subcategory/:id` - Delete subcategory (admin only)
+
+### Checkout & Orders
+
+#### Cart
+- `GET /api/checkout/cart` - Get cart (user only)
+- `POST /api/checkout/cart/add` - Add item to cart (user only)
+- `PUT /api/checkout/cart/item/:itemId` - Update cart item (user only)
+- `DELETE /api/checkout/cart/item/:itemId` - Remove cart item (user only)
+- `DELETE /api/checkout/cart/clear` - Clear cart (user only)
+
+#### Coupons
+- `POST /api/checkout/cart/coupon/apply` - Apply coupon (user only)
+- `DELETE /api/checkout/cart/coupon/remove` - Remove coupon (user only)
+
+#### Orders
+- `POST /api/checkout/order/create` - Create order (user only)
+- `GET /api/checkout/orders` - Get user orders (user only)
+- `GET /api/checkout/order/:orderId` - Get order by ID (user only)
+- `POST /api/checkout/order/:orderId/cancel` - Cancel order (user only)
+
+### Coupons
+
+- `POST /api/coupon` - Create coupon (admin only)
+- `GET /api/coupon` - Get all coupons (admin only)
+- `GET /api/coupon/:id` - Get coupon by ID (admin only)
+- `PUT /api/coupon/:id` - Update coupon (admin only)
+- `DELETE /api/coupon/:id` - Delete coupon (admin only)
+
+### Riders
+
+- `POST /api/rider/create` - Create rider (admin only)
+- `GET /api/rider` - Get all riders (admin only)
+- `GET /api/rider/:id` - Get rider by ID (admin only)
+- `PUT /api/rider/:id` - Update rider (admin/rider)
+- `DELETE /api/rider/:id` - Delete rider (admin only)
 
 ### Health Check
+
 - `GET /health` - Health check endpoint
-
-## Request/Response Examples
-
-### Register User
-```bash
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "password123",
-  "phone": "+1234567890"
-}
-```
-
-### Login
-```bash
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "password": "password123"
-}
-```
-
-### Create Product
-```bash
-POST /api/products
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "name": "Product Name",
-  "description": "Product description",
-  "price": 99.99,
-  "category": "category_id",
-  "stock": 100,
-  "images": [
-    {
-      "url": "https://example.com/image.jpg",
-      "alt": "Product image"
-    }
-  ]
-}
-```
-
-### Create Order
-```bash
-POST /api/orders
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "items": [
-    {
-      "product": "product_id",
-      "quantity": 2
-    }
-  ],
-  "shippingAddress": {
-    "street": "123 Main St",
-    "city": "New York",
-    "state": "NY",
-    "zipCode": "10001",
-    "country": "USA",
-    "phone": "+1234567890"
-  },
-  "paymentMethod": "credit_card"
-}
-```
-
-## Query Parameters
-
-### Products
-- `page` - Page number (default: 1)
-- `limit` - Items per page (default: 12)
-- `category` - Filter by category ID
-- `search` - Search in name, description, tags
-- `minPrice` - Minimum price filter
-- `maxPrice` - Maximum price filter
-- `isActive` - Filter by active status
-- `isFeatured` - Filter featured products
-- `sortBy` - Sort field (default: createdAt)
-- `sortOrder` - Sort order: asc or desc (default: desc)
 
 ## Authentication
 
@@ -275,13 +307,31 @@ Most endpoints require authentication. Include the JWT token in the Authorizatio
 Authorization: Bearer <your-jwt-token>
 ```
 
-Or use cookies (token is automatically set in cookies on login/register).
-
 ## User Roles
 
-- **user**: Default role, can create orders and manage own account
-- **moderator**: Can manage products and categories
-- **admin**: Full access to all resources
+- **user**: Can browse products, manage cart, create orders, and manage own profile
+- **vendor**: Can add products, manage own products, view and update orders containing their items
+- **rider**: Can view assigned orders and update delivery status
+- **admin**: Full access to all resources, can manage users, vendors, riders, products, categories, and orders
+
+## Order Status Flow
+
+1. `pending` - Order created, awaiting confirmation
+2. `confirmed` - Order confirmed by vendor
+3. `processing` - Order being prepared
+4. `ready` - Order ready for pickup
+5. `out_for_delivery` - Order assigned to rider, on the way
+6. `delivered` - Order delivered successfully
+7. `cancelled` - Order cancelled
+8. `refunded` - Order refunded
+
+## Payment Methods
+
+- `cod` - Cash on Delivery
+- `prepaid` - Prepaid payment
+- `wallet` - Wallet payment
+- `upi` - UPI payment
+- `card` - Card payment
 
 ## Environment Variables
 
@@ -289,39 +339,25 @@ Or use cookies (token is automatically set in cookies on login/register).
 |----------|-------------|---------|
 | `NODE_ENV` | Environment (development/production) | development |
 | `PORT` | Server port | 3000 |
-| `MONGODB_URI` | MongoDB connection string | mongodb://localhost:27017/rushbasket |
+| `MONGODB_URI` | MongoDB connection string | - |
 | `JWT_SECRET` | Secret key for JWT tokens | - |
 | `JWT_EXPIRE` | JWT token expiration | 7d |
-| `BCRYPT_SALT_ROUNDS` | Bcrypt salt rounds | 12 |
 | `REDIS_HOST` | Redis host | localhost |
 | `REDIS_PORT` | Redis port | 6379 |
-| `REDIS_PASSWORD` | Redis password | - |
-| `SESSION_SECRET` | Session secret key | - |
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window in milliseconds | 900000 |
-| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | 100 |
-| `CORS_ORIGIN` | Allowed CORS origin | * |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | - |
+| `CLOUDINARY_API_KEY` | Cloudinary API key | - |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret | - |
+| `CORS_ORIGIN` | Allowed CORS origin | http://localhost:5173 |
 | `LOG_LEVEL` | Logging level | info |
 
-## Security Best Practices
+## Background Workers
 
-1. **Change Default Secrets**: Always change JWT_SECRET and SESSION_SECRET in production
-2. **Use HTTPS**: Always use HTTPS in production
-3. **Environment Variables**: Never commit `.env` file to version control
-4. **Rate Limiting**: Adjust rate limits based on your traffic patterns
-5. **Database**: Use MongoDB authentication and restrict network access
-6. **Redis**: Use password protection for Redis in production
-7. **Logging**: Monitor logs regularly for suspicious activity
-8. **Updates**: Keep all dependencies updated
+The application uses Bull queues with Redis for background processing:
 
-## Scalability
-
-The backend is designed for horizontal scaling:
-
-1. **Stateless Design**: JWT tokens allow stateless authentication
-2. **Database Indexing**: Proper indexes for efficient queries
-3. **Redis Caching**: Session and cache data in Redis
-4. **Load Balancing**: Can be deployed behind a load balancer
-5. **Connection Pooling**: MongoDB connection pooling enabled
+- **Email Worker**: Sends emails asynchronously
+- **SMS Worker**: Sends SMS notifications
+- **Notification Worker**: Handles push notifications
+- **Image Processing Worker**: Processes and optimizes uploaded images
 
 ## Logging
 
@@ -342,6 +378,21 @@ All errors are handled centrally and return consistent JSON responses:
 }
 ```
 
+For validation errors:
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "msg": "Error message",
+      "param": "fieldName",
+      "location": "body"
+    }
+  ]
+}
+```
+
 ## Development
 
 Run in development mode with auto-reload:
@@ -352,12 +403,13 @@ npm run dev
 ## Production
 
 1. Set `NODE_ENV=production`
-2. Use strong secrets for JWT_SECRET and SESSION_SECRET
+2. Use strong secrets for `JWT_SECRET`
 3. Enable MongoDB authentication
 4. Configure proper CORS origins
 5. Set up proper logging and monitoring
 6. Use reverse proxy (nginx) for additional security
 7. Enable SSL/TLS certificates
+8. Configure Redis password protection
 
 ## License
 
@@ -366,4 +418,3 @@ ISC
 ## Support
 
 For issues and questions, please open an issue in the repository.
-

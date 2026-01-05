@@ -1,14 +1,13 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus } = require('../controllers/vendor');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
+const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { uploadFields } = require('../middleware/upload');
 
 const router = express.Router();
-
-// Login routes have been moved to /api/auth
 
 router.post(
   '/send-otp',
@@ -42,13 +41,11 @@ router.post(
   verifyOTP
 );
 
-// Middleware to normalize field names (remove trailing/leading spaces)
 const normalizeBodyFields = (req, res, next) => {
   if (req.body) {
     const normalizedBody = {};
     for (const [key, value] of Object.entries(req.body)) {
       const normalizedKey = key.trim();
-      // If both versions exist, prefer the one without spaces
       if (!normalizedBody[normalizedKey] || normalizedKey === key) {
         normalizedBody[normalizedKey] = value;
       }
@@ -143,6 +140,27 @@ router.post(
 );
 
 router.get('/', protect, getVendors);
+
+router.get('/orders', protectVendor, getVendorOrders);
+router.put(
+  '/orders/:id/status',
+  protectVendor,
+  [
+    body('status')
+      .notEmpty()
+      .withMessage('Status is required')
+      .bail()
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .withMessage('Invalid status'),
+    body('notes')
+      .optional()
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Notes cannot be more than 1000 characters'),
+  ],
+  updateOrderStatus
+);
+router.get('/orders/:id', protectVendor, getVendorOrderById);
 
 router.get('/:id', protect, getVendor);
 

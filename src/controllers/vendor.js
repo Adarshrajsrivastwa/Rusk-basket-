@@ -1,4 +1,5 @@
 const Vendor = require('../models/Vendor');
+const Order = require('../models/Order');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { createVendorData, updateVendorPermissions } = require('../services/vendorService');
@@ -469,6 +470,232 @@ exports.deleteVendor = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Delete vendor error:', error);
+    next(error);
+  }
+};
+
+exports.getVendorOrders = async (req, res, next) => {
+  try {
+    const vendorId = req.vendor._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const status = req.query.status;
+
+    let query = {
+      'items.vendor': vendorId,
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
+    const orders = await Order.find(query)
+      .populate('user', 'name email contactNumber')
+      .populate('items.product', 'name description')
+      .populate('rider', 'riderName contactNumber')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const filteredOrders = orders.map((order) => {
+      const vendorItems = order.items.filter((item) => {
+        const itemVendorId = item.vendor?._id || item.vendor;
+        return itemVendorId && itemVendorId.toString() === vendorId.toString();
+      });
+      
+      const vendorSubtotal = vendorItems.reduce(
+        (sum, item) => sum + item.totalPrice,
+        0
+      );
+
+      return {
+        ...order,
+        items: vendorItems,
+        vendorSubtotal,
+      };
+    });
+
+    const total = await Order.countDocuments(query);
+
+    logger.info(`Vendor orders retrieved: ${vendorId} - Total: ${total}`);
+
+    res.status(200).json({
+      success: true,
+      count: filteredOrders.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: filteredOrders,
+    });
+  } catch (error) {
+    logger.error('Get vendor orders error:', error);
+    next(error);
+  }
+};
+
+exports.getVendorOrderById = async (req, res, next) => {
+  try {
+    const vendorId = req.vendor._id;
+    const orderId = req.params.id;
+
+    const order = await Order.findById(orderId)
+      .populate('user', 'name email contactNumber')
+      .populate('items.product', 'name description')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'riderName contactNumber')
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    const hasVendorItems = order.items.some((item) => {
+      const itemVendorId = item.vendor?._id || item.vendor;
+      return itemVendorId && itemVendorId.toString() === vendorId.toString();
+    });
+
+    if (!hasVendorItems) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to view this order',
+      });
+    }
+
+    const vendorItems = order.items.filter((item) => {
+      const itemVendorId = item.vendor?._id || item.vendor;
+      return itemVendorId && itemVendorId.toString() === vendorId.toString();
+    });
+
+    const vendorSubtotal = vendorItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0
+    );
+
+    const filteredOrder = {
+      ...order,
+      items: vendorItems,
+      vendorSubtotal,
+    };
+
+    logger.info(`Vendor order retrieved: ${orderId} by Vendor: ${req.vendor.storeId || req.vendor._id}`);
+
+    res.status(200).json({
+      success: true,
+      data: filteredOrder,
+    });
+  } catch (error) {
+    logger.error('Get vendor order by ID error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID',
+      });
+    }
+    next(error);
+  }
+};
+
+exports.updateOrderStatus = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const vendorId = req.vendor._id;
+    const orderId = req.params.id;
+    const { status, notes } = req.body;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    const hasVendorItems = order.items.some((item) => {
+      const itemVendorId = item.vendor?._id || item.vendor;
+      return itemVendorId && itemVendorId.toString() === vendorId.toString();
+    });
+
+    if (!hasVendorItems) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to update this order',
+      });
+    }
+
+    const validStatuses = [
+      'pending',
+      'confirmed',
+      'processing',
+      'ready',
+      'out_for_delivery',
+      'delivered',
+      'cancelled',
+      'refunded',
+    ];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
+      });
+    }
+
+    const previousStatus = order.status;
+
+    order.status = status;
+
+    if (status === 'delivered' && !order.deliveredAt) {
+      order.deliveredAt = new Date();
+    } else if (status === 'cancelled' && !order.cancelledAt) {
+      order.cancelledAt = new Date();
+      order.cancelledBy = 'vendor';
+    }
+
+    if (notes !== undefined) {
+      order.notes = notes;
+    }
+
+    await order.save();
+
+    logger.info(
+      `Order status updated: ${order.orderNumber} from ${previousStatus} to ${status} by Vendor: ${req.vendor.storeId || req.vendor._id}`
+    );
+
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'name email contactNumber')
+      .populate('items.product', 'name description')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'riderName contactNumber');
+
+    res.status(200).json({
+      success: true,
+      message: 'Order status updated successfully',
+      data: populatedOrder,
+    });
+  } catch (error) {
+    logger.error('Update order status error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
     next(error);
   }
 };
