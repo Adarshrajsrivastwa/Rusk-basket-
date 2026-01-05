@@ -25,9 +25,11 @@ const upload = multer({
 
 const uploadRiderFiles = upload.fields([
   { name: 'profile', maxCount: 1 },
-  { name: 'aadharCard', maxCount: 1 },
-  { name: 'panCard', maxCount: 1 },
-  { name: 'drivingLicense', maxCount: 1 },
+  { name: 'aadharCardPhoto', maxCount: 1 },
+  { name: 'panCardFront', maxCount: 1 },
+  { name: 'panCardBack', maxCount: 1 },
+  { name: 'drivingLicenseFront', maxCount: 1 },
+  { name: 'drivingLicenseBack', maxCount: 1 },
   { name: 'cancelCheque', maxCount: 1 },
 ]);
 
@@ -36,13 +38,13 @@ const uploadRiderFilesWithErrorHandling = (req, res, next) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          const allowedFields = ['profile', 'aadharCard', 'panCard', 'drivingLicense', 'cancelCheque'];
+          const allowedFields = ['profile', 'aadharCardPhoto', 'panCardFront', 'panCardBack', 'drivingLicenseFront', 'drivingLicenseBack', 'cancelCheque'];
           return res.status(400).json({
             success: false,
             error: `Unexpected field: "${err.field}". Allowed fields are: ${allowedFields.join(', ')}. Please ensure field names match exactly (no extra spaces).`,
             receivedField: err.field,
             allowedFields: allowedFields,
-            hint: 'If you see a space in the field name, remove it. Use "aadharCard" not "aadharCard "',
+            hint: 'If you see a space in the field name, remove it. Use "aadharCardPhoto" not "aadharCardPhoto "',
           });
         }
         if (err.code === 'LIMIT_FILE_SIZE') {

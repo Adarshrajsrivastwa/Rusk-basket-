@@ -15,15 +15,22 @@ exports.riderLogin = async (req, res, next) => {
 
     const { mobileNumber } = req.body;
 
-    const rider = await Rider.findOne({ mobileNumber });
+    // Check if rider exists
+    let rider = await Rider.findOne({ mobileNumber });
 
+    // If rider doesn't exist, create a new one
     if (!rider) {
-      return res.status(401).json({
-        success: false,
-        error: 'Rider not found with this mobile number',
+      rider = new Rider({
+        mobileNumber: mobileNumber,
+        mobileNumberVerified: true,
+        isActive: true,
+        approvalStatus: 'pending',
       });
+      await rider.save({ validateBeforeSave: false });
+      logger.info(`New rider created with mobile number: ${mobileNumber}`);
     }
 
+    // Check if rider account is deactivated
     if (!rider.isActive) {
       return res.status(403).json({
         success: false,
@@ -31,6 +38,7 @@ exports.riderLogin = async (req, res, next) => {
       });
     }
 
+    // Generate and send OTP
     const otpCode = rider.generateOTP();
     await rider.save({ validateBeforeSave: false });
 
@@ -42,6 +50,7 @@ exports.riderLogin = async (req, res, next) => {
         success: true,
         message: 'OTP sent to your mobile number',
         mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
+        isNewRider: !rider.fullName, // Indicate if this is a new rider (no profile completed)
       });
     } catch (smsError) {
       logger.error('Failed to send OTP:', smsError);
@@ -55,6 +64,41 @@ exports.riderLogin = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('Rider login error:', error);
+    
+    // Handle duplicate key error (mobile number already exists)
+    if (error.code === 11000 && error.keyPattern?.mobileNumber) {
+      // Retry by finding the existing rider
+      try {
+        const { mobileNumber } = req.body;
+        const rider = await Rider.findOne({ mobileNumber });
+        
+        if (rider && rider.isActive) {
+          const otpCode = rider.generateOTP();
+          await rider.save({ validateBeforeSave: false });
+          
+          try {
+            await sendOTP(mobileNumber, otpCode);
+            return res.status(200).json({
+              success: true,
+              message: 'OTP sent to your mobile number',
+              mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
+              isNewRider: !rider.fullName,
+            });
+          } catch (smsError) {
+            logger.error('Failed to send OTP on retry:', smsError);
+            rider.clearOTP();
+            await rider.save({ validateBeforeSave: false });
+            return res.status(500).json({
+              success: false,
+              error: 'Failed to send OTP. Please try again.',
+            });
+          }
+        }
+      } catch (retryError) {
+        logger.error('Retry error:', retryError);
+      }
+    }
+    
     next(error);
   }
 };

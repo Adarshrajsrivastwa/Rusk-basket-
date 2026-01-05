@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const uploadRiderDocumentFiles = async (files) => {
   const uploadPromises = [];
 
+  // Profile photo
   const profileFile = files.profile || files['profile '] || files[' profile'];
   if (profileFile && profileFile[0]) {
     uploadPromises.push(
@@ -15,35 +16,57 @@ const uploadRiderDocumentFiles = async (files) => {
     );
   }
 
-  // Aadhar Card - separate field
-  const aadharFile = files.aadharCard || files['aadharCard '] || files[' aadharCard'];
-  if (aadharFile && aadharFile[0]) {
+  // Aadhar Card Photo
+  const aadharPhotoFile = files.aadharCardPhoto || files['aadharCardPhoto '] || files[' aadharCardPhoto'];
+  if (aadharPhotoFile && aadharPhotoFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(aadharFile[0], 'rush-basket/rider-documents/aadhar').then(
-        (result) => ({ field: 'aadharCard', result })
+      uploadToCloudinary(aadharPhotoFile[0], 'rush-basket/rider-documents/aadhar').then(
+        (result) => ({ field: 'aadharCardPhoto', result })
       )
     );
   }
 
-  // PAN Card - separate field
-  const panFile = files.panCard || files['panCard '] || files[' panCard'];
-  if (panFile && panFile[0]) {
+  // PAN Card Front
+  const panFrontFile = files.panCardFront || files['panCardFront '] || files[' panCardFront'];
+  if (panFrontFile && panFrontFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(panFile[0], 'rush-basket/rider-documents/pan').then(
-        (result) => ({ field: 'panCard', result })
+      uploadToCloudinary(panFrontFile[0], 'rush-basket/rider-documents/pan').then(
+        (result) => ({ field: 'panCardFront', result })
       )
     );
   }
 
-  const licenseFile = files.drivingLicense || files['drivingLicense '] || files[' drivingLicense'];
-  if (licenseFile && licenseFile[0]) {
+  // PAN Card Back
+  const panBackFile = files.panCardBack || files['panCardBack '] || files[' panCardBack'];
+  if (panBackFile && panBackFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(licenseFile[0], 'rush-basket/rider-documents/license').then(
-        (result) => ({ field: 'drivingLicense', result })
+      uploadToCloudinary(panBackFile[0], 'rush-basket/rider-documents/pan').then(
+        (result) => ({ field: 'panCardBack', result })
       )
     );
   }
 
+  // Driving License Front
+  const licenseFrontFile = files.drivingLicenseFront || files['drivingLicenseFront '] || files[' drivingLicenseFront'];
+  if (licenseFrontFile && licenseFrontFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(licenseFrontFile[0], 'rush-basket/rider-documents/license').then(
+        (result) => ({ field: 'drivingLicenseFront', result })
+      )
+    );
+  }
+
+  // Driving License Back
+  const licenseBackFile = files.drivingLicenseBack || files['drivingLicenseBack '] || files[' drivingLicenseBack'];
+  if (licenseBackFile && licenseBackFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(licenseBackFile[0], 'rush-basket/rider-documents/license').then(
+        (result) => ({ field: 'drivingLicenseBack', result })
+      )
+    );
+  }
+
+  // Cancel Cheque
   const cancelChequeFile = files.cancelCheque || files['cancelCheque '] || files[' cancelCheque'];
   if (cancelChequeFile && cancelChequeFile[0]) {
     uploadPromises.push(
@@ -89,7 +112,9 @@ const updateRiderProfileData = async (rider, data, files) => {
     accountNumber,
     ifsc,
     bankName,
+    branchName,
     accountHolderName,
+    aadharId,
   } = data;
 
   if (fullName !== undefined) {
@@ -184,8 +209,15 @@ const updateRiderProfileData = async (rider, data, files) => {
     }
   }
 
+  // Handle Aadhar ID
+  if (aadharId !== undefined) {
+    rider.documents = rider.documents || {};
+    rider.documents.aadharCard = rider.documents.aadharCard || {};
+    rider.documents.aadharCard.aadharId = aadharId;
+  }
+
   // Handle bank details
-  if (accountNumber !== undefined || ifsc !== undefined || bankName !== undefined || accountHolderName !== undefined) {
+  if (accountNumber !== undefined || ifsc !== undefined || bankName !== undefined || branchName !== undefined || accountHolderName !== undefined) {
     rider.documents = rider.documents || {};
     rider.documents.bankDetails = rider.documents.bankDetails || {};
     
@@ -197,6 +229,9 @@ const updateRiderProfileData = async (rider, data, files) => {
     }
     if (bankName !== undefined) {
       rider.documents.bankDetails.bankName = bankName;
+    }
+    if (branchName !== undefined) {
+      rider.documents.bankDetails.branchName = branchName;
     }
     if (accountHolderName !== undefined) {
       rider.documents.bankDetails.accountHolderName = accountHolderName;
@@ -220,43 +255,74 @@ const updateRiderProfileData = async (rider, data, files) => {
       rider.documents.profile = uploadedFiles.profile;
     }
 
-    if (uploadedFiles.aadharCard) {
-      // Delete old aadhar if exists
-      if (rider.documents?.aadharCard?.publicId) {
+    if (uploadedFiles.aadharCardPhoto) {
+      // Delete old aadhar photo if exists
+      if (rider.documents?.aadharCard?.photo?.publicId) {
         try {
-          await deleteFromCloudinary(rider.documents.aadharCard.publicId);
+          await deleteFromCloudinary(rider.documents.aadharCard.photo.publicId);
         } catch (deleteError) {
-          logger.error('Error deleting old aadhar card:', deleteError);
+          logger.error('Error deleting old aadhar card photo:', deleteError);
         }
       }
       rider.documents = rider.documents || {};
-      rider.documents.aadharCard = uploadedFiles.aadharCard;
+      rider.documents.aadharCard = rider.documents.aadharCard || {};
+      rider.documents.aadharCard.photo = uploadedFiles.aadharCardPhoto;
     }
 
-    if (uploadedFiles.panCard) {
-      // Delete old PAN if exists
-      if (rider.documents?.panCard?.publicId) {
+    if (uploadedFiles.panCardFront) {
+      // Delete old PAN front if exists
+      if (rider.documents?.panCard?.front?.publicId) {
         try {
-          await deleteFromCloudinary(rider.documents.panCard.publicId);
+          await deleteFromCloudinary(rider.documents.panCard.front.publicId);
         } catch (deleteError) {
-          logger.error('Error deleting old PAN card:', deleteError);
+          logger.error('Error deleting old PAN card front:', deleteError);
         }
       }
       rider.documents = rider.documents || {};
-      rider.documents.panCard = uploadedFiles.panCard;
+      rider.documents.panCard = rider.documents.panCard || {};
+      rider.documents.panCard.front = uploadedFiles.panCardFront;
     }
 
-    if (uploadedFiles.drivingLicense) {
-      // Delete old license if exists
-      if (rider.documents?.drivingLicense?.publicId) {
+    if (uploadedFiles.panCardBack) {
+      // Delete old PAN back if exists
+      if (rider.documents?.panCard?.back?.publicId) {
         try {
-          await deleteFromCloudinary(rider.documents.drivingLicense.publicId);
+          await deleteFromCloudinary(rider.documents.panCard.back.publicId);
         } catch (deleteError) {
-          logger.error('Error deleting old driving license:', deleteError);
+          logger.error('Error deleting old PAN card back:', deleteError);
         }
       }
       rider.documents = rider.documents || {};
-      rider.documents.drivingLicense = uploadedFiles.drivingLicense;
+      rider.documents.panCard = rider.documents.panCard || {};
+      rider.documents.panCard.back = uploadedFiles.panCardBack;
+    }
+
+    if (uploadedFiles.drivingLicenseFront) {
+      // Delete old license front if exists
+      if (rider.documents?.drivingLicense?.front?.publicId) {
+        try {
+          await deleteFromCloudinary(rider.documents.drivingLicense.front.publicId);
+        } catch (deleteError) {
+          logger.error('Error deleting old driving license front:', deleteError);
+        }
+      }
+      rider.documents = rider.documents || {};
+      rider.documents.drivingLicense = rider.documents.drivingLicense || {};
+      rider.documents.drivingLicense.front = uploadedFiles.drivingLicenseFront;
+    }
+
+    if (uploadedFiles.drivingLicenseBack) {
+      // Delete old license back if exists
+      if (rider.documents?.drivingLicense?.back?.publicId) {
+        try {
+          await deleteFromCloudinary(rider.documents.drivingLicense.back.publicId);
+        } catch (deleteError) {
+          logger.error('Error deleting old driving license back:', deleteError);
+        }
+      }
+      rider.documents = rider.documents || {};
+      rider.documents.drivingLicense = rider.documents.drivingLicense || {};
+      rider.documents.drivingLicense.back = uploadedFiles.drivingLicenseBack;
     }
 
     if (uploadedFiles.cancelCheque) {

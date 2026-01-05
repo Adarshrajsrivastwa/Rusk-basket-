@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
 const { protect } = require('../middleware/adminAuth');
+const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { uploadFields } = require('../middleware/upload');
 
 const router = express.Router();
@@ -41,56 +42,89 @@ router.post(
   verifyOTP
 );
 
+// Middleware to normalize field names (remove trailing/leading spaces)
+const normalizeBodyFields = (req, res, next) => {
+  if (req.body) {
+    const normalizedBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      const normalizedKey = key.trim();
+      // If both versions exist, prefer the one without spaces
+      if (!normalizedBody[normalizedKey] || normalizedKey === key) {
+        normalizedBody[normalizedKey] = value;
+      }
+    }
+    req.body = normalizedBody;
+  }
+  next();
+};
+
 router.post(
   '/create',
   protect,
+  normalizeBodyFields,
   uploadFields,
   [
     body('vendorName')
       .trim()
       .notEmpty()
-      .withMessage('Vendor name is required'),
+      .withMessage('Vendor name is required')
+      .bail(),
     body('contactNumber')
       .trim()
       .notEmpty()
       .withMessage('Contact number is required')
+      .bail()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit contact number'),
     body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email is required')
+      .bail()
       .isEmail()
       .withMessage('Please provide a valid email'),
     body('gender')
+      .trim()
+      .notEmpty()
+      .withMessage('Gender is required')
+      .bail()
       .isIn(['male', 'female', 'other'])
       .withMessage('Gender must be male, female, or other'),
     body('dateOfBirth')
       .notEmpty()
       .withMessage('Date of birth is required')
+      .bail()
       .isISO8601()
       .withMessage('Please provide a valid date'),
     body('storeName')
       .trim()
       .notEmpty()
-      .withMessage('Store name is required'),
+      .withMessage('Store name is required')
+      .bail(),
     body('storeAddressLine1')
       .trim()
       .notEmpty()
-      .withMessage('Store address line 1 is required'),
+      .withMessage('Store address line 1 is required')
+      .bail(),
     body('pinCode')
       .trim()
       .notEmpty()
       .withMessage('PIN code is required')
+      .bail()
       .matches(/^[0-9]{6}$/)
       .withMessage('Please provide a valid 6-digit PIN code'),
     body('ifsc')
       .trim()
       .notEmpty()
       .withMessage('IFSC code is required')
+      .bail()
       .matches(/^[A-Z]{4}0[A-Z0-9]{6}$/)
       .withMessage('Please provide a valid IFSC code'),
     body('accountNumber')
       .trim()
       .notEmpty()
-      .withMessage('Account number is required'),
+      .withMessage('Account number is required')
+      .bail(),
     body('bankName')
       .optional()
       .trim(),
@@ -143,11 +177,12 @@ router.put(
 
 router.put(
   '/:id/radius',
-  protect,
+  protectVendorOrAdmin,
   [
     body('serviceRadius')
       .notEmpty()
       .withMessage('Service radius is required')
+      .bail()
       .isFloat({ min: 0.1 })
       .withMessage('Service radius must be a number greater than or equal to 0.1 km'),
   ],

@@ -49,7 +49,29 @@ exports.createVendor = async (req, res, next) => {
       }
     }
 
+    // Ensure vendor doesn't have storeId set before creating
+    if (vendor.storeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor already has a store ID. Cannot create again.',
+      });
+    }
+
     await createVendorData(vendor, req.body, req.files, req.admin._id);
+    
+    // Ensure storeId is set before saving
+    if (!vendor.storeId) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate store ID. Please try again.',
+      });
+    }
+    
+    // Mark as modified and save - this ensures we're updating, not inserting
+    vendor.markModified('storeId');
+    vendor.markModified('documents');
+    vendor.markModified('storeAddress');
+    vendor.markModified('bankDetails');
     await vendor.save();
 
     logger.info(`Vendor created: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
@@ -63,6 +85,40 @@ exports.createVendor = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Create vendor error:', error);
+    
+    // Handle MongoDB duplicate key error for storeId
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      if (field === 'storeId') {
+        // Retry with a new storeId if duplicate
+        try {
+          const newStoreId = await Vendor.generateStoreId();
+          vendor.storeId = newStoreId;
+          await vendor.save();
+          
+          logger.info(`Vendor created with retry: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
+          
+          const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
+          
+          return res.status(201).json({
+            success: true,
+            message: 'Vendor registered successfully',
+            data: populatedVendor,
+          });
+        } catch (retryError) {
+          logger.error('Retry vendor creation error:', retryError);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to create vendor. Please try again.',
+          });
+        }
+      }
+      return res.status(400).json({
+        success: false,
+        error: `${field === 'contactNumber' ? 'Contact number' : field === 'email' ? 'Email' : 'Store ID'} already exists`,
+      });
+    }
+    
     if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
       return res.status(400).json({
         success: false,
@@ -71,6 +127,12 @@ exports.createVendor = async (req, res, next) => {
     }
     if (error.message === 'Invalid permissions format' || error.message === 'Bank name is required') {
       return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    if (error.message.includes('store ID') || error.message.includes('storeId')) {
+      return res.status(500).json({
         success: false,
         error: error.message,
       });
@@ -232,20 +294,36 @@ exports.updateVendorDocuments = async (req, res, next) => {
     const uploadedFiles = await uploadVendorFiles(req.files);
 
     // Delete old documents if new ones are uploaded
-    if (uploadedFiles.panCard) {
-      if (vendor.documents?.panCard?.publicId) {
-        await deleteFromCloudinary(vendor.documents.panCard.publicId);
+    if (uploadedFiles.panCardFront) {
+      if (vendor.documents?.panCardFront?.publicId) {
+        await deleteFromCloudinary(vendor.documents.panCardFront.publicId);
       }
       vendor.documents = vendor.documents || {};
-      vendor.documents.panCard = uploadedFiles.panCard;
+      vendor.documents.panCardFront = uploadedFiles.panCardFront;
     }
 
-    if (uploadedFiles.aadharCard) {
-      if (vendor.documents?.aadharCard?.publicId) {
-        await deleteFromCloudinary(vendor.documents.aadharCard.publicId);
+    if (uploadedFiles.panCardBack) {
+      if (vendor.documents?.panCardBack?.publicId) {
+        await deleteFromCloudinary(vendor.documents.panCardBack.publicId);
       }
       vendor.documents = vendor.documents || {};
-      vendor.documents.aadharCard = uploadedFiles.aadharCard;
+      vendor.documents.panCardBack = uploadedFiles.panCardBack;
+    }
+
+    if (uploadedFiles.aadharCardFront) {
+      if (vendor.documents?.aadharCardFront?.publicId) {
+        await deleteFromCloudinary(vendor.documents.aadharCardFront.publicId);
+      }
+      vendor.documents = vendor.documents || {};
+      vendor.documents.aadharCardFront = uploadedFiles.aadharCardFront;
+    }
+
+    if (uploadedFiles.aadharCardBack) {
+      if (vendor.documents?.aadharCardBack?.publicId) {
+        await deleteFromCloudinary(vendor.documents.aadharCardBack.publicId);
+      }
+      vendor.documents = vendor.documents || {};
+      vendor.documents.aadharCardBack = uploadedFiles.aadharCardBack;
     }
 
     if (uploadedFiles.drivingLicense) {
@@ -308,10 +386,22 @@ exports.updateVendorRadius = async (req, res, next) => {
       });
     }
 
+    // Check if vendor is trying to update their own radius or admin is updating
+    if (req.vendor && req.vendor._id.toString() !== vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only update your own service radius',
+      });
+    }
+
     vendor.serviceRadius = parseFloat(serviceRadius);
     await vendor.save();
 
-    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by Admin: ${req.admin.email || req.admin._id}`);
+    const updatedBy = req.admin 
+      ? `Admin: ${req.admin.email || req.admin._id}` 
+      : `Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`;
+
+    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by ${updatedBy}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 

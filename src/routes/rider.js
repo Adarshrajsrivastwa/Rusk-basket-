@@ -45,40 +45,40 @@ router.post(
   riderVerifyOTP
 );
 
-router.post(
-  '/send-otp',
-  [
-    body('mobileNumber')
-      .trim()
-      .notEmpty()
-      .withMessage('Mobile number is required')
-      .bail()
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit mobile number'),
-  ],
-  sendOTP
-);
+// router.post(
+//   '/send-otp',
+//   [
+//     body('mobileNumber')
+//       .trim()
+//       .notEmpty()
+//       .withMessage('Mobile number is required')
+//       .bail()
+//       .matches(/^[0-9]{10}$/)
+//       .withMessage('Please provide a valid 10-digit mobile number'),
+//   ],
+//   sendOTP
+// );
 
-router.post(
-  '/verify-otp',
-  [
-    body('mobileNumber')
-      .trim()
-      .notEmpty()
-      .withMessage('Mobile number is required')
-      .bail()
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit mobile number'),
-    body('otp')
-      .trim()
-      .notEmpty()
-      .withMessage('OTP is required')
-      .bail()
-      .matches(/^[0-9]{4}$/)
-      .withMessage('OTP must be a 4-digit number'),
-  ],
-  verifyOTP
-);
+// router.post(
+//   '/verify-otp',
+//   [
+//     body('mobileNumber')
+//       .trim()
+//       .notEmpty()
+//       .withMessage('Mobile number is required')
+//       .bail()
+//       .matches(/^[0-9]{10}$/)
+//       .withMessage('Please provide a valid 10-digit mobile number'),
+//     body('otp')
+//       .trim()
+//       .notEmpty()
+//       .withMessage('OTP is required')
+//       .bail()
+//       .matches(/^[0-9]{4}$/)
+//       .withMessage('OTP must be a 4-digit number'),
+//   ],
+//   verifyOTP
+// );
 
 // Protected routes - Rider profile
 router.get('/profile', protect, getProfile);
@@ -184,6 +184,11 @@ router.put(
         }
       })
       .withMessage('Work details must be a valid JSON object'),
+    body('aadharId')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Aadhar ID cannot be empty'),
     body('accountNumber')
       .optional()
       .trim()
@@ -199,6 +204,11 @@ router.put(
       .trim()
       .notEmpty()
       .withMessage('Bank name cannot be empty'),
+    body('branchName')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Branch name cannot be empty'),
     body('accountHolderName')
       .optional()
       .trim()

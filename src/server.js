@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const compression = require('compression');
-const cors = require('cors');
 const logger = require('./utils/logger');
 const { initializeQueues } = require('./utils/queue');
 
@@ -13,6 +12,23 @@ require('./workers/imageProcessingWorker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+const cors = require('cors');
+const superadminRoutes = require('./routes/superadmin');
+const authRoutes = require('./routes/auth');
+const vendorRoutes = require('./routes/vendor');
+const userRoutes = require('./routes/user');
+const riderRoutes = require('./routes/rider');
+const categoryRoutes = require('./routes/category');
+const subCategoryRoutes = require('./routes/subCategory');
+const productRoutes = require('./routes/product');
+const couponRoutes = require('./routes/coupon');
+const checkoutRoutes = require('./routes/checkout');
+const queueRoutes = require('./routes/queue');
 
 // CORS configuration
 const corsOptions = {
@@ -25,21 +41,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(compression());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-const authRoutes = require('./routes/auth');
-const vendorRoutes = require('./routes/vendor');
-const userRoutes = require('./routes/user');
-const riderRoutes = require('./routes/rider');
-const categoryRoutes = require('./routes/category');
-const subCategoryRoutes = require('./routes/subCategory');
-const productRoutes = require('./routes/product');
-const couponRoutes = require('./routes/coupon');
-const queueRoutes = require('./routes/queue');
-
 app.use('/api/auth', authRoutes);
+app.use('/api/superadmin', superadminRoutes);
 app.use('/api/vendor', vendorRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/rider', riderRoutes);
@@ -47,6 +50,7 @@ app.use('/api/category', categoryRoutes);
 app.use('/api/subcategory', subCategoryRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/coupon', couponRoutes);
+app.use('/api/checkout', checkoutRoutes);
 app.use('/api/queue', queueRoutes);
 
 app.get('/health', (req, res) => {

@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 const uploadVendorFiles = async (files) => {
   const uploadPromises = [];
 
-  const storeImages = files.storeImage || files['storeImage[]'] || [];
+  const storeImages = files.storeImage || files['storeImage '] || files[' storeImage'] || files['storeImage[]'] || files['storeImage[] '] || files[' storeImage[]'] || [];
   if (storeImages.length > 0) {
     storeImages.forEach((file) => {
       uploadPromises.push(
@@ -17,20 +17,38 @@ const uploadVendorFiles = async (files) => {
     });
   }
 
-  const panFile = files.panCard || files['panCard '] || files[' panCard'];
-  if (panFile && panFile[0]) {
+  const panCardFrontFile = files.panCardFront || files['panCardFront '] || files[' panCardFront'];
+  if (panCardFrontFile && panCardFrontFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(panFile[0], 'rush-basket/documents/pan').then(
-        (result) => ({ field: 'panCard', result })
+      uploadToCloudinary(panCardFrontFile[0], 'rush-basket/documents/pan').then(
+        (result) => ({ field: 'panCardFront', result })
       )
     );
   }
 
-  const aadharFile = files.aadharCard || files['aadharCard '] || files[' aadharCard'];
-  if (aadharFile && aadharFile[0]) {
+  const panCardBackFile = files.panCardBack || files['panCardBack '] || files[' panCardBack'];
+  if (panCardBackFile && panCardBackFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(aadharFile[0], 'rush-basket/documents/aadhar').then(
-        (result) => ({ field: 'aadharCard', result })
+      uploadToCloudinary(panCardBackFile[0], 'rush-basket/documents/pan').then(
+        (result) => ({ field: 'panCardBack', result })
+      )
+    );
+  }
+
+  const aadharCardFrontFile = files.aadharCardFront || files['aadharCardFront '] || files[' aadharCardFront'];
+  if (aadharCardFrontFile && aadharCardFrontFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(aadharCardFrontFile[0], 'rush-basket/documents/aadhar').then(
+        (result) => ({ field: 'aadharCardFront', result })
+      )
+    );
+  }
+
+  const aadharCardBackFile = files.aadharCardBack || files['aadharCardBack '] || files[' aadharCardBack'];
+  if (aadharCardBackFile && aadharCardBackFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(aadharCardBackFile[0], 'rush-basket/documents/aadhar').then(
+        (result) => ({ field: 'aadharCardBack', result })
       )
     );
   }
@@ -135,7 +153,21 @@ const createVendorData = async (vendor, data, files, adminId) => {
     throw new Error(postOfficeData.error || 'Invalid PIN code');
   }
 
-  const storeId = await Vendor.generateStoreId();
+  // Generate storeId first and ensure it's unique
+  let storeId;
+  try {
+    storeId = await Vendor.generateStoreId();
+    if (!storeId) {
+      throw new Error('Failed to generate store ID');
+    }
+  } catch (error) {
+    logger.error('StoreId generation error:', error);
+    throw new Error('Failed to generate unique store ID. Please try again.');
+  }
+
+  // Set storeId immediately to prevent null storeId issues
+  vendor.storeId = storeId;
+
   const uploadedFiles = await uploadVendorFiles(files);
 
   vendor.vendorName = vendorName;
@@ -143,7 +175,18 @@ const createVendorData = async (vendor, data, files, adminId) => {
   vendor.email = email;
   vendor.gender = gender;
   vendor.dateOfBirth = dateOfBirth;
-  vendor.storeId = storeId;
+  
+  // Auto-calculate age from date of birth
+  if (dateOfBirth) {
+    const birthDate = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    vendor.age = age;
+  }
   vendor.storeName = storeName;
   vendor.storeAddress = {
     line1: storeAddressLine1,
@@ -169,14 +212,24 @@ const createVendorData = async (vendor, data, files, adminId) => {
     vendor.storeImage = uploadedFiles.storeImage;
   }
 
-  if (uploadedFiles.panCard) {
+  if (uploadedFiles.panCardFront) {
     vendor.documents = vendor.documents || {};
-    vendor.documents.panCard = uploadedFiles.panCard;
+    vendor.documents.panCardFront = uploadedFiles.panCardFront;
   }
 
-  if (uploadedFiles.aadharCard) {
+  if (uploadedFiles.panCardBack) {
     vendor.documents = vendor.documents || {};
-    vendor.documents.aadharCard = uploadedFiles.aadharCard;
+    vendor.documents.panCardBack = uploadedFiles.panCardBack;
+  }
+
+  if (uploadedFiles.aadharCardFront) {
+    vendor.documents = vendor.documents || {};
+    vendor.documents.aadharCardFront = uploadedFiles.aadharCardFront;
+  }
+
+  if (uploadedFiles.aadharCardBack) {
+    vendor.documents = vendor.documents || {};
+    vendor.documents.aadharCardBack = uploadedFiles.aadharCardBack;
   }
 
   if (uploadedFiles.drivingLicense) {

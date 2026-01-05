@@ -62,6 +62,7 @@ const VendorSchema = new mongoose.Schema({
     type: String,
     unique: true,
     sparse: true,
+    index: true,
   },
   storeName: {
     type: String,
@@ -105,11 +106,19 @@ const VendorSchema = new mongoose.Schema({
     longitude: Number,
   },
   documents: {
-    panCard: {
+    panCardFront: {
       url: String,
       publicId: String,
     },
-    aadharCard: {
+    panCardBack: {
+      url: String,
+      publicId: String,
+    },
+    aadharCardFront: {
+      url: String,
+      publicId: String,
+    },
+    aadharCardBack: {
       url: String,
       publicId: String,
     },
@@ -256,16 +265,36 @@ VendorSchema.methods.getSignedJwtToken = function () {
 VendorSchema.statics.generateStoreId = async function () {
   let storeId;
   let exists = true;
-  while (exists) {
+  let attempts = 0;
+  const maxAttempts = 10;
+  
+  while (exists && attempts < maxAttempts) {
     const randomNum = Math.floor(100000 + Math.random() * 900000);
     storeId = `RB${randomNum}`;
     const vendor = await this.findOne({ storeId });
     if (!vendor) {
       exists = false;
     }
+    attempts++;
   }
+  
+  if (exists) {
+    throw new Error('Failed to generate unique store ID after multiple attempts');
+  }
+  
   return storeId;
 };
+
+// Create partial unique index for storeId (only for non-null values)
+// This prevents duplicate null issues
+VendorSchema.index(
+  { storeId: 1 },
+  { 
+    unique: true, 
+    sparse: true,
+    partialFilterExpression: { storeId: { $exists: true, $ne: null } }
+  }
+);
 
 module.exports = mongoose.model('Vendor', VendorSchema);
 

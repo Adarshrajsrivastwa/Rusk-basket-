@@ -100,16 +100,34 @@ const RiderSchema = new mongoose.Schema({
       publicId: String,
     },
     aadharCard: {
-      url: String,
-      publicId: String,
+      aadharId: {
+        type: String,
+        trim: true,
+      },
+      photo: {
+        url: String,
+        publicId: String,
+      },
     },
     panCard: {
-      url: String,
-      publicId: String,
+      front: {
+        url: String,
+        publicId: String,
+      },
+      back: {
+        url: String,
+        publicId: String,
+      },
     },
     drivingLicense: {
-      url: String,
-      publicId: String,
+      front: {
+        url: String,
+        publicId: String,
+      },
+      back: {
+        url: String,
+        publicId: String,
+      },
     },
     bankDetails: {
       accountNumber: {
@@ -122,6 +140,10 @@ const RiderSchema = new mongoose.Schema({
         uppercase: true,
       },
       bankName: {
+        type: String,
+        trim: true,
+      },
+      branchName: {
         type: String,
         trim: true,
       },

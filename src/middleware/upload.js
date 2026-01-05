@@ -25,18 +25,29 @@ const upload = multer({
 
 const uploadFields = upload.fields([
   { name: 'storeImage', maxCount: 10 },
+  { name: 'storeImage ', maxCount: 10 },
+  { name: ' storeImage', maxCount: 10 },
   { name: 'storeImage[]', maxCount: 10 },
-  { name: 'panCard', maxCount: 1 },
-  { name: 'panCard ', maxCount: 1 },
-  { name: ' panCard', maxCount: 1 },
-  { name: 'aadharCard', maxCount: 1 },
-  { name: 'aadharCard ', maxCount: 1 },
-  { name: ' aadharCard', maxCount: 1 },
+  { name: 'storeImage[] ', maxCount: 10 },
+  { name: ' storeImage[]', maxCount: 10 },
+  { name: 'panCardFront', maxCount: 1 },
+  { name: 'panCardFront ', maxCount: 1 },
+  { name: ' panCardFront', maxCount: 1 },
+  { name: 'panCardBack', maxCount: 1 },
+  { name: 'panCardBack ', maxCount: 1 },
+  { name: ' panCardBack', maxCount: 1 },
+  { name: 'aadharCardFront', maxCount: 1 },
+  { name: 'aadharCardFront ', maxCount: 1 },
+  { name: ' aadharCardFront', maxCount: 1 },
+  { name: 'aadharCardBack', maxCount: 1 },
+  { name: 'aadharCardBack ', maxCount: 1 },
+  { name: ' aadharCardBack', maxCount: 1 },
   { name: 'drivingLicense', maxCount: 1 },
   { name: 'drivingLicense ', maxCount: 1 },
   { name: ' drivingLicense', maxCount: 1 },
   { name: 'cancelCheque', maxCount: 1 },
   { name: 'cancelCheque ', maxCount: 1 },
+  { name: ' cancelCheque', maxCount: 1 },
 ]);
 
 const uploadFieldsWithErrorHandling = (req, res, next) => {
@@ -44,7 +55,7 @@ const uploadFieldsWithErrorHandling = (req, res, next) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          const allowedFields = ['storeImage', 'storeImage[]', 'panCard', 'aadharCard', 'drivingLicense', 'cancelCheque'];
+          const allowedFields = ['storeImage', 'storeImage ', ' storeImage', 'storeImage[]', 'storeImage[] ', ' storeImage[]', 'panCardFront', 'panCardBack', 'aadharCardFront', 'aadharCardBack', 'drivingLicense', 'cancelCheque'];
           return res.status(400).json({
             success: false,
             error: `Unexpected field: "${err.field}". Allowed fields are: ${allowedFields.join(', ')}. Please ensure field names match exactly (no extra spaces).`,
