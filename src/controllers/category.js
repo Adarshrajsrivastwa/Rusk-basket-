@@ -42,12 +42,12 @@ exports.createCategory = async (req, res, next) => {
       name,
       description,
       image: imageData.url ? imageData : undefined,
-      createdBy: req.superadmin._id,
+      createdBy: req.admin._id,
     });
 
     const populatedCategory = await Category.findById(category._id).populate('createdBy', 'name email');
 
-    logger.info(`Category created: ${category.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Category created: ${category.name} by Admin: ${req.admin.email}`);
 
     res.status(201).json({
       success: true,
@@ -177,7 +177,7 @@ exports.updateCategory = async (req, res, next) => {
 
     const populatedCategory = await Category.findById(category._id).populate('createdBy', 'name email');
 
-    logger.info(`Category updated: ${category.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Category updated: ${category.name} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
@@ -211,7 +211,7 @@ exports.deleteCategory = async (req, res, next) => {
 
     await Category.findByIdAndDelete(req.params.id);
 
-    logger.info(`Category deleted: ${category.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Category deleted: ${category.name} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
@@ -237,7 +237,7 @@ exports.toggleCategoryStatus = async (req, res, next) => {
     category.isActive = !category.isActive;
     await category.save();
 
-    logger.info(`Category status toggled: ${category.name} to ${category.isActive} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Category status toggled: ${category.name} to ${category.isActive} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,

@@ -1,4 +1,4 @@
-const SuperAdmin = require('../models/SuperAdmin');
+const Admin = require('../models/Admin');
 const Vendor = require('../models/Vendor');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
@@ -17,10 +17,10 @@ exports.login = async (req, res, next) => {
     const { mobile, role } = req.body;
 
     // Validate role
-    if (!role || !['superadmin', 'vendor'].includes(role)) {
+    if (!role || !['admin', 'vendor'].includes(role)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid role. Role must be either "superadmin" or "vendor"',
+        error: 'Invalid role. Role must be either "admin" or "vendor"',
       });
     }
 
@@ -33,8 +33,8 @@ exports.login = async (req, res, next) => {
 
     let user;
 
-    if (role === 'superadmin') {
-      user = await SuperAdmin.findOne({ mobile: mobile });
+    if (role === 'admin') {
+      user = await Admin.findOne({ mobile: mobile });
     } else if (role === 'vendor') {
       user = await Vendor.findOne({ contactNumber: mobile });
     }
@@ -42,14 +42,14 @@ exports.login = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        error: `${role === 'superadmin' ? 'SuperAdmin' : 'Vendor'} not found with this mobile number`,
+        error: `${role === 'admin' ? 'Admin' : 'Vendor'} not found with this mobile number`,
       });
     }
 
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        error: `${role === 'superadmin' ? 'SuperAdmin' : 'Vendor'} account is deactivated`,
+        error: `${role === 'admin' ? 'Admin' : 'Vendor'} account is deactivated`,
       });
     }
 
@@ -104,10 +104,10 @@ exports.verifyOTP = async (req, res, next) => {
     const { mobile, otp, role } = req.body;
 
     // Validate role
-    if (!role || !['superadmin', 'vendor'].includes(role)) {
+    if (!role || !['admin', 'vendor'].includes(role)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid role. Role must be either "superadmin" or "vendor"',
+        error: 'Invalid role. Role must be either "admin" or "vendor"',
       });
     }
 
@@ -120,8 +120,8 @@ exports.verifyOTP = async (req, res, next) => {
 
     let user;
 
-    if (role === 'superadmin') {
-      user = await SuperAdmin.findOne({ mobile: mobile });
+    if (role === 'admin') {
+      user = await Admin.findOne({ mobile: mobile });
     } else if (role === 'vendor') {
       user = await Vendor.findOne({ contactNumber: mobile });
     }
@@ -129,14 +129,14 @@ exports.verifyOTP = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: `${role === 'superadmin' ? 'SuperAdmin' : 'Vendor'} not found`,
+        error: `${role === 'admin' ? 'Admin' : 'Vendor'} not found`,
       });
     }
 
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        error: `${role === 'superadmin' ? 'SuperAdmin' : 'Vendor'} account is deactivated`,
+        error: `${role === 'admin' ? 'Admin' : 'Vendor'} account is deactivated`,
       });
     }
 
@@ -158,14 +158,14 @@ exports.verifyOTP = async (req, res, next) => {
     }
 
     user.clearOTP();
-    if (role === 'superadmin') {
+    if (role === 'admin') {
       user.lastLogin = new Date();
     }
     await user.save({ validateBeforeSave: false });
 
     const token = user.getSignedJwtToken();
 
-    logger.info(`${role === 'superadmin' ? 'SuperAdmin' : 'Vendor'} logged in successfully: ${mobile}`);
+    logger.info(`${role === 'admin' ? 'Admin' : 'Vendor'} logged in successfully: ${mobile}`);
 
     // Set JWT token as HTTP-only cookie
     // Parse JWT_EXPIRE (e.g., '7d' = 7 days, '30d' = 30 days)
@@ -198,7 +198,7 @@ exports.verifyOTP = async (req, res, next) => {
       role: role,
     };
 
-    if (role === 'superadmin') {
+    if (role === 'admin') {
       responseData = {
         ...responseData,
         name: user.name,

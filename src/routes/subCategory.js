@@ -9,7 +9,7 @@ const {
   toggleSubCategoryStatus,
   getSubCategoriesByCategory,
 } = require('../controllers/subCategory');
-const { protect } = require('../middleware/superadminAuth');
+const { protect } = require('../middleware/adminAuth');
 const { uploadSingle } = require('../middleware/subCategoryUpload');
 
 const router = express.Router();

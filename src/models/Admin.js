@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 
-const SuperAdminSchema = new mongoose.Schema({
+const AdminSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Please add a name'],
@@ -39,7 +39,7 @@ const SuperAdminSchema = new mongoose.Schema({
   },
 });
 
-SuperAdminSchema.methods.generateOTP = function () {
+AdminSchema.methods.generateOTP = function () {
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
   this.otp = {
     code: otpCode,
@@ -48,7 +48,7 @@ SuperAdminSchema.methods.generateOTP = function () {
   return otpCode;
 };
 
-SuperAdminSchema.methods.verifyOTP = function (enteredOTP) {
+AdminSchema.methods.verifyOTP = function (enteredOTP) {
   if (!this.otp || !this.otp.code) {
     return false;
   }
@@ -58,15 +58,15 @@ SuperAdminSchema.methods.verifyOTP = function (enteredOTP) {
   return this.otp.code === enteredOTP;
 };
 
-SuperAdminSchema.methods.clearOTP = function () {
+AdminSchema.methods.clearOTP = function () {
   this.otp = undefined;
 };
 
-SuperAdminSchema.methods.getSignedJwtToken = function () {
-  return jwt.sign({ id: this._id, role: 'superadmin' }, process.env.JWT_SECRET, {
+AdminSchema.methods.getSignedJwtToken = function () {
+  return jwt.sign({ id: this._id, role: 'admin' }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d',
   });
 };
 
-module.exports = mongoose.model('SuperAdmin', SuperAdminSchema);
+module.exports = mongoose.model('Admin', AdminSchema);
 

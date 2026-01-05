@@ -95,7 +95,7 @@ const updateVendorPermissions = (vendor, permissions) => {
   }
 };
 
-const createVendorData = async (vendor, data, files, superadminId) => {
+const createVendorData = async (vendor, data, files, adminId) => {
   const {
     vendorName,
     altContactNumber,
@@ -151,7 +151,7 @@ const createVendorData = async (vendor, data, files, superadminId) => {
     accountNumber: accountNumber,
     bankName: finalBankName,
   };
-  vendor.createdBy = superadminId;
+  vendor.createdBy = adminId;
   vendor.serviceRadius = 5; // Default service radius of 5 km
 
   updateVendorPermissions(vendor, permissions);

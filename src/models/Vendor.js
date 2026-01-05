@@ -190,7 +190,7 @@ const VendorSchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin',
+    ref: 'Admin',
     required: function() {
       return !!this.storeId;
     },

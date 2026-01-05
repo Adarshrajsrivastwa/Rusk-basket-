@@ -152,9 +152,9 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    if (req.superadmin) {
-      product.updatedBy = req.superadmin._id;
-      product.updatedByModel = 'SuperAdmin';
+    if (req.admin) {
+      product.updatedBy = req.admin._id;
+      product.updatedByModel = 'Admin';
       // When superadmin updates product, reset to pending status for re-approval
       product.approvalStatus = 'pending';
       product.approvedBy = undefined;
@@ -180,7 +180,7 @@ exports.updateProduct = async (req, res, next) => {
       .populate('updatedBy', 'name vendorName')
       .populate('approvedBy', 'name email');
 
-    logger.info(`Product updated: ${product.productName} by ${req.superadmin ? 'SuperAdmin' : 'Vendor'}: ${req.superadmin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
+    logger.info(`Product updated: ${product.productName} by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
 
     res.status(200).json({
       success: true,
@@ -234,7 +234,7 @@ exports.deleteProduct = async (req, res, next) => {
 
     await Product.findByIdAndDelete(req.params.id);
 
-    logger.info(`Product deleted: ${product.productName} by ${req.superadmin ? 'SuperAdmin' : 'Vendor'}: ${req.superadmin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
+    logger.info(`Product deleted: ${product.productName} by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
 
     res.status(200).json({
       success: true,

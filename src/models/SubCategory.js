@@ -27,7 +27,7 @@ const SubCategorySchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin',
+    ref: 'Admin',
     required: true,
   },
   createdAt: {

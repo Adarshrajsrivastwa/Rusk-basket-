@@ -146,7 +146,7 @@ const RiderSchema = new mongoose.Schema({
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin',
+    ref: 'Admin',
   },
   approvedAt: {
     type: Date,

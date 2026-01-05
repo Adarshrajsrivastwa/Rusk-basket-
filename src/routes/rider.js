@@ -4,7 +4,7 @@ const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider } = require('../controllers/rider');
 const { protect } = require('../middleware/riderAuth');
-const { protect: protectSuperAdmin } = require('../middleware/superadminAuth');
+const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
 
 const router = express.Router();
@@ -208,14 +208,14 @@ router.put(
   updateProfile
 );
 
-// SuperAdmin routes
-router.get('/', protectSuperAdmin, getRiders);
+// Admin routes
+router.get('/', protectAdmin, getRiders);
 
-router.get('/:id', protectSuperAdmin, getRider);
+router.get('/:id', protectAdmin, getRider);
 
-router.put('/:id/approve', protectSuperAdmin, approveRider);
+router.put('/:id/approve', protectAdmin, approveRider);
 
-router.put('/:id/reject', protectSuperAdmin, [
+router.put('/:id/reject', protectAdmin, [
   body('rejectionReason')
     .optional()
     .trim()
@@ -223,7 +223,7 @@ router.put('/:id/reject', protectSuperAdmin, [
     .withMessage('Rejection reason cannot be more than 500 characters'),
 ], approveRider);
 
-router.put('/:id/suspend', protectSuperAdmin, suspendRider);
+router.put('/:id/suspend', protectAdmin, suspendRider);
 
 module.exports = router;
 

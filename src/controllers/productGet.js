@@ -9,7 +9,7 @@ exports.getProducts = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     let query = {};
-    if (req.superadmin) {
+    if (req.admin) {
       if (req.query.approvalStatus) {
         query.approvalStatus = req.query.approvalStatus;
       }
@@ -85,10 +85,10 @@ exports.getProduct = async (req, res, next) => {
 
     let query = { _id: req.params.id };
 
-    if (!req.superadmin && !req.vendor) {
+    if (!req.admin && !req.vendor) {
       query.approvalStatus = 'approved';
       query.isActive = true;
-    } else if (req.vendor && !req.superadmin) {
+    } else if (req.vendor && !req.admin) {
       query.vendor = req.vendor._id;
     }
 

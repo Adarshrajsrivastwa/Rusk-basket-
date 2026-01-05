@@ -91,7 +91,7 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
-// SuperAdmin functions
+// Admin functions
 exports.getRiders = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -170,7 +170,7 @@ exports.approveRider = async (req, res, next) => {
 
     if (action === 'approve') {
       rider.approvalStatus = 'approved';
-      rider.approvedBy = req.superadmin._id;
+      rider.approvedBy = req.admin._id;
       rider.approvedAt = new Date();
       rider.rejectionReason = undefined;
     } else {
@@ -184,7 +184,7 @@ exports.approveRider = async (req, res, next) => {
 
     const populatedRider = await Rider.findById(rider._id).populate('approvedBy', 'name email');
 
-    logger.info(`Rider ${action}d: ${rider.fullName || rider.mobileNumber} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Rider ${action}d: ${rider.fullName || rider.mobileNumber} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
@@ -212,7 +212,7 @@ exports.suspendRider = async (req, res, next) => {
     await rider.save();
 
     const action = rider.isActive ? 'activated' : 'suspended';
-    logger.info(`Rider ${action}: ${rider.mobileNumber} (ID: ${rider._id}) by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Rider ${action}: ${rider.mobileNumber} (ID: ${rider._id}) by Admin: ${req.admin.email || req.admin._id}`);
 
     res.status(200).json({
       success: true,

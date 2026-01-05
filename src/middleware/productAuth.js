@@ -1,9 +1,9 @@
 const jwt = require('jsonwebtoken');
 const Vendor = require('../models/Vendor');
-const SuperAdmin = require('../models/SuperAdmin');
+const Admin = require('../models/Admin');
 const logger = require('../utils/logger');
 
-const protectVendorOrSuperAdmin = async (req, res, next) => {
+const protectVendorOrAdmin = async (req, res, next) => {
   let token;
 
   if (req.headers.authorization) {
@@ -62,24 +62,24 @@ const protectVendorOrSuperAdmin = async (req, res, next) => {
           error: 'Vendor account is deactivated',
         });
       }
-    } else if (decoded.role === 'superadmin') {
-      req.superadmin = await SuperAdmin.findById(decoded.id);
-      if (!req.superadmin) {
+    } else if (decoded.role === 'admin') {
+      req.admin = await Admin.findById(decoded.id);
+      if (!req.admin) {
         return res.status(401).json({
           success: false,
-          error: 'SuperAdmin not found',
+          error: 'Admin not found',
         });
       }
-      if (!req.superadmin.isActive) {
+      if (!req.admin.isActive) {
         return res.status(403).json({
           success: false,
-          error: 'SuperAdmin account is deactivated',
+          error: 'Admin account is deactivated',
         });
       }
     } else {
       return res.status(403).json({
         success: false,
-        error: 'Access denied. Vendor or SuperAdmin privileges required.',
+        error: 'Access denied. Vendor or Admin privileges required.',
       });
     }
 
@@ -105,5 +105,5 @@ const protectVendorOrSuperAdmin = async (req, res, next) => {
   }
 };
 
-module.exports = { protectVendorOrSuperAdmin };
+module.exports = { protectVendorOrAdmin };
 

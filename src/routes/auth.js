@@ -19,8 +19,8 @@ router.post(
       .notEmpty()
       .withMessage('Role is required')
       .bail()
-      .isIn(['superadmin', 'vendor'])
-      .withMessage('Role must be either "superadmin" or "vendor"'),
+      .isIn(['admin', 'vendor'])
+      .withMessage('Role must be either "admin" or "vendor"'),
   ],
   login
 );
@@ -47,8 +47,8 @@ router.post(
       .notEmpty()
       .withMessage('Role is required')
       .bail()
-      .isIn(['superadmin', 'vendor'])
-      .withMessage('Role must be either "superadmin" or "vendor"'),
+      .isIn(['admin', 'vendor'])
+      .withMessage('Role must be either "admin" or "vendor"'),
   ],
   verifyOTP
 );

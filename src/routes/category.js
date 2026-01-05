@@ -8,7 +8,7 @@ const {
   deleteCategory,
   toggleCategoryStatus,
 } = require('../controllers/category');
-const { protect } = require('../middleware/superadminAuth');
+const { protect } = require('../middleware/adminAuth');
 const { uploadSingle } = require('../middleware/categoryUpload');
 
 const router = express.Router();

@@ -5,8 +5,8 @@ const { getProducts, getProduct, getPendingProducts } = require('../controllers/
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
 const { protect } = require('../middleware/vendorAuth');
-const { protect: protectSuperAdmin } = require('../middleware/superadminAuth');
-const { protectVendorOrSuperAdmin } = require('../middleware/productAuth');
+const { protect: protectAdmin } = require('../middleware/adminAuth');
+const { protectVendorOrAdmin } = require('../middleware/productAuth');
 const { uploadMultiple } = require('../middleware/productUpload');
 
 const router = express.Router();
@@ -104,13 +104,13 @@ router.post(
 
 router.get('/', getProducts);
 
-router.get('/pending', protectSuperAdmin, getPendingProducts);
+router.get('/pending', protectAdmin, getPendingProducts);
 
 router.get('/:id', getProduct);
 
 router.put(
   '/:id',
-  protectVendorOrSuperAdmin,
+  protectVendorOrAdmin,
   uploadMultiple,
   [
     body('productName')
@@ -195,9 +195,9 @@ router.put(
 
 router.delete('/:id', protectVendorOrSuperAdmin, deleteProduct);
 
-router.put('/:id/approve', protectSuperAdmin, approveProduct);
+router.put('/:id/approve', protectAdmin, approveProduct);
 
-router.put('/:id/reject', protectSuperAdmin, [
+router.put('/:id/reject', protectAdmin, [
   body('rejectionReason')
     .optional()
     .trim()

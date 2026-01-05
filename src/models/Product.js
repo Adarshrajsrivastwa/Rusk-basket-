@@ -124,7 +124,7 @@ const ProductSchema = new mongoose.Schema({
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin',
+    ref: 'Admin',
   },
   approvedAt: {
     type: Date,
@@ -139,7 +139,7 @@ const ProductSchema = new mongoose.Schema({
   },
   updatedByModel: {
     type: String,
-    enum: ['Vendor', 'SuperAdmin'],
+    enum: ['Vendor', 'Admin'],
   },
   createdAt: {
     type: Date,

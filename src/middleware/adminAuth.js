@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const SuperAdmin = require('../models/SuperAdmin');
+const Admin = require('../models/Admin');
 const logger = require('../utils/logger');
 
 const protect = async (req, res, next) => {
@@ -47,26 +47,26 @@ const protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (decoded.role !== 'superadmin') {
+    if (decoded.role !== 'admin') {
       return res.status(403).json({
         success: false,
-        error: 'Access denied. SuperAdmin privileges required.',
+        error: 'Access denied. Admin privileges required.',
       });
     }
 
-    req.superadmin = await SuperAdmin.findById(decoded.id);
+    req.admin = await Admin.findById(decoded.id);
 
-    if (!req.superadmin) {
+    if (!req.admin) {
       return res.status(401).json({
         success: false,
-        error: 'SuperAdmin not found',
+        error: 'Admin not found',
       });
     }
 
-    if (!req.superadmin.isActive) {
+    if (!req.admin.isActive) {
       return res.status(403).json({
         success: false,
-        error: 'SuperAdmin account is deactivated',
+        error: 'Admin account is deactivated',
       });
     }
 
@@ -84,7 +84,7 @@ const protect = async (req, res, next) => {
         error: 'Token expired. Please login again.',
       });
     }
-    logger.error('SuperAdmin auth middleware error:', error);
+    logger.error('Admin auth middleware error:', error);
     return res.status(401).json({
       success: false,
       error: 'Not authorized to access this route',

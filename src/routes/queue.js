@@ -1,6 +1,6 @@
 const express = require('express');
 const { getQueueStats } = require('../utils/queue');
-const { protect } = require('../middleware/superadminAuth');
+const { protect } = require('../middleware/adminAuth');
 
 const router = express.Router();
 

@@ -2,7 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendor, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
-const { protect } = require('../middleware/superadminAuth');
+const { protect } = require('../middleware/adminAuth');
 const { uploadFields } = require('../middleware/upload');
 
 const router = express.Router();

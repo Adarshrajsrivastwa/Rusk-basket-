@@ -26,7 +26,7 @@ exports.approveProduct = async (req, res, next) => {
 
     if (action === 'approve') {
       product.approvalStatus = 'approved';
-      product.approvedBy = req.superadmin._id;
+      product.approvedBy = req.admin._id;
       product.approvedAt = new Date();
       product.rejectionReason = undefined;
     } else {
@@ -44,7 +44,7 @@ exports.approveProduct = async (req, res, next) => {
       .populate('vendor', 'vendorName storeName')
       .populate('approvedBy', 'name email');
 
-    logger.info(`Product ${action}d: ${product.productName} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Product ${action}d: ${product.productName} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,

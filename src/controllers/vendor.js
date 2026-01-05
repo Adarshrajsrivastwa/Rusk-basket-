@@ -49,10 +49,10 @@ exports.createVendor = async (req, res, next) => {
       }
     }
 
-    await createVendorData(vendor, req.body, req.files, req.superadmin._id);
+    await createVendorData(vendor, req.body, req.files, req.admin._id);
     await vendor.save();
 
-    logger.info(`Vendor created: ${vendor.storeId} (ID: ${vendor._id}) by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Vendor created: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -110,7 +110,7 @@ exports.updateVendorPermissions = async (req, res, next) => {
 
     await vendor.save();
 
-    logger.info(`Vendor permissions updated: ${vendor.storeId} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`Vendor permissions updated: ${vendor.storeId} by Admin: ${req.admin.email}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -220,7 +220,7 @@ exports.updateVendor = async (req, res, next) => {
     await updateVendorData(vendor, req.body, req.files);
     await vendor.save();
 
-    logger.info(`Vendor updated: ${vendor.storeId} (ID: ${vendor._id}) by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Vendor updated: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -262,7 +262,7 @@ exports.suspendVendor = async (req, res, next) => {
     await vendor.save();
 
     const action = vendor.isActive ? 'activated' : 'suspended';
-    logger.info(`Vendor ${action}: ${vendor.storeId} (ID: ${vendor._id}) by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Vendor ${action}: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -307,7 +307,7 @@ exports.updateVendorRadius = async (req, res, next) => {
     vendor.serviceRadius = parseFloat(serviceRadius);
     await vendor.save();
 
-    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by Admin: ${req.admin.email || req.admin._id}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -367,7 +367,7 @@ exports.deleteVendor = async (req, res, next) => {
     const vendorId = vendor._id;
     await Vendor.findByIdAndDelete(vendor._id);
 
-    logger.info(`Vendor deleted: ${storeId} (ID: ${vendorId}) by SuperAdmin: ${req.superadmin.email || req.superadmin._id}`);
+    logger.info(`Vendor deleted: ${storeId} (ID: ${vendorId}) by Admin: ${req.admin.email || req.admin._id}`);
 
     res.status(200).json({
       success: true,

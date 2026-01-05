@@ -52,14 +52,14 @@ exports.createSubCategory = async (req, res, next) => {
       description,
       category,
       image: imageData.url ? imageData : undefined,
-      createdBy: req.superadmin._id,
+      createdBy: req.admin._id,
     });
 
     const populatedSubCategory = await SubCategory.findById(subCategory._id)
       .populate('category', 'name')
       .populate('createdBy', 'name email');
 
-    logger.info(`SubCategory created: ${subCategory.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`SubCategory created: ${subCategory.name} by Admin: ${req.admin.email}`);
 
     res.status(201).json({
       success: true,
@@ -213,7 +213,7 @@ exports.updateSubCategory = async (req, res, next) => {
       .populate('category', 'name')
       .populate('createdBy', 'name email');
 
-    logger.info(`SubCategory updated: ${subCategory.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`SubCategory updated: ${subCategory.name} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
@@ -247,7 +247,7 @@ exports.deleteSubCategory = async (req, res, next) => {
 
     await SubCategory.findByIdAndDelete(req.params.id);
 
-    logger.info(`SubCategory deleted: ${subCategory.name} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`SubCategory deleted: ${subCategory.name} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
@@ -273,7 +273,7 @@ exports.toggleSubCategoryStatus = async (req, res, next) => {
     subCategory.isActive = !subCategory.isActive;
     await subCategory.save();
 
-    logger.info(`SubCategory status toggled: ${subCategory.name} to ${subCategory.isActive} by SuperAdmin: ${req.superadmin.email}`);
+    logger.info(`SubCategory status toggled: ${subCategory.name} to ${subCategory.isActive} by Admin: ${req.admin.email}`);
 
     res.status(200).json({
       success: true,
