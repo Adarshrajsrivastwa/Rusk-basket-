@@ -225,3 +225,40 @@ exports.suspendRider = async (req, res, next) => {
   }
 };
 
+exports.getPendingRiders = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = {
+      approvalStatus: 'pending',
+    };
+
+    const riders = await Rider.find(query)
+      .populate('approvedBy', 'name email')
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    const total = await Rider.countDocuments(query);
+
+    logger.info(`Pending riders retrieved: ${total} total, ${riders.length} in page ${page}`);
+
+    res.status(200).json({
+      success: true,
+      count: riders.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: riders,
+    });
+  } catch (error) {
+    logger.error('Get pending riders error:', error);
+    next(error);
+  }
+};
+

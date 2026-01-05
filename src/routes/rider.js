@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
@@ -220,6 +220,7 @@ router.put(
 
 // Admin routes
 router.get('/', protectAdmin, getRiders);
+router.get('/pending', protectAdmin, getPendingRiders);
 
 router.get('/:id', protectAdmin, getRider);
 
