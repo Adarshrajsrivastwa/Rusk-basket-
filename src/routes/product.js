@@ -193,7 +193,7 @@ router.put(
   updateProduct
 );
 
-router.delete('/:id', protectVendorOrSuperAdmin, deleteProduct);
+router.delete('/:id', protectVendorOrAdmin, deleteProduct);
 
 router.put('/:id/approve', protectAdmin, approveProduct);
 
