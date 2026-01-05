@@ -72,6 +72,7 @@ exports.login = async (req, res, next) => {
         success: true,
         message: 'OTP sent to your mobile number',
         mobile: mobile.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
+        otp: otpCode, // Include OTP in response
         role: role,
       });
     } catch (smsError) {
