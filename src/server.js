@@ -19,14 +19,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const superadminRoutes = require('./routes/superadmin');
 const vendorRoutes = require('./routes/vendor');
+const userRoutes = require('./routes/user');
+const riderRoutes = require('./routes/rider');
 const categoryRoutes = require('./routes/category');
 const subCategoryRoutes = require('./routes/subCategory');
+const productRoutes = require('./routes/product');
 const queueRoutes = require('./routes/queue');
 
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/vendor', vendorRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/rider', riderRoutes);
 app.use('/api/category', categoryRoutes);
 app.use('/api/subcategory', subCategoryRoutes);
+app.use('/api/product', productRoutes);
 app.use('/api/queue', queueRoutes);
 
 app.get('/health', (req, res) => {

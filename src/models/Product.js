@@ -1,0 +1,171 @@
+const mongoose = require('mongoose');
+
+const ProductSchema = new mongoose.Schema({
+  productName: {
+    type: String,
+    required: [true, 'Product name is required'],
+    trim: true,
+    maxlength: [200, 'Product name cannot be more than 200 characters'],
+  },
+  productType: {
+    type: {
+      type: String,
+      enum: ['quantity', 'weight', 'volume'],
+      required: true,
+    },
+    value: {
+      type: Number,
+      required: true,
+      min: [0, 'Product type value must be greater than or equal to 0'],
+    },
+    unit: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+  },
+  category: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: [true, 'Category is required'],
+  },
+  subCategory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubCategory',
+    required: [true, 'Sub category is required'],
+  },
+  thumbnail: {
+    url: {
+      type: String,
+    },
+    publicId: {
+      type: String,
+    },
+  },
+  images: [{
+    url: {
+      type: String,
+      required: true,
+    },
+    publicId: {
+      type: String,
+      required: true,
+    },
+    mediaType: {
+      type: String,
+      enum: ['image', 'video'],
+      required: true,
+    },
+  }],
+  description: {
+    type: String,
+    trim: true,
+    maxlength: [5000, 'Description cannot be more than 5000 characters'],
+  },
+  skus: [{
+    sku: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    inventory: {
+      type: Number,
+      required: true,
+      min: [0, 'Inventory cannot be negative'],
+    },
+  }],
+  inventory: {
+    type: Number,
+    required: true,
+    min: [0, 'Inventory cannot be negative'],
+  },
+  actualPrice: {
+    type: Number,
+    required: [true, 'Actual price is required'],
+    min: [0, 'Actual price must be greater than or equal to 0'],
+  },
+  regularPrice: {
+    type: Number,
+    required: [true, 'Regular price is required'],
+    min: [0, 'Regular price must be greater than or equal to 0'],
+  },
+  salePrice: {
+    type: Number,
+    min: [0, 'Sale price must be greater than or equal to 0'],
+  },
+  cashback: {
+    type: Number,
+    default: 0,
+    min: [0, 'Cashback must be greater than or equal to 0'],
+  },
+  tags: [{
+    type: String,
+    trim: true,
+    lowercase: true,
+  }],
+  vendor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+    required: [true, 'Vendor is required'],
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+    required: [true, 'Created by is required'],
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SuperAdmin',
+  },
+  approvedAt: {
+    type: Date,
+  },
+  rejectionReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Rejection reason cannot be more than 500 characters'],
+  },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+  },
+  updatedByModel: {
+    type: String,
+    enum: ['Vendor', 'SuperAdmin'],
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+ProductSchema.pre('save', function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Text search index for productName and description
+ProductSchema.index({ productName: 'text', description: 'text' });
+
+// Other indexes for better query performance
+ProductSchema.index({ vendor: 1 });
+ProductSchema.index({ category: 1 });
+ProductSchema.index({ subCategory: 1 });
+ProductSchema.index({ approvalStatus: 1 });
+ProductSchema.index({ isActive: 1 });
+ProductSchema.index({ tags: 1 });
+ProductSchema.index({ createdAt: -1 });
+
+module.exports = mongoose.model('Product', ProductSchema);
