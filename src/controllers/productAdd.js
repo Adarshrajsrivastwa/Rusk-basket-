@@ -22,12 +22,13 @@ exports.addProduct = async (req, res, next) => {
       category,
       subCategory,
       description,
-      skus,
+      skuHsn,
       inventory,
       actualPrice,
       regularPrice,
       salePrice,
       cashback,
+      tags,
     } = req.body;
 
     try {
@@ -42,35 +43,37 @@ exports.addProduct = async (req, res, next) => {
     const thumbnail = await uploadProductThumbnail(req.files);
     const images = await uploadProductImages(req.files);
 
-    if (!thumbnail) {
+    if (!images || images.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Product thumbnail is required',
+        error: 'At least one product image is required',
       });
     }
 
-    let parsedSkus = [];
-    try {
-      parsedSkus = parseSKUs(skus);
-      for (const skuItem of parsedSkus) {
-        if (!skuItem.sku || typeof skuItem.inventory !== 'number' || skuItem.inventory < 0) {
-          return res.status(400).json({
-            success: false,
-            error: 'Each SKU must have a valid sku string and non-negative inventory number',
-          });
-        }
+    // Parse tags from comma-separated string
+    let parsedTags = [];
+    if (tags) {
+      parsedTags = tags.split(',').map(tag => tag.trim().toLowerCase()).filter(tag => tag.length > 0);
+      if (parsedTags.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'At least one tag is required',
+        });
       }
-    } catch (parseError) {
-      return res.status(400).json({
-        success: false,
-        error: parseError.message,
-      });
+      if (parsedTags.length > 20) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 20 tags allowed',
+        });
+      }
     }
 
-    let totalInventory = inventory;
-    if (parsedSkus.length > 0) {
-      totalInventory = parsedSkus.reduce((sum, sku) => sum + sku.inventory, 0);
-    }
+    // Calculate inventory (default to 0 if not provided)
+    let totalInventory = inventory ? parseFloat(inventory) : 0;
+
+    // Get vendor's location from storeAddress
+    const vendorLatitude = req.vendor.storeAddress?.latitude;
+    const vendorLongitude = req.vendor.storeAddress?.longitude;
 
     const product = await Product.create({
       productName,
@@ -82,15 +85,18 @@ exports.addProduct = async (req, res, next) => {
       category,
       subCategory,
       thumbnail,
-      images: images || [],
-      description,
-      skus: parsedSkus,
+      images: images,
+      description: description || undefined,
+      skuHsn: skuHsn || undefined,
       inventory: totalInventory,
       actualPrice: parseFloat(actualPrice),
       regularPrice: parseFloat(regularPrice),
-      salePrice: salePrice ? parseFloat(salePrice) : undefined,
+      salePrice: parseFloat(salePrice),
       cashback: cashback ? parseFloat(cashback) : 0,
+      tags: parsedTags,
       vendor: req.vendor._id,
+      latitude: vendorLatitude || undefined,
+      longitude: vendorLongitude || undefined,
       createdBy: req.vendor._id,
       approvalStatus: 'pending',
     });
@@ -105,7 +111,7 @@ exports.addProduct = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Product created successfully. Waiting for super admin approval.',
+      message: 'Product created successfully. Waiting for admin approval.',
       data: populatedProduct,
     });
   } catch (error) {

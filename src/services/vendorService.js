@@ -17,20 +17,29 @@ const uploadVendorFiles = async (files) => {
     });
   }
 
-  const panFile = files.panImage || files.panCard || files['panCard '] || files[' panCard'];
+  const panFile = files.panCard || files['panCard '] || files[' panCard'];
   if (panFile && panFile[0]) {
     uploadPromises.push(
       uploadToCloudinary(panFile[0], 'rush-basket/documents/pan').then(
-        (result) => ({ field: 'panImage', result })
+        (result) => ({ field: 'panCard', result })
       )
     );
   }
 
-  const aadhaarFile = files.aadhaarImage || files.aadharImage || files.aadharCard || files['aadharCard '] || files[' aadharCard'] || files.aadhaarCard;
-  if (aadhaarFile && aadhaarFile[0]) {
+  const aadharFile = files.aadharCard || files['aadharCard '] || files[' aadharCard'];
+  if (aadharFile && aadharFile[0]) {
     uploadPromises.push(
-      uploadToCloudinary(aadhaarFile[0], 'rush-basket/documents/aadhar').then(
-        (result) => ({ field: 'aadhaarImage', result })
+      uploadToCloudinary(aadharFile[0], 'rush-basket/documents/aadhar').then(
+        (result) => ({ field: 'aadharCard', result })
+      )
+    );
+  }
+
+  const drivingLicenseFile = files.drivingLicense || files['drivingLicense '] || files[' drivingLicense'];
+  if (drivingLicenseFile && drivingLicenseFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(drivingLicenseFile[0], 'rush-basket/documents/driving-license').then(
+        (result) => ({ field: 'drivingLicense', result })
       )
     );
   }
@@ -160,14 +169,19 @@ const createVendorData = async (vendor, data, files, adminId) => {
     vendor.storeImage = uploadedFiles.storeImage;
   }
 
-  if (uploadedFiles.panImage) {
+  if (uploadedFiles.panCard) {
     vendor.documents = vendor.documents || {};
-    vendor.documents.panCard = uploadedFiles.panImage;
+    vendor.documents.panCard = uploadedFiles.panCard;
   }
 
-  if (uploadedFiles.aadhaarImage) {
+  if (uploadedFiles.aadharCard) {
     vendor.documents = vendor.documents || {};
-    vendor.documents.aadharCard = uploadedFiles.aadhaarImage;
+    vendor.documents.aadharCard = uploadedFiles.aadharCard;
+  }
+
+  if (uploadedFiles.drivingLicense) {
+    vendor.documents = vendor.documents || {};
+    vendor.documents.drivingLicense = uploadedFiles.drivingLicense;
   }
 
   if (uploadedFiles.cancelCheque) {
@@ -274,16 +288,6 @@ const updateVendorData = async (vendor, data, files) => {
       } else {
         vendor.storeImage = uploadedFiles.storeImage;
       }
-    }
-
-    if (uploadedFiles.panImage) {
-      vendor.documents = vendor.documents || {};
-      vendor.documents.panCard = uploadedFiles.panImage;
-    }
-
-    if (uploadedFiles.aadhaarImage) {
-      vendor.documents = vendor.documents || {};
-      vendor.documents.aadharCard = uploadedFiles.aadhaarImage;
     }
 
     if (uploadedFiles.cancelCheque) {

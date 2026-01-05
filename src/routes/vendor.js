@@ -1,7 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendor, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor } = require('../controllers/vendor');
 const { protect } = require('../middleware/adminAuth');
 const { uploadFields } = require('../middleware/upload');
 
@@ -135,79 +135,10 @@ router.put(
 );
 
 router.put(
-  '/:id',
+  '/:id/documents',
   protect,
   uploadFields,
-  [
-    body('vendorName')
-      .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Vendor name cannot be empty'),
-    body('contactNumber')
-      .optional()
-      .trim()
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit contact number'),
-    body('email')
-      .optional()
-      .isEmail()
-      .withMessage('Please provide a valid email'),
-    body('gender')
-      .optional()
-      .isIn(['male', 'female', 'other'])
-      .withMessage('Gender must be male, female, or other'),
-    body('dateOfBirth')
-      .optional()
-      .isISO8601()
-      .withMessage('Please provide a valid date'),
-    body('storeName')
-      .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Store name cannot be empty'),
-    body('storeAddressLine1')
-      .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Store address line 1 cannot be empty'),
-    body('pinCode')
-      .optional()
-      .trim()
-      .matches(/^[0-9]{6}$/)
-      .withMessage('Please provide a valid 6-digit PIN code'),
-    body('ifsc')
-      .optional()
-      .trim()
-      .matches(/^[A-Z]{4}0[A-Z0-9]{6}$/)
-      .withMessage('Please provide a valid IFSC code'),
-    body('accountNumber')
-      .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Account number cannot be empty'),
-    body('bankName')
-      .optional()
-      .trim(),
-    body('bank_name')
-      .optional()
-      .trim(),
-    body('permissions')
-      .optional()
-      .custom((value) => {
-        if (typeof value === 'string') {
-          try {
-            JSON.parse(value);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-        return typeof value === 'object';
-      })
-      .withMessage('Permissions must be a valid JSON object'),
-  ],
-  updateVendor
+  updateVendorDocuments
 );
 
 router.put(

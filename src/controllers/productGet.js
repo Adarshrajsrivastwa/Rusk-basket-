@@ -1,12 +1,29 @@
 const Product = require('../models/Product');
+const Vendor = require('../models/Vendor');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+
+// Haversine formula to calculate distance between two coordinates in kilometers
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in kilometers
+};
 
 exports.getProducts = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const latitude = parseFloat(req.query.latitude);
+    const longitude = parseFloat(req.query.longitude);
+    const radius = parseFloat(req.query.radius) || 10; // Default 10km radius
 
     let query = {};
     if (req.admin) {
@@ -29,6 +46,24 @@ exports.getProducts = async (req, res, next) => {
       query.isActive = true;
     }
 
+    // Location-based filtering if latitude and longitude are provided
+    let vendorDistances = {};
+    
+    if (latitude && longitude && !isNaN(latitude) && !isNaN(longitude)) {
+      // Validate latitude and longitude ranges
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid latitude or longitude values. Latitude must be between -90 and 90, longitude between -180 and 180.',
+        });
+      }
+
+      // Get all products with location data and calculate distances
+      // We'll filter after fetching to calculate distances accurately
+      query.latitude = { $exists: true, $ne: null };
+      query.longitude = { $exists: true, $ne: null };
+    }
+
     if (req.query.search) {
       query.$text = { $search: req.query.search };
     }
@@ -45,28 +80,92 @@ exports.getProducts = async (req, res, next) => {
       query.tags = { $in: [req.query.tag.toLowerCase()] };
     }
 
-    const products = await Product.find(query)
-      .populate('category', 'name')
-      .populate('subCategory', 'name')
-      .populate('vendor', 'vendorName storeName')
-      .populate('createdBy', 'vendorName')
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+    let products;
+    let productsWithDistance;
+    let total;
 
-    const total = await Product.countDocuments(query);
+    if (latitude && longitude && !isNaN(latitude) && !isNaN(longitude)) {
+      // For location-based search, fetch all products with location and filter in memory
+      products = await Product.find(query)
+        .populate('category', 'name')
+        .populate('subCategory', 'name')
+        .populate('vendor', 'vendorName storeName storeAddress serviceRadius')
+        .populate('createdBy', 'vendorName');
+      // Calculate distances and filter products within radius
+      productsWithDistance = [];
+      
+      for (const product of products) {
+        if (product.latitude && product.longitude) {
+          const distance = calculateDistance(latitude, longitude, product.latitude, product.longitude);
+          
+          // Check if product is within radius (considering both user radius and vendor service radius)
+          const vendorServiceRadius = product.vendor?.serviceRadius || 5;
+          const maxRadius = Math.max(radius, vendorServiceRadius);
+          
+          if (distance <= maxRadius) {
+            const productObj = product.toObject();
+            productObj.distance = parseFloat(distance.toFixed(2));
+            if (product.vendor) {
+              productObj.vendorDistance = {
+                distance: parseFloat(distance.toFixed(2)),
+                storeName: product.vendor.storeName,
+                vendorName: product.vendor.vendorName,
+              };
+            }
+            productsWithDistance.push(productObj);
+          }
+        }
+      }
 
-    res.status(200).json({
+      // Sort by distance (closest first)
+      productsWithDistance.sort((a, b) => {
+        const distA = a.distance || Infinity;
+        const distB = b.distance || Infinity;
+        return distA - distB;
+      });
+
+      // Calculate total before pagination
+      total = productsWithDistance.length;
+
+      // Apply pagination after filtering
+      productsWithDistance = productsWithDistance.slice(skip, skip + limit);
+    } else {
+      // For non-location search, use normal pagination
+      products = await Product.find(query)
+        .populate('category', 'name')
+        .populate('subCategory', 'name')
+        .populate('vendor', 'vendorName storeName storeAddress')
+        .populate('createdBy', 'vendorName')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 });
+
+      productsWithDistance = products;
+      total = await Product.countDocuments(query);
+    }
+
+    const response = {
       success: true,
-      count: products.length,
+      count: productsWithDistance.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: products,
-    });
+      data: productsWithDistance,
+    };
+
+    // Add location info if location-based search
+    if (latitude && longitude && !isNaN(latitude) && !isNaN(longitude)) {
+      response.radius = radius;
+      response.userLocation = {
+        latitude: latitude,
+        longitude: longitude,
+      };
+    }
+
+    res.status(200).json(response);
   } catch (error) {
     logger.error('Get products error:', error);
     next(error);

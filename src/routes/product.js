@@ -1,5 +1,5 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 const { addProduct } = require('../controllers/productAdd');
 const { getProducts, getProduct, getPendingProducts } = require('../controllers/productGet');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
@@ -76,33 +76,71 @@ router.post(
       .isFloat({ min: 0 })
       .withMessage('Regular price must be a number greater than or equal to 0'),
     body('salePrice')
-      .optional()
+      .notEmpty()
+      .withMessage('Sale price is required')
       .isFloat({ min: 0 })
       .withMessage('Sale price must be a number greater than or equal to 0'),
     body('cashback')
       .optional()
       .isFloat({ min: 0 })
       .withMessage('Cashback must be a number greater than or equal to 0'),
-    body().custom((value, { req }) => {
-      const hasSkus = req.body.skus && (() => {
-        try {
-          const parsed = typeof req.body.skus === 'string' ? JSON.parse(req.body.skus) : req.body.skus;
-          return Array.isArray(parsed) && parsed.length > 0;
-        } catch {
-          return false;
+    body('skuHsn')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('SKU/HSN code cannot be more than 50 characters'),
+    body('inventory')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Inventory must be a number greater than or equal to 0'),
+    body('tags')
+      .trim()
+      .notEmpty()
+      .withMessage('Tags are required')
+      .custom((value) => {
+        if (typeof value === 'string') {
+          const tags = value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+          if (tags.length === 0) {
+            throw new Error('At least one tag is required');
+          }
+          if (tags.length > 20) {
+            throw new Error('Maximum 20 tags allowed');
+          }
+          return true;
         }
-      })();
-      const hasInventory = req.body.inventory !== undefined && req.body.inventory !== null && req.body.inventory !== '';
-      if (!hasSkus && !hasInventory) {
-        throw new Error('Either inventory or SKUs must be provided');
-      }
-      return true;
-    }),
+        return false;
+      })
+      .withMessage('Tags must be comma-separated values'),
   ],
   addProduct
 );
 
-router.get('/', getProducts);
+router.get(
+  '/',
+  [
+    query('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be a number between -90 and 90'),
+    query('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be a number between -180 and 180'),
+    query('radius')
+      .optional()
+      .isFloat({ min: 0.1, max: 1000 })
+      .withMessage('Radius must be a number between 0.1 and 1000 km'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getProducts
+);
 
 router.get('/pending', protectAdmin, getPendingProducts);
 

@@ -113,6 +113,10 @@ const VendorSchema = new mongoose.Schema({
       url: String,
       publicId: String,
     },
+    drivingLicense: {
+      url: String,
+      publicId: String,
+    },
   },
   bankDetails: {
     ifsc: {

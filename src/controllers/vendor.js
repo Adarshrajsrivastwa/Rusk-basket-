@@ -1,7 +1,7 @@
 const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { createVendorData, updateVendorPermissions, updateVendorData } = require('../services/vendorService');
+const { createVendorData, updateVendorPermissions } = require('../services/vendorService');
 const { deleteFromCloudinary } = require('../utils/cloudinary');
 
 exports.createVendor = async (req, res, next) => {
@@ -177,75 +177,6 @@ exports.getVendor = async (req, res, next) => {
   }
 };
 
-exports.updateVendor = async (req, res, next) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array(),
-      });
-    }
-
-    const vendor = await Vendor.findById(req.params.id);
-
-    if (!vendor) {
-      return res.status(404).json({
-        success: false,
-        error: 'Vendor not found',
-      });
-    }
-
-    if (!vendor.storeId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Vendor registration not completed',
-      });
-    }
-
-    const { email } = req.body;
-    if (email && email !== vendor.email) {
-      const existingEmail = await Vendor.findOne({ 
-        email, 
-        _id: { $ne: vendor._id } 
-      });
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          error: 'Email already exists',
-        });
-      }
-    }
-
-    await updateVendorData(vendor, req.body, req.files);
-    await vendor.save();
-
-    logger.info(`Vendor updated: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
-
-    const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
-
-    res.status(200).json({
-      success: true,
-      message: 'Vendor updated successfully',
-      data: populatedVendor,
-    });
-  } catch (error) {
-    logger.error('Update vendor error:', error);
-    if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
-      return res.status(400).json({
-        success: false,
-        error: error.message,
-      });
-    }
-    if (error.message === 'Invalid permissions format') {
-      return res.status(400).json({
-        success: false,
-        error: error.message,
-      });
-    }
-    next(error);
-  }
-};
 
 exports.suspendVendor = async (req, res, next) => {
   try {
@@ -273,6 +204,79 @@ exports.suspendVendor = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Suspend vendor error:', error);
+    next(error);
+  }
+};
+
+exports.updateVendorDocuments = async (req, res, next) => {
+  try {
+    const vendor = await Vendor.findById(req.params.id);
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    if (!vendor.storeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor registration not completed',
+      });
+    }
+
+    const { deleteFromCloudinary } = require('../utils/cloudinary');
+    const { uploadVendorFiles } = require('../services/vendorService');
+
+    const uploadedFiles = await uploadVendorFiles(req.files);
+
+    // Delete old documents if new ones are uploaded
+    if (uploadedFiles.panCard) {
+      if (vendor.documents?.panCard?.publicId) {
+        await deleteFromCloudinary(vendor.documents.panCard.publicId);
+      }
+      vendor.documents = vendor.documents || {};
+      vendor.documents.panCard = uploadedFiles.panCard;
+    }
+
+    if (uploadedFiles.aadharCard) {
+      if (vendor.documents?.aadharCard?.publicId) {
+        await deleteFromCloudinary(vendor.documents.aadharCard.publicId);
+      }
+      vendor.documents = vendor.documents || {};
+      vendor.documents.aadharCard = uploadedFiles.aadharCard;
+    }
+
+    if (uploadedFiles.drivingLicense) {
+      if (vendor.documents?.drivingLicense?.publicId) {
+        await deleteFromCloudinary(vendor.documents.drivingLicense.publicId);
+      }
+      vendor.documents = vendor.documents || {};
+      vendor.documents.drivingLicense = uploadedFiles.drivingLicense;
+    }
+
+    if (uploadedFiles.cancelCheque) {
+      if (vendor.bankDetails?.cancelCheque?.publicId) {
+        await deleteFromCloudinary(vendor.bankDetails.cancelCheque.publicId);
+      }
+      vendor.bankDetails = vendor.bankDetails || {};
+      vendor.bankDetails.cancelCheque = uploadedFiles.cancelCheque;
+    }
+
+    await vendor.save();
+
+    logger.info(`Vendor documents updated: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
+
+    const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor documents updated successfully',
+      data: populatedVendor,
+    });
+  } catch (error) {
+    logger.error('Update vendor documents error:', error);
     next(error);
   }
 };

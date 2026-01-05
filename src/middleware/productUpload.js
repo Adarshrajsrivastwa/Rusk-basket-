@@ -22,7 +22,7 @@ const imageVideoFileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB for videos
+    fileSize: 5 * 1024 * 1024, // 5MB per file
   },
   fileFilter: imageVideoFileFilter,
 });
@@ -52,7 +52,7 @@ const uploadMultipleWithErrorHandling = (req, res, next) => {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
             success: false,
-            error: 'File size too large. Maximum size is 50MB',
+            error: 'File size too large. Maximum size is 5MB per file',
           });
         }
         if (err.code === 'LIMIT_FILE_COUNT') {

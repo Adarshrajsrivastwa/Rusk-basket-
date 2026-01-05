@@ -76,8 +76,13 @@ const ProductSchema = new mongoose.Schema({
   }],
   inventory: {
     type: Number,
-    required: true,
+    default: 0,
     min: [0, 'Inventory cannot be negative'],
+  },
+  skuHsn: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'SKU/HSN code cannot be more than 50 characters'],
   },
   actualPrice: {
     type: Number,
@@ -91,6 +96,7 @@ const ProductSchema = new mongoose.Schema({
   },
   salePrice: {
     type: Number,
+    required: [true, 'Sale price is required'],
     min: [0, 'Sale price must be greater than or equal to 0'],
   },
   cashback: {
@@ -107,6 +113,16 @@ const ProductSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vendor',
     required: [true, 'Vendor is required'],
+  },
+  latitude: {
+    type: Number,
+    min: [-90, 'Latitude must be between -90 and 90'],
+    max: [90, 'Latitude must be between -90 and 90'],
+  },
+  longitude: {
+    type: Number,
+    min: [-180, 'Longitude must be between -180 and 180'],
+    max: [180, 'Longitude must be between -180 and 180'],
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

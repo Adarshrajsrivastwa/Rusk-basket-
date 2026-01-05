@@ -36,6 +36,7 @@ const riderRoutes = require('./routes/rider');
 const categoryRoutes = require('./routes/category');
 const subCategoryRoutes = require('./routes/subCategory');
 const productRoutes = require('./routes/product');
+const couponRoutes = require('./routes/coupon');
 const queueRoutes = require('./routes/queue');
 
 app.use('/api/auth', authRoutes);
@@ -45,6 +46,7 @@ app.use('/api/rider', riderRoutes);
 app.use('/api/category', categoryRoutes);
 app.use('/api/subcategory', subCategoryRoutes);
 app.use('/api/product', productRoutes);
+app.use('/api/coupon', couponRoutes);
 app.use('/api/queue', queueRoutes);
 
 app.get('/health', (req, res) => {
