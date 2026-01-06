@@ -21,6 +21,11 @@ const CategorySchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  subCategoryCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',

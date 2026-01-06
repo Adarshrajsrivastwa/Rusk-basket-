@@ -55,6 +55,11 @@ exports.createSubCategory = async (req, res, next) => {
       createdBy: req.admin._id,
     });
 
+    // Increment subCategoryCount in the parent category
+    await Category.findByIdAndUpdate(category, {
+      $inc: { subCategoryCount: 1 },
+    });
+
     const populatedSubCategory = await SubCategory.findById(subCategory._id)
       .populate('category', 'name')
       .populate('createdBy', 'name email');
@@ -158,6 +163,9 @@ exports.updateSubCategory = async (req, res, next) => {
 
     const { name, description, category } = req.body;
 
+    // Store the old category ID before any updates
+    const oldCategoryId = subCategory.category;
+
     if (category) {
       const parentCategory = await Category.findById(category);
       if (!parentCategory) {
@@ -180,6 +188,18 @@ exports.updateSubCategory = async (req, res, next) => {
           error: 'SubCategory with this name already exists in this category',
         });
       }
+    }
+
+    // Handle category change - update counts
+    if (category && category.toString() !== oldCategoryId.toString()) {
+      // Decrement count in old category
+      await Category.findByIdAndUpdate(oldCategoryId, {
+        $inc: { subCategoryCount: -1 },
+      });
+      // Increment count in new category
+      await Category.findByIdAndUpdate(category, {
+        $inc: { subCategoryCount: 1 },
+      });
     }
 
     if (name) subCategory.name = name;
@@ -245,7 +265,15 @@ exports.deleteSubCategory = async (req, res, next) => {
       }
     }
 
+    // Store the category ID before deletion
+    const categoryId = subCategory.category;
+
     await SubCategory.findByIdAndDelete(req.params.id);
+
+    // Decrement subCategoryCount in the parent category
+    await Category.findByIdAndUpdate(categoryId, {
+      $inc: { subCategoryCount: -1 },
+    });
 
     logger.info(`SubCategory deleted: ${subCategory.name} by Admin: ${req.admin.email}`);
 
