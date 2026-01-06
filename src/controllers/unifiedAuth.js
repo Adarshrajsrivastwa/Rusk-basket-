@@ -165,32 +165,10 @@ exports.verifyOTP = async (req, res, next) => {
 
     const token = user.getSignedJwtToken();
 
+    const { setTokenCookie } = require('../utils/cookieHelper');
+    setTokenCookie(res, token);
+
     logger.info(`${role === 'admin' ? 'Admin' : 'Vendor'} logged in successfully: ${mobile}`);
-
-    // Set JWT token as HTTP-only cookie
-    // Parse JWT_EXPIRE (e.g., '7d' = 7 days, '30d' = 30 days)
-    const jwtExpire = process.env.JWT_EXPIRE || '7d';
-    let cookieExpireMs = 7 * 24 * 60 * 60 * 1000; // Default 7 days
-    
-    if (jwtExpire.endsWith('d')) {
-      const days = parseInt(jwtExpire);
-      cookieExpireMs = days * 24 * 60 * 60 * 1000;
-    } else if (jwtExpire.endsWith('h')) {
-      const hours = parseInt(jwtExpire);
-      cookieExpireMs = hours * 60 * 60 * 1000;
-    } else if (jwtExpire.endsWith('m')) {
-      const minutes = parseInt(jwtExpire);
-      cookieExpireMs = minutes * 60 * 1000;
-    }
-
-    const cookieOptions = {
-      expires: new Date(Date.now() + cookieExpireMs),
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in production
-      sameSite: 'strict',
-    };
-
-    res.cookie('token', token, cookieOptions);
 
     // Prepare response data based on role
     let responseData = {

@@ -2,6 +2,7 @@ const Vendor = require('../models/Vendor');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { setTokenCookie } = require('../utils/cookieHelper');
 
 exports.vendorLogin = async (req, res, next) => {
   try {
@@ -107,6 +108,8 @@ exports.vendorVerifyOTP = async (req, res, next) => {
     await vendor.save({ validateBeforeSave: false });
 
     const token = vendor.getSignedJwtToken();
+
+    setTokenCookie(res, token);
 
     logger.info(`Vendor logged in successfully: ${contactNumber}`);
 

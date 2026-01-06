@@ -2,6 +2,7 @@ const Rider = require('../models/Rider');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { setTokenCookie } = require('../utils/cookieHelper');
 
 exports.sendOTP = async (req, res, next) => {
   try {
@@ -92,6 +93,8 @@ exports.verifyOTP = async (req, res, next) => {
 
     const token = rider.getSignedJwtToken();
 
+    setTokenCookie(res, token);
+
     logger.info(`Rider mobile number verified: ${mobileNumber}`);
 
     res.status(200).json({
@@ -110,4 +113,5 @@ exports.verifyOTP = async (req, res, next) => {
     next(error);
   }
 };
+
 

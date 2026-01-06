@@ -11,6 +11,8 @@ const protect = async (req, res, next) => {
     } else {
       token = req.headers.authorization;
     }
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
   }
 
   if (!token) {
@@ -93,4 +95,5 @@ const protect = async (req, res, next) => {
 };
 
 module.exports = { protect };
+
 

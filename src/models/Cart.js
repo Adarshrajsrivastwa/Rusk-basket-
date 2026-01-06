@@ -208,3 +208,4 @@ CartSchema.methods.calculateTotals = async function () {
 
 module.exports = mongoose.model('Cart', CartSchema);
 
+

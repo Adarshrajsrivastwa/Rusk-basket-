@@ -13,7 +13,10 @@ require('./workers/imageProcessingWorker');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const cookieParser = require('cookie-parser');
+
 app.use(compression());
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -30,10 +33,10 @@ const couponRoutes = require('./routes/coupon');
 const checkoutRoutes = require('./routes/checkout');
 const queueRoutes = require('./routes/queue');
 
-// CORS configuration
 const corsOptions = {
   origin: [
     'http://localhost:5173',
+    'http://46.202.164.93',
     process.env.CORS_ORIGIN || 'http://localhost:3000',
   ],
   credentials: true,

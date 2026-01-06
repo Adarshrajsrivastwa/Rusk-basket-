@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { setTokenCookie } = require('../utils/cookieHelper');
 
 exports.sendOTP = async (req, res, next) => {
   try {
@@ -91,6 +92,8 @@ exports.verifyOTP = async (req, res, next) => {
     await user.save({ validateBeforeSave: false });
 
     const token = user.getSignedJwtToken();
+
+    setTokenCookie(res, token);
 
     logger.info(`User contact number verified: ${contactNumber}`);
 

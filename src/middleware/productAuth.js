@@ -12,6 +12,8 @@ const protectVendorOrAdmin = async (req, res, next) => {
     } else {
       token = req.headers.authorization;
     }
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
   }
 
   if (!token) {

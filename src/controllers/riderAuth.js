@@ -2,6 +2,7 @@ const Rider = require('../models/Rider');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { setTokenCookie } = require('../utils/cookieHelper');
 
 exports.riderLogin = async (req, res, next) => {
   try {
@@ -144,6 +145,8 @@ exports.riderVerifyOTP = async (req, res, next) => {
     await rider.save({ validateBeforeSave: false });
 
     const token = rider.getSignedJwtToken();
+
+    setTokenCookie(res, token);
 
     logger.info(`Rider logged in successfully: ${mobileNumber}`);
 
