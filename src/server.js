@@ -34,11 +34,25 @@ const checkoutRoutes = require('./routes/checkout');
 const queueRoutes = require('./routes/queue');
 
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://46.202.164.93',
-    process.env.CORS_ORIGIN || 'http://localhost:3000',
-  ],
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
+      'http://46.202.164.93',
+      process.env.CORS_ORIGIN,
+    ].filter(Boolean);
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200,
 };
