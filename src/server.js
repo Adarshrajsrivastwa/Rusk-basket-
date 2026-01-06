@@ -32,6 +32,8 @@ const productRoutes = require('./routes/product');
 const couponRoutes = require('./routes/coupon');
 const checkoutRoutes = require('./routes/checkout');
 const queueRoutes = require('./routes/queue');
+const riderJobPostRoutes = require('./routes/riderJobPost');
+const riderJobApplicationRoutes = require('./routes/riderJobApplication');
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -84,6 +86,8 @@ app.use('/api/product', productRoutes);
 app.use('/api/coupon', couponRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/queue', queueRoutes);
+app.use('/api/rider-job-post', riderJobPostRoutes);
+app.use('/api/rider-job-application', riderJobApplicationRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
