@@ -196,6 +196,15 @@ const OrderSchema = new mongoose.Schema({
   assignedAt: {
     type: Date,
   },
+  assignedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+  },
+  assignmentNotes: {
+    type: String,
+    trim: true,
+    maxlength: [1000, 'Assignment notes cannot be more than 1000 characters'],
+  },
   estimatedDelivery: {
     type: Date,
   },

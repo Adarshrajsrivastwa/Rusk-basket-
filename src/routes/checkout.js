@@ -15,14 +15,13 @@ const {
   getVendorOrders,
   getVendorOrder,
   updateOrderStatus,
+  getOrderInvoice,
 } = require('../controllers/checkout');
 const { protect } = require('../middleware/userAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
 
 const router = express.Router();
 
-// Vendor order routes - completely separate from user routes
-// These routes use vendor authentication, not user authentication
 router.get(
   '/vendor/orders',
   protectVendor,
@@ -57,6 +56,20 @@ router.get(
   getVendorOrder
 );
 
+router.get(
+  '/vendor/order/:orderId/invoice',
+  protectVendor,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+  ],
+  getOrderInvoice
+);
+
 router.put(
   '/vendor/order/:orderId/status',
   protectVendor,
@@ -77,10 +90,7 @@ router.put(
   updateOrderStatus
 );
 
-// All routes below require user authentication
-// Vendor routes above are excluded from this middleware
 router.use((req, res, next) => {
-  // Skip user auth for vendor routes
   if (req.path.startsWith('/vendor/')) {
     return next();
   }
@@ -288,6 +298,19 @@ router.get(
       .withMessage('Invalid order ID'),
   ],
   getOrder
+);
+
+router.get(
+  '/order/:orderId/invoice',
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+  ],
+  getOrderInvoice
 );
 
 router.post(

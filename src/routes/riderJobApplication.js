@@ -6,6 +6,8 @@ const {
   getJobApplications,
   reviewApplication,
   getApplication,
+  assignRider,
+  getAssignedRiders,
 } = require('../controllers/riderJobApplication');
 const { protect: protectRider } = require('../middleware/riderAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -34,6 +36,9 @@ router.get('/my-applications', protectRider, getMyApplications);
 // Get applications for a specific job post
 router.get('/job/:jobPostId', protectVendor, getJobApplications);
 
+// Get assigned riders for a job post
+router.get('/job/:jobPostId/assigned', protectVendor, getAssignedRiders);
+
 // Review application (approve/reject) - Must come before /:applicationId
 router.put(
   '/:applicationId/review',
@@ -51,6 +56,20 @@ router.put(
       .withMessage('Rejection reason cannot be more than 500 characters'),
   ],
   reviewApplication
+);
+
+// Assign rider to job - Must come before /:applicationId
+router.put(
+  '/:applicationId/assign',
+  protectVendor,
+  [
+    body('assignmentNotes')
+      .optional()
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Assignment notes cannot be more than 1000 characters'),
+  ],
+  assignRider
 );
 
 // Get single application (rider can view their own) - Must be last as it's parameterized

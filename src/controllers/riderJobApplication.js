@@ -177,6 +177,8 @@ exports.getJobApplications = async (req, res, next) => {
     const applications = await RiderJobApplication.find(query)
       .populate('rider', 'fullName mobileNumber email city currentAddress approvalStatus')
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee')
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('assignedBy', 'vendorName storeName')
       .skip(skip)
       .limit(limit)
       .sort({ appliedAt: -1 });
@@ -354,6 +356,180 @@ exports.getApplication = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get application error:', error);
+    next(error);
+  }
+};
+
+// Vendor assigns rider to job (rider must be approved first)
+exports.assignRider = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Only vendors can assign riders
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only vendors can assign riders',
+      });
+    }
+
+    const { applicationId } = req.params;
+    const { assignmentNotes } = req.body;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(applicationId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid application ID format',
+      });
+    }
+
+    const application = await RiderJobApplication.findById(applicationId)
+      .populate('jobPost')
+      .populate('rider');
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      });
+    }
+
+    // Verify job post belongs to this vendor
+    if (application.jobPost.vendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. You can only assign riders for your own job posts.',
+      });
+    }
+
+    // Check if application is approved
+    if (application.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot assign rider. Application status must be "approved". Current status: ${application.status}`,
+      });
+    }
+
+    // Check if already assigned
+    if (application.status === 'assigned') {
+      return res.status(400).json({
+        success: false,
+        error: 'This rider has already been assigned to this job',
+      });
+    }
+
+    // Check if rider is active
+    if (!application.rider.isActive) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot assign inactive rider',
+      });
+    }
+
+    // Update application to assigned status
+    application.status = 'assigned';
+    application.assignedBy = req.vendor._id;
+    application.assignedAt = new Date();
+    if (assignmentNotes) {
+      application.assignmentNotes = assignmentNotes;
+    }
+
+    await application.save();
+
+    const populatedApplication = await RiderJobApplication.findById(application._id)
+      .populate('jobPost', 'jobTitle joiningBonus onboardingFee location')
+      .populate('rider', 'fullName mobileNumber email city currentAddress')
+      .populate('assignedBy', 'vendorName storeName contactNumber email')
+      .populate('reviewedBy', 'vendorName storeName');
+
+    logger.info(`Rider ${application.rider.mobileNumber} assigned to job post ${application.jobPost._id} by vendor ${req.vendor.email || req.vendor.contactNumber}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Rider assigned successfully',
+      data: populatedApplication,
+    });
+  } catch (error) {
+    logger.error('Assign rider error:', error);
+    next(error);
+  }
+};
+
+// Get assigned riders for a job post (vendor only)
+exports.getAssignedRiders = async (req, res, next) => {
+  try {
+    // Only vendors can view assigned riders
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only vendors can view assigned riders',
+      });
+    }
+
+    const { jobPostId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(jobPostId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid job post ID format',
+      });
+    }
+
+    // Verify job post belongs to this vendor
+    const jobPost = await RiderJobPost.findById(jobPostId);
+    if (!jobPost) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job post not found',
+      });
+    }
+
+    if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. You can only view assigned riders for your own job posts.',
+      });
+    }
+
+    const applications = await RiderJobApplication.find({
+      jobPost: jobPostId,
+      status: 'assigned',
+    })
+      .populate('rider', 'fullName mobileNumber email city currentAddress approvalStatus')
+      .populate('assignedBy', 'vendorName storeName')
+      .skip(skip)
+      .limit(limit)
+      .sort({ assignedAt: -1 });
+
+    const total = await RiderJobApplication.countDocuments({
+      jobPost: jobPostId,
+      status: 'assigned',
+    });
+
+    res.status(200).json({
+      success: true,
+      count: applications.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: applications,
+    });
+  } catch (error) {
+    logger.error('Get assigned riders error:', error);
     next(error);
   }
 };

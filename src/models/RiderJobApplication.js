@@ -13,7 +13,7 @@ const RiderJobApplicationSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected'],
+    enum: ['pending', 'approved', 'rejected', 'assigned'],
     default: 'pending',
   },
   appliedAt: {
@@ -31,6 +31,18 @@ const RiderJobApplicationSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [500, 'Rejection reason cannot be more than 500 characters'],
+  },
+  assignedAt: {
+    type: Date,
+  },
+  assignedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+  },
+  assignmentNotes: {
+    type: String,
+    trim: true,
+    maxlength: [1000, 'Assignment notes cannot be more than 1000 characters'],
   },
   createdAt: {
     type: Date,
@@ -54,6 +66,9 @@ RiderJobApplicationSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   if (this.status !== 'pending' && !this.reviewedAt) {
     this.reviewedAt = Date.now();
+  }
+  if (this.status === 'assigned' && !this.assignedAt) {
+    this.assignedAt = Date.now();
   }
   next();
 });

@@ -1,5 +1,7 @@
 const Vendor = require('../models/Vendor');
 const Order = require('../models/Order');
+const Rider = require('../models/Rider');
+const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { createVendorData, updateVendorPermissions } = require('../services/vendorService');
@@ -690,6 +692,190 @@ exports.updateOrderStatus = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Update order status error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+// Assign rider to order
+exports.assignRiderToOrder = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Only vendors can assign riders
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only vendors can assign riders to orders',
+      });
+    }
+
+    const { orderId } = req.params;
+    const { riderId, assignmentNotes, updateStatus } = req.body;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID format',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(riderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid rider ID format',
+      });
+    }
+
+    // Find order and verify it belongs to this vendor using MongoDB query
+    // This ensures we only get orders that have items from this vendor
+    const order = await Order.findOne({
+      _id: orderId,
+      'items.vendor': req.vendor._id,
+    }).populate('items.vendor', '_id vendorName storeName');
+
+    if (!order) {
+      // Check if order exists at all
+      const orderExists = await Order.findById(orderId);
+      if (orderExists) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
+        });
+      }
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Additional verification (redundant but safe)
+    const hasVendorItems = order.items.some((item) => {
+      if (!item.vendor) {
+        return false;
+      }
+      // If vendor is populated (object), use _id, otherwise use directly (ObjectId)
+      const itemVendorId = item.vendor._id ? item.vendor._id : item.vendor;
+      return itemVendorId && itemVendorId.toString() === req.vendor._id.toString();
+    });
+
+    if (!hasVendorItems) {
+      logger.warn(`Vendor ${req.vendor._id} attempted to assign rider to order ${orderId} but validation failed`, {
+        orderItems: order.items.map(item => ({
+          vendor: item.vendor?.toString() || item.vendor,
+          productName: item.productName,
+        })),
+        vendorId: req.vendor._id.toString(),
+      });
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
+      });
+    }
+
+    if (!hasVendorItems) {
+      logger.warn(`Vendor ${req.vendor._id} attempted to assign rider to order ${orderId} but order does not belong to them`, {
+        orderItems: order.items.map(item => ({
+          vendor: item.vendor?.toString() || item.vendor,
+          productName: item.productName,
+        })),
+        vendorId: req.vendor._id.toString(),
+      });
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
+        debug: process.env.NODE_ENV === 'development' ? {
+          orderVendors: order.items.map(item => item.vendor?.toString() || item.vendor),
+          yourVendorId: req.vendor._id.toString(),
+        } : undefined,
+      });
+    }
+
+    // Check if order is in a state where rider can be assigned
+    const assignableStatuses = ['ready', 'processing', 'confirmed'];
+    if (!assignableStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot assign rider. Order must be in one of these statuses: ${assignableStatuses.join(', ')}. Current status: ${order.status}`,
+      });
+    }
+
+    // Check if rider already assigned
+    if (order.rider) {
+      return res.status(400).json({
+        success: false,
+        error: 'A rider has already been assigned to this order',
+      });
+    }
+
+    // Validate rider exists and is active
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    if (!rider.isActive) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot assign inactive rider',
+      });
+    }
+
+    if (rider.approvalStatus !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot assign rider. Rider approval is pending or rejected',
+      });
+    }
+
+    // Assign rider to order
+    order.rider = riderId;
+    order.assignedBy = req.vendor._id;
+    order.assignedAt = new Date();
+    if (assignmentNotes) {
+      order.assignmentNotes = assignmentNotes;
+    }
+
+    // Optionally update order status to 'out_for_delivery'
+    if (updateStatus === true || updateStatus === 'true') {
+      order.status = 'out_for_delivery';
+    }
+
+    await order.save();
+
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'name email contactNumber')
+      .populate('items.product', 'productName description')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber')
+      .populate('assignedBy', 'vendorName storeName contactNumber');
+
+    logger.info(
+      `Rider ${rider.mobileNumber} assigned to order ${order.orderNumber} by Vendor: ${req.vendor.storeId || req.vendor._id}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Rider assigned to order successfully',
+      data: populatedOrder,
+    });
+  } catch (error) {
+    logger.error('Assign rider to order error:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,

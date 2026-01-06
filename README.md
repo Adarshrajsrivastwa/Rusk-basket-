@@ -7,13 +7,18 @@ A comprehensive e-commerce backend API built with Node.js, Express, and MongoDB.
 - **Multi-Role System**: User, Vendor, Rider, and Admin roles with role-based access control
 - **Vendor Management**: Complete vendor registration, product management, and order handling
 - **Order Management**: Full order lifecycle from cart to delivery with status tracking
+- **Rider Assignment**: Vendors can assign riders to orders for delivery
+- **Order Invoices**: Generate detailed invoices for orders (user, vendor, and admin views)
+- **Rider Job Posts**: Location-based job posting system for vendors to hire riders
+- **Rider Job Applications**: Riders can apply for jobs, vendors can review and assign
 - **Product Management**: Product approval system, categories, subcategories, and SKU management
+- **Subcategory Count**: Automatic tracking of subcategory count per category
 - **Authentication**: OTP-based authentication for users, vendors, and riders
 - **File Upload**: Cloudinary integration for image and document uploads
 - **Queue System**: Bull queue with Redis for background jobs (email, SMS, notifications, image processing)
 - **Payment Integration**: Support for multiple payment methods (COD, prepaid, wallet, UPI, card)
 - **Coupon System**: Discount coupon management and application
-- **Location Services**: Post office API integration for address validation
+- **Location Services**: Post office API integration for address validation and location-based job posts
 - **Logging**: Winston-based logging system with file outputs
 - **Security**: Rate limiting, input validation, MongoDB sanitization, and security headers
 
@@ -233,6 +238,7 @@ The API will be available at `http://localhost:3000`
 - `GET /api/vendor/orders` - Get all vendor orders (vendor only)
 - `GET /api/vendor/orders/:id` - Get order by ID (vendor only)
 - `PUT /api/vendor/orders/:id/status` - Update order status (vendor only)
+- `PUT /api/vendor/orders/:orderId/assign-rider` - Assign rider to order (vendor only)
 
 ### Products
 
@@ -277,7 +283,14 @@ The API will be available at `http://localhost:3000`
 - `POST /api/checkout/order/create` - Create order (user only)
 - `GET /api/checkout/orders` - Get user orders (user only)
 - `GET /api/checkout/order/:orderId` - Get order by ID (user only)
+- `GET /api/checkout/order/:orderId/invoice` - Get order invoice (user only)
 - `POST /api/checkout/order/:orderId/cancel` - Cancel order (user only)
+
+#### Vendor Orders
+- `GET /api/checkout/vendor/orders` - Get vendor orders (vendor only)
+- `GET /api/checkout/vendor/order/:orderId` - Get vendor order by ID (vendor only)
+- `PUT /api/checkout/vendor/order/:orderId/status` - Update order status (vendor only)
+- `GET /api/checkout/vendor/order/:orderId/invoice` - Get order invoice (vendor only)
 
 ### Coupons
 
@@ -294,6 +307,25 @@ The API will be available at `http://localhost:3000`
 - `GET /api/rider/:id` - Get rider by ID (admin only)
 - `PUT /api/rider/:id` - Update rider (admin/rider)
 - `DELETE /api/rider/:id` - Delete rider (admin only)
+
+### Rider Job Posts
+
+- `POST /api/rider-job-post` - Create job post (vendor only)
+- `GET /api/rider-job-post` - Get job posts (public with filters)
+- `GET /api/rider-job-post/:id` - Get job post by ID (public)
+- `PUT /api/rider-job-post/:id` - Update job post (vendor only, own posts)
+- `DELETE /api/rider-job-post/:id` - Delete job post (vendor only, own posts)
+- `PUT /api/rider-job-post/:id/toggle-status` - Toggle job post status (vendor only, own posts)
+
+### Rider Job Applications
+
+- `POST /api/rider-job-application/apply` - Apply for job (rider only)
+- `GET /api/rider-job-application/my-applications` - Get my applications (rider only)
+- `GET /api/rider-job-application/:applicationId` - Get application by ID (rider only)
+- `GET /api/rider-job-application/job/:jobPostId` - Get applications for job post (vendor only)
+- `PUT /api/rider-job-application/:applicationId/review` - Review application (approve/reject) (vendor only)
+- `PUT /api/rider-job-application/:applicationId/assign` - Assign rider to job (vendor only)
+- `GET /api/rider-job-application/job/:jobPostId/assigned` - Get assigned riders for job post (vendor only)
 
 ### Health Check
 

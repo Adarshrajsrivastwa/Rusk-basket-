@@ -1,7 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -142,6 +142,7 @@ router.post(
 router.get('/', protect, getVendors);
 
 router.get('/orders', protectVendor, getVendorOrders);
+
 router.put(
   '/orders/:id/status',
   protectVendor,
@@ -160,6 +161,30 @@ router.put(
   ],
   updateOrderStatus
 );
+
+router.put(
+  '/orders/:orderId/assign-rider',
+  protectVendor,
+  [
+    body('riderId')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+    body('assignmentNotes')
+      .optional()
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Assignment notes cannot be more than 1000 characters'),
+    body('updateStatus')
+      .optional()
+      .isBoolean()
+      .withMessage('updateStatus must be a boolean'),
+  ],
+  assignRiderToOrder
+);
+
 router.get('/orders/:id', protectVendor, getVendorOrderById);
 
 router.get('/:id', protect, getVendor);

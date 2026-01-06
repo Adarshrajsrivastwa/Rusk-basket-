@@ -2,14 +2,9 @@ const checkoutService = require('../services/checkoutService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 
-/**
- * Get cart with totals
- */
 exports.getCart = async (req, res, next) => {
   try {
     const result = await checkoutService.getCartWithTotals(req.user._id);
-
-    // If there are unavailable items, include a warning message
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({
         success: true,
@@ -29,9 +24,6 @@ exports.getCart = async (req, res, next) => {
   }
 };
 
-/**
- * Add item to cart
- */
 exports.addToCart = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -70,9 +62,6 @@ exports.addToCart = async (req, res, next) => {
   }
 };
 
-/**
- * Update cart item quantity
- */
 exports.updateCartItem = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -82,8 +71,6 @@ exports.updateCartItem = async (req, res, next) => {
         errors: errors.array(),
       });
     }
-
-    // Support both path parameter and query parameter for itemId
     const itemId = req.params.itemId || req.query.itemId;
     
     if (!itemId) {
@@ -113,7 +100,6 @@ exports.updateCartItem = async (req, res, next) => {
         },
       });
     } catch (updateError) {
-      // If item was removed from cart, get updated cart and return it
       if (updateError.message.includes('removed from cart')) {
         const updatedCart = await checkoutService.getCartWithTotals(req.user._id);
         return res.status(400).json({
@@ -133,12 +119,8 @@ exports.updateCartItem = async (req, res, next) => {
   }
 };
 
-/**
- * Remove item from cart
- */
 exports.removeFromCart = async (req, res, next) => {
   try {
-    // Support both path parameter and query parameter for itemId
     const itemId = req.params.itemId || req.query.itemId;
     
     if (!itemId) {
@@ -169,9 +151,6 @@ exports.removeFromCart = async (req, res, next) => {
   }
 };
 
-/**
- * Clear cart
- */
 exports.clearCart = async (req, res, next) => {
   try {
     const cart = await checkoutService.clearCart(req.user._id);
@@ -190,9 +169,6 @@ exports.clearCart = async (req, res, next) => {
   }
 };
 
-/**
- * Apply coupon to cart
- */
 exports.applyCoupon = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -226,9 +202,6 @@ exports.applyCoupon = async (req, res, next) => {
   }
 };
 
-/**
- * Remove coupon from cart
- */
 exports.removeCoupon = async (req, res, next) => {
   try {
     const cart = await checkoutService.removeCoupon(req.user._id);
@@ -252,9 +225,6 @@ exports.removeCoupon = async (req, res, next) => {
   }
 };
 
-/**
- * Create order from cart
- */
 exports.createOrder = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -290,9 +260,6 @@ exports.createOrder = async (req, res, next) => {
   }
 };
 
-/**
- * Get user orders
- */
 exports.getOrders = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -316,9 +283,6 @@ exports.getOrders = async (req, res, next) => {
   }
 };
 
-/**
- * Get order by ID
- */
 exports.getOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
@@ -342,9 +306,6 @@ exports.getOrder = async (req, res, next) => {
   }
 };
 
-/**
- * Get vendor orders
- */
 exports.getVendorOrders = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -368,9 +329,6 @@ exports.getVendorOrders = async (req, res, next) => {
   }
 };
 
-/**
- * Get vendor order by ID
- */
 exports.getVendorOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
@@ -394,9 +352,6 @@ exports.getVendorOrder = async (req, res, next) => {
   }
 };
 
-/**
- * Update order status (vendor)
- */
 exports.updateOrderStatus = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -428,9 +383,6 @@ exports.updateOrderStatus = async (req, res, next) => {
   }
 };
 
-/**
- * Cancel order
- */
 exports.cancelOrder = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -459,6 +411,188 @@ exports.cancelOrder = async (req, res, next) => {
       success: false,
       error: error.message || 'Failed to cancel order',
     });
+  }
+};
+
+exports.getOrderInvoice = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const mongoose = require('mongoose');
+    const Order = require('../models/Order');
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID format',
+      });
+    }
+
+    let order;
+    let hasAccess = false;
+    if (req.user) {
+      order = await Order.findOne({
+        _id: orderId,
+        user: req.user._id,
+      })
+        .populate('user', 'userName email contactNumber address')
+        .populate('items.product', 'productName skuHsn')
+        .populate('items.vendor', 'vendorName storeName storeAddress contactNumber email')
+        .populate('rider', 'fullName mobileNumber')
+        .populate('assignedBy', 'vendorName storeName')
+        .lean();
+
+      if (order) {
+        hasAccess = true;
+      }
+    }
+
+    if (!hasAccess && req.vendor) {
+      order = await Order.findOne({
+        _id: orderId,
+        'items.vendor': req.vendor._id,
+      })
+        .populate('user', 'userName email contactNumber address')
+        .populate('items.product', 'productName skuHsn')
+        .populate('items.vendor', 'vendorName storeName storeAddress contactNumber email')
+        .populate('rider', 'fullName mobileNumber')
+        .populate('assignedBy', 'vendorName storeName')
+        .lean();
+
+      if (order) {
+        hasAccess = true;
+        order.items = order.items.filter((item) => {
+          const itemVendorId = item.vendor?._id || item.vendor;
+          return itemVendorId && itemVendorId.toString() === req.vendor._id.toString();
+        });
+      }
+    }
+
+    if (!hasAccess && req.admin) {
+      order = await Order.findById(orderId)
+        .populate('user', 'userName email contactNumber address')
+        .populate('items.product', 'productName skuHsn')
+        .populate('items.vendor', 'vendorName storeName storeAddress contactNumber email')
+        .populate('rider', 'fullName mobileNumber')
+        .populate('assignedBy', 'vendorName storeName')
+        .lean();
+
+      if (order) {
+        hasAccess = true;
+      }
+    }
+
+    if (!hasAccess || !order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found or you do not have permission to view this invoice',
+      });
+    }
+
+    let invoiceSubtotal = order.pricing.subtotal;
+    let invoiceDiscount = order.pricing.discount;
+    let invoiceTax = order.pricing.tax;
+    let invoiceShipping = order.pricing.shipping;
+    let invoiceTotal = order.pricing.total;
+    let invoiceCashback = order.pricing.totalCashback;
+
+    if (req.vendor && order.items && order.items.length > 0) {
+      invoiceSubtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
+      invoiceCashback = order.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
+      const vendorItemPercentage = invoiceSubtotal / order.pricing.subtotal;
+      invoiceDiscount = order.pricing.discount * vendorItemPercentage;
+      invoiceTax = order.pricing.tax * vendorItemPercentage;
+      invoiceShipping = order.pricing.shipping * vendorItemPercentage;
+      invoiceTotal = invoiceSubtotal - invoiceDiscount + invoiceTax + invoiceShipping;
+    }
+
+    const invoice = {
+      invoiceNumber: order.orderNumber,
+      invoiceDate: order.createdAt,
+      orderDate: order.createdAt,
+      deliveryDate: order.deliveredAt || order.estimatedDelivery,
+      customer: {
+        name: order.user?.userName || 'N/A',
+        email: order.user?.email || 'N/A',
+        contactNumber: order.user?.contactNumber || 'N/A',
+        address: order.shippingAddress,
+      },
+
+      vendors: req.vendor 
+        ? [{
+            name: order.items[0]?.vendor?.vendorName || 'N/A',
+            storeName: order.items[0]?.vendor?.storeName || 'N/A',
+            contactNumber: order.items[0]?.vendor?.contactNumber || 'N/A',
+            email: order.items[0]?.vendor?.email || 'N/A',
+            address: order.items[0]?.vendor?.storeAddress || {},
+          }]
+        : [...new Set(order.items.map(item => {
+            const vendor = item.vendor?._id || item.vendor;
+            return vendor?.toString();
+          }))].map(vendorId => {
+            const vendorItem = order.items.find(item => {
+              const itemVendorId = item.vendor?._id || item.vendor;
+              return itemVendorId?.toString() === vendorId;
+            });
+            return {
+              name: vendorItem?.vendor?.vendorName || 'N/A',
+              storeName: vendorItem?.vendor?.storeName || 'N/A',
+              contactNumber: vendorItem?.vendor?.contactNumber || 'N/A',
+              email: vendorItem?.vendor?.email || 'N/A',
+              address: vendorItem?.vendor?.storeAddress || {},
+            };
+          }),
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        sku: item.sku || item.product?.skuHsn || 'N/A',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        salePrice: item.salePrice,
+        totalPrice: item.totalPrice,
+        cashback: item.cashback || 0,
+        vendor: req.vendor ? undefined : {
+          name: item.vendor?.vendorName || 'N/A',
+          storeName: item.vendor?.storeName || 'N/A',
+        },
+      })),
+      pricing: {
+        subtotal: invoiceSubtotal,
+        discount: invoiceDiscount,
+        shipping: invoiceShipping,
+        tax: invoiceTax,
+        total: invoiceTotal,
+        totalCashback: invoiceCashback,
+      },
+      payment: {
+        method: order.payment.method,
+        status: order.payment.status,
+        amount: order.payment.amount,
+        transactionId: order.payment.transactionId || 'N/A',
+        paidAt: order.payment.paidAt,
+      },
+      coupon: order.coupon?.code ? {
+        code: order.coupon.code,
+        discount: order.coupon.discount,
+      } : null,
+
+      status: order.status,
+      rider: order.rider ? {
+        name: order.rider.fullName || 'N/A',
+        mobileNumber: order.rider.mobileNumber || 'N/A',
+        assignedAt: order.assignedAt,
+      } : null,
+      notes: order.notes || null,
+      cancellationReason: order.cancellationReason || null,
+      cancelledAt: order.cancelledAt || null,
+    };
+
+    logger.info(`Invoice generated for order ${order.orderNumber} by ${req.user ? 'User' : req.vendor ? 'Vendor' : 'Admin'}`);
+
+    res.status(200).json({
+      success: true,
+      data: invoice,
+    });
+  } catch (error) {
+    logger.error('Get order invoice error:', error);
+    next(error);
   }
 };
 
