@@ -16,9 +16,9 @@ const PORT = process.env.PORT || 3000;
 const cookieParser = require('cookie-parser');
 
 app.use(compression());
-app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
 
 const cors = require('cors');
 const superadminRoutes = require('./routes/superadmin');
@@ -58,6 +58,21 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+app.use((req, res, next) => {
+  const originalJson = res.json;
+  res.json = function(data) {
+    if (req.path.includes('login') || req.path.includes('verify') || req.path.includes('test-cookie')) {
+      logger.info(`Response for ${req.path}:`, {
+        hasCookieHeader: !!res.getHeader('Set-Cookie'),
+        cookieHeader: res.getHeader('Set-Cookie'),
+      });
+    }
+    return originalJson.call(this, data);
+  };
+  next();
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/vendor', vendorRoutes);
@@ -72,6 +87,18 @@ app.use('/api/queue', queueRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/test-cookie', (req, res) => {
+  const { setTokenCookie } = require('./utils/cookieHelper');
+  const testToken = 'test-token-12345';
+  setTokenCookie(res, testToken);
+  res.status(200).json({
+    success: true,
+    message: 'Test cookie set',
+    token: testToken,
+    cookies: req.cookies,
+  });
 });
 
 mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/rushbasket')

@@ -147,11 +147,12 @@ exports.userVerifyOTP = async (req, res, next) => {
 
     const token = user.getSignedJwtToken();
 
+    logger.info(`User logged in successfully: ${contactNumber}`);
+    logger.info(`Setting token cookie for user: ${contactNumber}`);
+
     setTokenCookie(res, token);
 
-    logger.info(`User logged in successfully: ${contactNumber}`);
-
-    res.status(200).json({
+    const responseData = {
       success: true,
       token,
       data: {
@@ -162,7 +163,11 @@ exports.userVerifyOTP = async (req, res, next) => {
         contactNumberVerified: user.contactNumberVerified,
         role: 'user',
       },
-    });
+    };
+
+    logger.info(`Response headers before send:`, res.getHeaders());
+    
+    res.status(200).json(responseData);
   } catch (error) {
     logger.error('User OTP verification error:', error);
     next(error);
