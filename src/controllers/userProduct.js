@@ -168,18 +168,35 @@ exports.getAllProducts = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = 10; // Fixed limit
     const skip = (page - 1) * limit;
-    const radius = 10; // Fixed 10km radius
-
-    // Check if user has location set
-    if (!user.address || !user.address.latitude || !user.address.longitude) {
+    const radius = parseFloat(req.query.radius) || 10; // Allow custom radius, default 10km
+    
+    // Latitude and longitude are now required
+    if (!req.query.latitude || !req.query.longitude) {
       return res.status(400).json({
         success: false,
-        error: 'User location not set. Please update your profile with address and location coordinates.',
+        error: 'Latitude and longitude are required parameters',
       });
     }
-
-    const userLat = user.address.latitude;
-    const userLon = user.address.longitude;
+    
+    // Get latitude and longitude from query params
+    const userLat = parseFloat(req.query.latitude);
+    const userLon = parseFloat(req.query.longitude);
+    
+    // Validate latitude and longitude are valid numbers
+    if (isNaN(userLat) || isNaN(userLon)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Latitude and longitude must be valid numbers',
+      });
+    }
+    
+    // Validate latitude and longitude ranges
+    if (userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid latitude or longitude values. Latitude must be between -90 and 90, longitude between -180 and 180.',
+      });
+    }
 
     // Get all vendors with location data
     const vendors = await Vendor.find({
@@ -242,7 +259,7 @@ exports.getAllProducts = async (req, res, next) => {
       isActive: true,
     };
 
-    // Add subCategory filter if provided
+    // Add subCategory filter if provided (works with location-based search)
     if (req.query.subCategory) {
       if (mongoose.Types.ObjectId.isValid(req.query.subCategory)) {
         query.subCategory = req.query.subCategory;
@@ -269,6 +286,11 @@ exports.getAllProducts = async (req, res, next) => {
     // Add search filter if provided
     if (req.query.search) {
       query.$text = { $search: req.query.search };
+    }
+    
+    // Add tag filter if provided
+    if (req.query.tag) {
+      query.tags = { $in: [req.query.tag.toLowerCase()] };
     }
 
     // Get products
@@ -301,9 +323,9 @@ exports.getAllProducts = async (req, res, next) => {
 
     const total = await Product.countDocuments(query);
 
-    logger.info(`User ${user.contactNumber} fetched ${productsWithDistance.length} products within 10km radius`);
+    logger.info(`User ${user.contactNumber} fetched ${productsWithDistance.length} products within ${radius}km radius${req.query.subCategory ? ` for subCategory: ${req.query.subCategory}` : ''}`);
 
-    res.status(200).json({
+    const response = {
       success: true,
       count: productsWithDistance.length,
       radius: radius,
@@ -318,7 +340,17 @@ exports.getAllProducts = async (req, res, next) => {
         pages: Math.ceil(total / limit),
       },
       data: productsWithDistance,
-    });
+    };
+    
+    // Add filter info if subcategory or category is used
+    if (req.query.subCategory) {
+      response.filters = { subCategory: req.query.subCategory };
+    }
+    if (req.query.category) {
+      response.filters = { ...response.filters, category: req.query.category };
+    }
+
+    res.status(200).json(response);
   } catch (error) {
     logger.error('Get all products error:', error);
     next(error);
