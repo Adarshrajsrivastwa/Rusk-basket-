@@ -138,6 +138,19 @@ router.get(
       .optional()
       .isInt({ min: 1 })
       .withMessage('Page must be a positive integer'),
+    query('subCategory')
+      .optional()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    query('category')
+      .optional()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
   ],
   getAllProducts
 );

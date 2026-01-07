@@ -23,9 +23,10 @@ const UserSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    unique: true,
-    sparse: true,
+    // Removed unique constraint - email is optional and can be null
+    // Uniqueness will be checked in application logic when email is provided
     lowercase: true,
+    trim: true,
     match: [
       /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
       'Please add a valid email',
@@ -82,12 +83,20 @@ UserSchema.pre('save', function (next) {
     }
     this.age = age;
   }
+  
+  // Ensure email is undefined (not null) if it's null or empty (to avoid index issues)
+  // Email is optional, so we set it to undefined to prevent MongoDB from indexing null values
+  if (this.email === null || this.email === '') {
+    delete this.email;
+  }
+  
   this.updatedAt = Date.now();
   next();
 });
 
 UserSchema.methods.generateOTP = function () {
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+  
   this.otp = {
     code: otpCode,
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -116,6 +125,7 @@ UserSchema.methods.getSignedJwtToken = function () {
 };
 
 module.exports = mongoose.model('User', UserSchema);
+
 
 
 

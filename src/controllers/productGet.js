@@ -64,18 +64,38 @@ exports.getProducts = async (req, res, next) => {
       query.longitude = { $exists: true, $ne: null };
     }
 
+    // Text search
     if (req.query.search) {
       query.$text = { $search: req.query.search };
     }
 
+    // Category filter
     if (req.query.category) {
-      query.category = req.query.category;
+      // Validate ObjectId format
+      if (mongoose.Types.ObjectId.isValid(req.query.category)) {
+        query.category = req.query.category;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid category ID format',
+        });
+      }
     }
 
+    // SubCategory filter - main search parameter
     if (req.query.subCategory) {
-      query.subCategory = req.query.subCategory;
+      // Validate ObjectId format
+      if (mongoose.Types.ObjectId.isValid(req.query.subCategory)) {
+        query.subCategory = req.query.subCategory;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid subCategory ID format',
+        });
+      }
     }
 
+    // Tag filter
     if (req.query.tag) {
       query.tags = { $in: [req.query.tag.toLowerCase()] };
     }

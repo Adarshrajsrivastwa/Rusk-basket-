@@ -51,9 +51,10 @@ exports.updateProfile = async (req, res, next) => {
     }
 
     const { email } = req.body;
-    if (email && email !== user.email) {
+    // Only check for duplicate email if email is provided and not null/empty
+    if (email && email.trim() !== '' && email !== user.email) {
       const existingEmail = await User.findOne({ 
-        email, 
+        email: email.trim().toLowerCase(), 
         _id: { $ne: user._id } 
       });
       if (existingEmail) {
@@ -85,6 +86,7 @@ exports.updateProfile = async (req, res, next) => {
     next(error);
   }
 };
+
 
 
 

@@ -106,8 +106,31 @@ app.get('/api/test-cookie', (req, res) => {
 });
 
 mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/rushbasket')
-.then(() => {
+.then(async () => {
   logger.info('MongoDB connected successfully');
+  
+  // Fix email index issue - drop unique index if it exists
+  try {
+    const db = mongoose.connection.db;
+    const usersCollection = db.collection('users');
+    
+    // Check if email_1 index exists and drop it
+    const indexes = await usersCollection.indexes();
+    const emailIndex = indexes.find(idx => idx.name === 'email_1');
+    
+    if (emailIndex && emailIndex.unique) {
+      logger.info('Removing unique constraint from email index...');
+      await usersCollection.dropIndex('email_1');
+      logger.info('Successfully removed unique email index');
+    }
+  } catch (indexError) {
+    if (indexError.code === 27 || indexError.codeName === 'IndexNotFound') {
+      logger.info('Email index does not exist or already removed');
+    } else {
+      logger.warn('Error checking/fixing email index:', indexError.message);
+    }
+  }
+  
   initializeQueues();
   app.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);

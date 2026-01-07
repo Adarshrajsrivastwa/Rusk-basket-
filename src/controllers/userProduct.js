@@ -235,12 +235,41 @@ exports.getAllProducts = async (req, res, next) => {
       });
     }
 
-    // Build query for approved products only - no category/subcategory filters
+    // Build query for approved products only
     let query = {
       vendor: { $in: nearbyVendorIds },
       approvalStatus: 'approved',
       isActive: true,
     };
+
+    // Add subCategory filter if provided
+    if (req.query.subCategory) {
+      if (mongoose.Types.ObjectId.isValid(req.query.subCategory)) {
+        query.subCategory = req.query.subCategory;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid subCategory ID format',
+        });
+      }
+    }
+
+    // Add category filter if provided
+    if (req.query.category) {
+      if (mongoose.Types.ObjectId.isValid(req.query.category)) {
+        query.category = req.query.category;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid category ID format',
+        });
+      }
+    }
+
+    // Add search filter if provided
+    if (req.query.search) {
+      query.$text = { $search: req.query.search };
+    }
 
     // Get products
     const products = await Product.find(query)

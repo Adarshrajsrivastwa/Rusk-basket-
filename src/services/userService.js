@@ -27,7 +27,8 @@ const updateUserProfileData = async (user, data, file) => {
     user.userName = userName;
   }
   if (email !== undefined) {
-    user.email = email;
+    // Email is optional - can be null or a valid email string
+    user.email = (email === null || email === '') ? null : email;
   }
   if (gender !== undefined) {
     user.gender = gender;
@@ -88,6 +89,7 @@ module.exports = {
   uploadUserProfileImage,
   updateUserProfileData,
 };
+
 
 
 

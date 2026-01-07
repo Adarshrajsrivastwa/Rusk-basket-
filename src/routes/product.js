@@ -138,6 +138,24 @@ router.get(
       .optional()
       .isInt({ min: 1, max: 100 })
       .withMessage('Limit must be between 1 and 100'),
+    query('subCategory')
+      .optional()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    query('category')
+      .optional()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('tag')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 50 })
+      .withMessage('Tag must be between 1 and 50 characters'),
   ],
   getProducts
 );
