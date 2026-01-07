@@ -109,25 +109,46 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
 .then(async () => {
   logger.info('MongoDB connected successfully');
   
-  // Fix email index issue - drop unique index if it exists
+  // Fix index issues - drop problematic unique indexes if they exist
   try {
     const db = mongoose.connection.db;
     const usersCollection = db.collection('users');
     
-    // Check if email_1 index exists and drop it
+    // Get all indexes
     const indexes = await usersCollection.indexes();
-    const emailIndex = indexes.find(idx => idx.name === 'email_1');
     
+    // Drop email_1 index if it exists and is unique
+    const emailIndex = indexes.find(idx => idx.name === 'email_1');
     if (emailIndex && emailIndex.unique) {
       logger.info('Removing unique constraint from email index...');
-      await usersCollection.dropIndex('email_1');
-      logger.info('Successfully removed unique email index');
+      try {
+        await usersCollection.dropIndex('email_1');
+        logger.info('Successfully removed unique email index');
+      } catch (dropError) {
+        if (dropError.code !== 27) {
+          logger.warn('Error dropping email index:', dropError.message);
+        }
+      }
+    }
+    
+    // Drop phone_1 index if it exists and is unique
+    const phoneIndex = indexes.find(idx => idx.name === 'phone_1');
+    if (phoneIndex && phoneIndex.unique) {
+      logger.info('Removing unique constraint from phone index...');
+      try {
+        await usersCollection.dropIndex('phone_1');
+        logger.info('Successfully removed unique phone index');
+      } catch (dropError) {
+        if (dropError.code !== 27) {
+          logger.warn('Error dropping phone index:', dropError.message);
+        }
+      }
     }
   } catch (indexError) {
     if (indexError.code === 27 || indexError.codeName === 'IndexNotFound') {
-      logger.info('Email index does not exist or already removed');
+      logger.info('Indexes do not exist or already removed');
     } else {
-      logger.warn('Error checking/fixing email index:', indexError.message);
+      logger.warn('Error checking/fixing indexes:', indexError.message);
     }
   }
   

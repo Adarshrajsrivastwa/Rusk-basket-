@@ -38,11 +38,24 @@ const fixEmailIndex = async () => {
       if (error.code === 27 || error.codeName === 'IndexNotFound') {
         console.log('Email index does not exist, nothing to drop');
       } else {
-        throw error;
+        console.log('Warning: Error dropping email index:', error.message);
       }
     }
 
-    console.log('Email field is now optional - multiple users can have null email values');
+    // Drop existing unique phone index if it exists
+    console.log('Dropping existing phone unique index...');
+    try {
+      await usersCollection.dropIndex('phone_1');
+      console.log('Successfully dropped phone_1 index');
+    } catch (error) {
+      if (error.code === 27 || error.codeName === 'IndexNotFound') {
+        console.log('Phone index does not exist, nothing to drop');
+      } else {
+        console.log('Warning: Error dropping phone index:', error.message);
+      }
+    }
+
+    console.log('Email and phone fields are now optional - multiple users can have null values');
 
     console.log('Migration completed successfully!');
     process.exit(0);

@@ -37,21 +37,32 @@ exports.sendOTP = async (req, res, next) => {
       try {
         await user.save({ validateBeforeSave: false });
       } catch (saveError) {
-        // Handle duplicate key error for email (E11000) - auto-fix
-        if (saveError.code === 11000 && (saveError.keyPattern?.email || saveError.message?.includes('email'))) {
-          logger.warn(`Email index issue detected, attempting to fix: ${contactNumber}`);
+        // Handle duplicate key error for email/phone (E11000) - auto-fix
+        if (saveError.code === 11000 && (saveError.keyPattern?.email || saveError.keyPattern?.phone || saveError.message?.includes('email') || saveError.message?.includes('phone'))) {
+          logger.warn(`Index issue detected (email/phone), attempting to fix: ${contactNumber}`);
           
           try {
             // Try to fix the index issue
             const mongoose = require('mongoose');
             const db = mongoose.connection.db;
             if (db) {
+              // Drop email index
               try {
                 await db.collection('users').dropIndex('email_1');
                 logger.info('Dropped problematic email index');
               } catch (dropError) {
                 if (dropError.code !== 27) {
                   logger.error('Error dropping email index:', dropError);
+                }
+              }
+              
+              // Drop phone index
+              try {
+                await db.collection('users').dropIndex('phone_1');
+                logger.info('Dropped problematic phone index');
+              } catch (dropError) {
+                if (dropError.code !== 27) {
+                  logger.error('Error dropping phone index:', dropError);
                 }
               }
             }
