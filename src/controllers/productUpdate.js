@@ -7,6 +7,20 @@ const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { validateCategoryAndSubCategory, uploadProductThumbnail, uploadProductImages, parseSKUs, parseTags, updateProductFields } = require('../services/productService');
 
+/**
+ * Calculate discount percentage based on regular price and sale price
+ */
+const calculateDiscountPercentage = (regularPrice, salePrice) => {
+  if (!regularPrice || regularPrice <= 0) {
+    return 0;
+  }
+  if (!salePrice || salePrice >= regularPrice) {
+    return 0;
+  }
+  const discount = ((regularPrice - salePrice) / regularPrice) * 100;
+  return parseFloat(discount.toFixed(2));
+};
+
 exports.updateProduct = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -97,6 +111,21 @@ exports.updateProduct = async (req, res, next) => {
 
     updateProductFields(product, req.body);
 
+    // Recalculate discount percentage if regularPrice or salePrice is updated
+    // This ensures discount is calculated even before save (pre-save hook will also calculate it)
+    if (req.body.regularPrice !== undefined || req.body.salePrice !== undefined) {
+      const regularPrice = req.body.regularPrice !== undefined 
+        ? parseFloat(req.body.regularPrice) 
+        : product.regularPrice;
+      const salePrice = req.body.salePrice !== undefined 
+        ? parseFloat(req.body.salePrice) 
+        : product.salePrice;
+      product.discountPercentage = calculateDiscountPercentage(regularPrice, salePrice);
+    } else if (product.isModified('regularPrice') || product.isModified('salePrice')) {
+      // If prices were modified through updateProductFields, recalculate
+      product.discountPercentage = calculateDiscountPercentage(product.regularPrice, product.salePrice);
+    }
+
     if (skus !== undefined) {
       try {
         const parsedSkus = parseSKUs(skus);
@@ -178,14 +207,21 @@ exports.updateProduct = async (req, res, next) => {
       .populate('vendor', 'vendorName storeName')
       .populate('createdBy', 'vendorName')
       .populate('updatedBy', 'name vendorName')
-      .populate('approvedBy', 'name email');
+      .populate('approvedBy', 'name email')
+      .lean();
+
+    // Add discount percentage to product
+    const productWithDiscount = {
+      ...populatedProduct,
+      discountPercentage: calculateDiscountPercentage(populatedProduct.regularPrice, populatedProduct.salePrice),
+    };
 
     logger.info(`Product updated: ${product.productName} by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
 
     res.status(200).json({
       success: true,
       message: 'Product updated successfully',
-      data: populatedProduct,
+      data: productWithDiscount,
     });
   } catch (error) {
     logger.error('Update product error:', error);
@@ -212,6 +248,7 @@ exports.deleteProduct = async (req, res, next) => {
       });
     }
 
+    // Ensure vendor can only delete their own products
     if (req.vendor && product.vendor.toString() !== req.vendor._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -219,6 +256,17 @@ exports.deleteProduct = async (req, res, next) => {
       });
     }
 
+    // If admin is deleting, allow it (for future admin delete functionality)
+    if (req.admin) {
+      // Admin can delete any product
+    } else if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized. Only vendors can delete products.',
+      });
+    }
+
+    // Delete images from Cloudinary
     const deletePromises = [];
     if (product.thumbnail && product.thumbnail.publicId) {
       deletePromises.push(deleteFromCloudinary(product.thumbnail.publicId));
@@ -230,15 +278,22 @@ exports.deleteProduct = async (req, res, next) => {
         }
       });
     }
+    
+    // Delete all images (don't fail if some deletions fail)
     await Promise.allSettled(deletePromises);
 
+    // Delete the product from database
     await Product.findByIdAndDelete(req.params.id);
 
-    logger.info(`Product deleted: ${product.productName} by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
+    logger.info(`Product deleted: ${product.productName} (ID: ${product._id}) by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
 
     res.status(200).json({
       success: true,
       message: 'Product deleted successfully',
+      data: {
+        productId: product._id,
+        productName: product.productName,
+      },
     });
   } catch (error) {
     logger.error('Delete product error:', error);

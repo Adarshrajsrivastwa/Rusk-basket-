@@ -104,6 +104,12 @@ const ProductSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Cashback must be greater than or equal to 0'],
   },
+  discountPercentage: {
+    type: Number,
+    default: 0,
+    min: [0, 'Discount percentage cannot be negative'],
+    max: [100, 'Discount percentage cannot exceed 100'],
+  },
   tags: [{
     type: String,
     trim: true,
@@ -169,6 +175,22 @@ const ProductSchema = new mongoose.Schema({
 
 ProductSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
+  
+  // Auto-calculate discount percentage before saving
+  // Only calculate if both regularPrice and salePrice exist
+  if (this.regularPrice != null && this.salePrice != null) {
+    const regularPrice = parseFloat(this.regularPrice);
+    const salePrice = parseFloat(this.salePrice);
+    
+    if (regularPrice > 0 && salePrice < regularPrice) {
+      this.discountPercentage = parseFloat((((regularPrice - salePrice) / regularPrice) * 100).toFixed(2));
+    } else {
+      this.discountPercentage = 0;
+    }
+  } else {
+    this.discountPercentage = 0;
+  }
+  
   next();
 });
 
@@ -183,5 +205,11 @@ ProductSchema.index({ approvalStatus: 1 });
 ProductSchema.index({ isActive: 1 });
 ProductSchema.index({ tags: 1 });
 ProductSchema.index({ createdAt: -1 });
+
+// Geospatial index for location-based queries (2dsphere for better accuracy)
+ProductSchema.index({ latitude: 1, longitude: 1 });
+
+// Compound index for nearby approved products query
+ProductSchema.index({ approvalStatus: 1, isActive: 1, latitude: 1, longitude: 1 });
 
 module.exports = mongoose.model('Product', ProductSchema);

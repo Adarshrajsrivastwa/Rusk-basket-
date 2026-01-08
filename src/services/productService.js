@@ -65,14 +65,32 @@ const parseSKUs = (skus) => {
 
 const parseTags = (tags) => {
   if (!tags) return [];
+  
   try {
-    const parsed = typeof tags === 'string' ? JSON.parse(tags) : tags;
-    if (!Array.isArray(parsed)) {
-      throw new Error('Tags must be an array');
+    // If it's already an array, use it directly
+    if (Array.isArray(tags)) {
+      return tags.map(tag => String(tag).trim().toLowerCase()).filter(tag => tag.length > 0);
     }
-    return parsed.map(tag => tag.trim().toLowerCase()).filter(tag => tag.length > 0);
+    
+    // If it's a string, try to parse it
+    if (typeof tags === 'string') {
+      // First, try to parse as JSON array
+      try {
+        const parsed = JSON.parse(tags);
+        if (Array.isArray(parsed)) {
+          return parsed.map(tag => String(tag).trim().toLowerCase()).filter(tag => tag.length > 0);
+        }
+      } catch (jsonError) {
+        // If JSON parsing fails, treat it as comma-separated string
+        const tagsArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        return tagsArray.map(tag => tag.toLowerCase());
+      }
+    }
+    
+    // If it's not an array or string, throw error
+    throw new Error('Tags must be an array or comma-separated string');
   } catch (error) {
-    throw new Error('Invalid tags format. Must be a valid JSON array');
+    throw new Error('Invalid tags format. Must be a valid JSON array or comma-separated string');
   }
 };
 
