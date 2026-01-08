@@ -110,6 +110,9 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
     cart = await Cart.create({ user: userId, items: [] });
   }
 
+  // Get the current price of the product (salePrice or regularPrice or actualPrice)
+  const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+
   // Check if item already exists in cart
   const existingItemIndex = cart.items.findIndex(
     item => item.product.toString() === productId.toString() && item.sku === sku
@@ -120,12 +123,15 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
     if (newQuantity > availableInventory) {
       throw new Error(`Only ${availableInventory} items available in stock`);
     }
+    // Update quantity and price (in case price changed)
     cart.items[existingItemIndex].quantity = newQuantity;
+    cart.items[existingItemIndex].price = unitPrice;
   } else {
     cart.items.push({
       product: productId,
       quantity,
       sku,
+      price: unitPrice,
     });
   }
 
@@ -230,7 +236,11 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
       throw new Error(`Only ${availableInventory} items available in stock. Please reduce quantity`);
     }
 
+    // Get the current price of the product (salePrice or regularPrice or actualPrice)
+    const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+
     item.quantity = quantity;
+    item.price = unitPrice; // Update price in case it changed
   }
 
   await cart.save();
@@ -777,6 +787,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     .populate('items.vendor', 'storeName storeId')
     .populate('coupon.couponId', 'couponName code');
 };
+
 
 
 

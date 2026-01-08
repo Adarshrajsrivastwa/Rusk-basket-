@@ -23,6 +23,10 @@ const CartSchema = new mongoose.Schema({
       type: String,
       trim: true,
     },
+    price: {
+      type: Number,
+      min: [0, 'Price cannot be negative'],
+    },
     addedAt: {
       type: Date,
       default: Date.now,
@@ -133,7 +137,8 @@ CartSchema.methods.calculateTotals = async function () {
       continue;
     }
 
-    const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+    // Use the stored price from cart item, or fallback to product price if not stored
+    const unitPrice = item.price || (product.salePrice || product.regularPrice || product.actualPrice);
     const itemTotal = unitPrice * item.quantity;
     const itemCashback = (product.cashback || 0) * item.quantity;
 
@@ -166,6 +171,7 @@ CartSchema.methods.calculateTotals = async function () {
       quantity: item.quantity,
       unitPrice: product.actualPrice,
       salePrice: unitPrice,
+      price: unitPrice, // Individual product price stored in cart
       totalPrice: itemTotal,
       cashback: itemCashback,
       sku: item.sku,
@@ -207,6 +213,7 @@ CartSchema.methods.calculateTotals = async function () {
 };
 
 module.exports = mongoose.model('Cart', CartSchema);
+
 
 
 
