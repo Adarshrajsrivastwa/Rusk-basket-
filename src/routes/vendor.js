@@ -2,6 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
+const { getVendorProducts } = require('../controllers/productGet');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -186,6 +187,8 @@ router.put(
 );
 
 router.get('/orders/:id', protectVendor, getVendorOrderById);
+
+router.get('/products', protectVendor, getVendorProducts);
 
 router.get('/:id', protect, getVendor);
 
