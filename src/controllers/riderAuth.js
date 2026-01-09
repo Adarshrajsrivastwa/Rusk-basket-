@@ -52,6 +52,7 @@ exports.riderLogin = async (req, res, next) => {
         message: 'OTP sent to your mobile number',
         mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
         isNewRider: !rider.fullName, // Indicate if this is a new rider (no profile completed)
+        otp: otpCode,
       });
     } catch (smsError) {
       logger.error('Failed to send OTP:', smsError);
@@ -84,6 +85,7 @@ exports.riderLogin = async (req, res, next) => {
               message: 'OTP sent to your mobile number',
               mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
               isNewRider: !rider.fullName,
+              otp: otpCode,
             });
           } catch (smsError) {
             logger.error('Failed to send OTP on retry:', smsError);

@@ -445,9 +445,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
           error: 'Invalid category ID format',
         });
       }
-    }
-
-    // Get unique subcategory IDs from products within radius
+    }    // Get unique subcategory IDs from products within radius
     const products = await Product.find(productQuery)
       .select('subCategory')
       .distinct('subCategory');
