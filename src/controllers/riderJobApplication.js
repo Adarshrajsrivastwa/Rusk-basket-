@@ -128,6 +128,102 @@ exports.getMyApplications = async (req, res, next) => {
   }
 };
 
+// Get all applications for all job posts of a vendor
+exports.getAllVendorApplications = async (req, res, next) => {
+  try {
+    // Only vendors can view their applications
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only vendors can view their applications',
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const status = req.query.status;
+    const jobPostId = req.query.jobPostId;
+
+    // Get all job posts of this vendor
+    const vendorJobPosts = await RiderJobPost.find({ vendor: req.vendor._id }).select('_id');
+    const vendorJobPostIds = vendorJobPosts.map(jp => jp._id);
+
+    if (vendorJobPostIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+        },
+        data: [],
+        message: 'No job posts found for this vendor',
+      });
+    }
+
+    // Build query - filter by vendor's job posts
+    let query = { jobPost: { $in: vendorJobPostIds } };
+
+    // Filter by specific job post if provided
+    if (jobPostId) {
+      // Validate ObjectId format
+      if (!mongoose.Types.ObjectId.isValid(jobPostId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid job post ID format',
+        });
+      }
+
+      // Verify this job post belongs to vendor
+      const jobPostExists = vendorJobPostIds.some(id => id.toString() === jobPostId.toString());
+      if (!jobPostExists) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. This job post does not belong to you.',
+        });
+      }
+      query.jobPost = jobPostId;
+    }
+
+    // Filter by status if provided
+    if (status) {
+      query.status = status;
+    }
+
+    const applications = await RiderJobApplication.find(query)
+      .populate('rider', 'fullName mobileNumber email city currentAddress approvalStatus')
+      .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor')
+      .populate('jobPost.vendor', 'vendorName storeName contactNumber')
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('assignedBy', 'vendorName storeName')
+      .skip(skip)
+      .limit(limit)
+      .sort({ appliedAt: -1 });
+
+    const total = await RiderJobApplication.countDocuments(query);
+
+    logger.info(`Vendor ${req.vendor.email || req.vendor.contactNumber} viewed all applications`);
+
+    res.status(200).json({
+      success: true,
+      count: applications.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: applications,
+    });
+  } catch (error) {
+    logger.error('Get all vendor applications error:', error);
+    next(error);
+  }
+};
+
 // Get applications for a job post (vendor only)
 exports.getJobApplications = async (req, res, next) => {
   try {

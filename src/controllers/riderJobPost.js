@@ -1,10 +1,10 @@
 const RiderJobPost = require('../models/RiderJobPost');
 const Vendor = require('../models/Vendor');
+const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
 
-// Create job post - Only Vendor can post
 exports.createJobPost = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -15,16 +15,17 @@ exports.createJobPost = async (req, res, next) => {
       });
     }
 
-    // Only vendors can create job posts
-    if (!req.vendor) {
+    const isVendor = !!req.vendor;
+    const isAdmin = !!req.admin;
+
+    if (!isVendor && !isAdmin) {
       return res.status(403).json({
         success: false,
-        error: 'Only vendors can create job posts',
+        error: 'Only vendors or admins can create job posts',
       });
     }
 
-    // Ensure vendor is active
-    if (!req.vendor.isActive) {
+    if (isVendor && !req.vendor.isActive) {
       return res.status(403).json({
         success: false,
         error: 'Your vendor account is deactivated',
@@ -35,6 +36,7 @@ exports.createJobPost = async (req, res, next) => {
       jobTitle, 
       joiningBonus, 
       onboardingFee, 
+      vendor: vendorIdFromBody,
       locationLine1,
       locationLine2,
       locationPinCode,
@@ -44,29 +46,64 @@ exports.createJobPost = async (req, res, next) => {
       locationLongitude,
     } = req.body;
 
-    // Vendor is always saved from logged-in vendor credentials
-    const vendorId = req.vendor._id;
-    const postedBy = req.vendor._id;
-    const postedByType = 'Vendor';
+    let vendorId;
+    let postedBy;
+    let postedByType;
 
-    // Ensure no vendor field is passed in request body (vendor comes from credentials only)
-    if (req.body.vendor) {
-      return res.status(400).json({
-        success: false,
-        error: 'Vendor cannot be specified. It is automatically set from your credentials.',
-      });
+    if (isAdmin) {
+      if (!vendorIdFromBody) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vendor ID is required when creating job post as admin',
+        });
+      }
+
+      const selectedVendor = await Vendor.findById(vendorIdFromBody);
+      if (!selectedVendor) {
+        return res.status(404).json({
+          success: false,
+          error: 'Selected vendor not found',
+        });
+      }
+
+      if (!selectedVendor.isActive) {
+        return res.status(400).json({
+          success: false,
+          error: 'Selected vendor account is deactivated',
+        });
+      }
+
+      if (!selectedVendor.storeId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Selected vendor registration is not completed',
+        });
+      }
+
+      vendorId = vendorIdFromBody;
+      postedBy = req.admin._id;
+      postedByType = 'Admin';
+    } else {
+      vendorId = req.vendor._id;
+      postedBy = req.vendor._id;
+      postedByType = 'Vendor';
+
+      if (vendorIdFromBody) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vendor cannot be specified. It is automatically set from your credentials.',
+        });
+      }
     }
 
-    // Validate and process location data
-    if (!locationLine1 || !locationPinCode) {
+      if (!locationLine1 || !locationPinCode) {
       return res.status(400).json({
         success: false,
         error: 'Location address line 1 and PIN code are required',
       });
     }
 
-    // Get city and state from PIN code if not provided
-    let city = locationCity;
+      let city = locationCity;
     let state = locationState;
 
     if (!city || !state) {
@@ -101,12 +138,18 @@ exports.createJobPost = async (req, res, next) => {
       location,
     });
 
-    // Populate vendor and postedBy (always vendor since only vendors can post)
     const populatedJobPost = await RiderJobPost.findById(jobPost._id)
       .populate('vendor', 'vendorName storeName contactNumber email')
-      .populate('postedBy', 'vendorName storeName contactNumber email');
+      .populate({
+        path: 'postedBy',
+        select: 'name email mobile vendorName storeName contactNumber',
+      });
 
-    logger.info(`Rider job post created: ${jobTitle} by Vendor: ${req.vendor.email || req.vendor.contactNumber}`);
+    const createdBy = isAdmin 
+      ? `Admin: ${req.admin.email || req.admin.name || req.admin._id}`
+      : `Vendor: ${req.vendor.email || req.vendor.contactNumber}`;
+    
+    logger.info(`Rider job post created: ${jobTitle} by ${createdBy} for Vendor: ${vendorId}`);
 
     res.status(201).json({
       success: true,
@@ -119,7 +162,6 @@ exports.createJobPost = async (req, res, next) => {
   }
 };
 
-// Get all job posts
 exports.getJobPosts = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -130,32 +172,52 @@ exports.getJobPosts = async (req, res, next) => {
     const city = req.query.city;
     const state = req.query.state;
     const pinCode = req.query.pinCode;
-    const search = req.query.search; // General search parameter
+    const search = req.query.search;
+
+    const isAdmin = !!req.admin;
+    const isVendor = !!req.vendor;
 
     let query = {};
-    if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
-    }
-    if (vendor) {
+
+    if (isVendor) {
+      query.vendor = req.vendor._id;
+    } else if (isAdmin && vendor) {
+      if (!mongoose.Types.ObjectId.isValid(vendor)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid vendor ID format',
+        });
+      }
+      const vendorExists = await Vendor.findById(vendor);
+      if (!vendorExists) {
+        return res.status(404).json({
+          success: false,
+          error: 'Vendor not found',
+        });
+      }
+      query.vendor = vendor;
+    } else if (vendor && !isAdmin && !isVendor) {
+      if (!mongoose.Types.ObjectId.isValid(vendor)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid vendor ID format',
+        });
+      }
       query.vendor = vendor;
     }
 
-    // If vendor is requesting, only show their own posts
-    if (req.vendor) {
-      query.vendor = req.vendor._id;
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    } else if (!isAdmin && !isVendor) {
+      query.isActive = true;
     }
 
-    // Location-based filtering
-    // If city is passed as query param, use it directly
     if (city) {
-      // Case-insensitive partial match for city using MongoDB $regex
-      // Escape special regex characters and trim whitespace
       const citySearch = city.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query['location.city'] = { $regex: citySearch, $options: 'i' };
     }
     
     if (state) {
-      // Case-insensitive partial match for state using MongoDB $regex
       query['location.state'] = { $regex: state.trim(), $options: 'i' };
     }
     
@@ -163,8 +225,6 @@ exports.getJobPosts = async (req, res, next) => {
       query['location.pinCode'] = pinCode.trim();
     }
 
-    // General search - searches in city, state, address, or PIN code
-    // Works even if city parameter is not explicitly passed
     if (search) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       const searchConditions = [
@@ -173,12 +233,10 @@ exports.getJobPosts = async (req, res, next) => {
         { 'location.line1': searchRegex },
       ];
       
-      // Also try exact PIN code match if search is 6 digits
       if (/^\d{6}$/.test(search.trim())) {
         searchConditions.push({ 'location.pinCode': search.trim() });
       }
       
-      // If we have specific location filters (city, state, pinCode), combine them with $and
       const locationFilters = {};
       if (query['location.city']) {
         locationFilters['location.city'] = query['location.city'];
@@ -194,18 +252,15 @@ exports.getJobPosts = async (req, res, next) => {
       }
       
       if (Object.keys(locationFilters).length > 0) {
-        // Combine location filters with search using $and
         query['$and'] = [
           locationFilters,
           { $or: searchConditions }
         ];
       } else {
-        // Just use search
         query['$or'] = searchConditions;
       }
     }
     
-    // Log the query for debugging
     logger.info('Job posts query:', JSON.stringify(query, null, 2));
 
     const jobPosts = await RiderJobPost.find(query)
@@ -234,7 +289,6 @@ exports.getJobPosts = async (req, res, next) => {
   }
 };
 
-// Get single job post
 exports.getJobPost = async (req, res, next) => {
   try {
     const jobPost = await RiderJobPost.findById(req.params.id)
@@ -248,7 +302,6 @@ exports.getJobPost = async (req, res, next) => {
       });
     }
 
-    // If vendor is requesting, ensure they can only see their own posts
     if (req.vendor && jobPost.vendor._id.toString() !== req.vendor._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -266,7 +319,6 @@ exports.getJobPost = async (req, res, next) => {
   }
 };
 
-// Update job post
 exports.updateJobPost = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -286,7 +338,6 @@ exports.updateJobPost = async (req, res, next) => {
       });
     }
 
-    // Only vendors can update job posts
     if (!req.vendor) {
       return res.status(403).json({
         success: false,
@@ -294,7 +345,6 @@ exports.updateJobPost = async (req, res, next) => {
       });
     }
 
-    // Vendor can only update their own posts
     if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -315,7 +365,6 @@ exports.updateJobPost = async (req, res, next) => {
       locationLongitude,
     } = req.body;
 
-    // Ensure vendor cannot be changed (vendor comes from credentials only)
     if (req.body.vendor) {
       return res.status(400).json({
         success: false,
@@ -327,13 +376,11 @@ exports.updateJobPost = async (req, res, next) => {
     if (joiningBonus !== undefined) jobPost.joiningBonus = joiningBonus;
     if (onboardingFee !== undefined) jobPost.onboardingFee = onboardingFee;
 
-    // Handle location updates
     if (locationLine1 || locationPinCode) {
       const pinCode = locationPinCode || jobPost.location.pinCode;
       let city = locationCity;
       let state = locationState;
 
-      // If PIN code is being updated or city/state not provided, fetch from API
       if (locationPinCode && (!city || !state)) {
         const postOfficeData = await getPostOfficeDetails(pinCode);
         if (!postOfficeData.success) {
@@ -345,7 +392,6 @@ exports.updateJobPost = async (req, res, next) => {
         city = city || postOfficeData.city;
         state = state || postOfficeData.state;
       } else if (!city || !state) {
-        // Use existing city/state if not provided
         city = city || jobPost.location.city;
         state = state || jobPost.location.state;
       }
@@ -380,7 +426,6 @@ exports.updateJobPost = async (req, res, next) => {
   }
 };
 
-// Delete job post
 exports.deleteJobPost = async (req, res, next) => {
   try {
     const jobPost = await RiderJobPost.findById(req.params.id);
@@ -392,7 +437,6 @@ exports.deleteJobPost = async (req, res, next) => {
       });
     }
 
-    // Only vendors can delete job posts
     if (!req.vendor) {
       return res.status(403).json({
         success: false,
@@ -400,7 +444,6 @@ exports.deleteJobPost = async (req, res, next) => {
       });
     }
 
-    // Vendor can only delete their own posts
     if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -422,7 +465,6 @@ exports.deleteJobPost = async (req, res, next) => {
   }
 };
 
-// Toggle job post status
 exports.toggleJobPostStatus = async (req, res, next) => {
   try {
     const jobPost = await RiderJobPost.findById(req.params.id);
@@ -434,7 +476,6 @@ exports.toggleJobPostStatus = async (req, res, next) => {
       });
     }
 
-    // Only vendors can toggle job post status
     if (!req.vendor) {
       return res.status(403).json({
         success: false,
@@ -442,7 +483,6 @@ exports.toggleJobPostStatus = async (req, res, next) => {
       });
     }
 
-    // Vendor can only toggle their own posts
     if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
       return res.status(403).json({
         success: false,

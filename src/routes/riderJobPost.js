@@ -1,5 +1,5 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 const {
   createJobPost,
   getJobPosts,
@@ -9,10 +9,10 @@ const {
   toggleJobPostStatus,
 } = require('../controllers/riderJobPost');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
+const { protect: protectAdmin } = require('../middleware/adminAuth');
 
 const router = express.Router();
 
-// Create job post - Only Vendor can post
 router.post(
   '/create',
   protectVendor,
@@ -64,13 +64,111 @@ router.post(
   createJobPost
 );
 
-// Get all job posts - Public or filtered by vendor
-router.get('/', getJobPosts);
+router.post(
+  '/admin/create',
+  protectAdmin,
+  [
+    body('jobTitle')
+      .trim()
+      .notEmpty()
+      .withMessage('Job title is required')
+      .isLength({ max: 200 })
+      .withMessage('Job title cannot be more than 200 characters'),
+    body('joiningBonus')
+      .notEmpty()
+      .withMessage('Joining bonus is required')
+      .isFloat({ min: 0 })
+      .withMessage('Joining bonus must be a number greater than or equal to 0'),
+    body('onboardingFee')
+      .notEmpty()
+      .withMessage('Onboarding fee is required')
+      .isFloat({ min: 0 })
+      .withMessage('Onboarding fee must be a number greater than or equal to 0'),
+    body('vendor')
+      .notEmpty()
+      .withMessage('Vendor ID is required when creating job post as admin')
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+    body('locationLine1')
+      .trim()
+      .notEmpty()
+      .withMessage('Location address line 1 is required'),
+    body('locationPinCode')
+      .trim()
+      .notEmpty()
+      .withMessage('PIN code is required')
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('locationLine2')
+      .optional()
+      .trim(),
+    body('locationCity')
+      .optional()
+      .trim(),
+    body('locationState')
+      .optional()
+      .trim(),
+    body('locationLatitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('locationLongitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+  ],
+  createJobPost
+);
 
-// Get single job post
+router.get(
+  '/',
+  [
+    query('vendor')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+  ],
+  getJobPosts
+);
+
+router.get(
+  '/admin/all',
+  protectAdmin,
+  [
+    query('vendor')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+  ],
+  getJobPosts
+);
+
 router.get('/:id', getJobPost);
 
-// Update job post - Only Vendor (vendor can only update their own)
 router.put(
   '/:id',
   protectVendor,
@@ -121,14 +219,12 @@ router.put(
   updateJobPost
 );
 
-// Delete job post - Only Vendor (vendor can only delete their own)
 router.delete(
   '/:id',
   protectVendor,
   deleteJobPost
 );
 
-// Toggle job post status - Only Vendor (vendor can only toggle their own)
 router.patch(
   '/:id/toggle-status',
   protectVendor,

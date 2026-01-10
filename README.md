@@ -244,6 +244,11 @@ The API will be available at `http://localhost:3000`
 
 - `POST /api/product/add` - Add product (vendor only)
 - `GET /api/product` - Get all products (public)
+  - Query params: `?latitude=xx&longitude=xx&radius=10` - Filter by location and radius (km)
+  - Query params: `?category=xxx`, `?subCategory=xxx`, `?search=xxx`
+  - Products are filtered by:
+    1. User's query radius (if location provided)
+    2. Vendor's service radius (product shown if user is within vendor's delivery radius)
 - `GET /api/product/:id` - Get product by ID (public)
 - `PUT /api/product/:id` - Update product (vendor/admin)
 - `DELETE /api/product/:id` - Delete product (vendor/admin)
@@ -310,12 +315,26 @@ The API will be available at `http://localhost:3000`
 
 ### Rider Job Posts
 
-- `POST /api/rider-job-post` - Create job post (vendor only)
-- `GET /api/rider-job-post` - Get job posts (public with filters)
+- `POST /api/rider-job-post/create` - Create job post (vendor only, vendor auto-selected from credentials)
+- `POST /api/rider-job-post/admin/create` - Create job post (admin only, must select vendor)
+- `GET /api/rider-job-post` - Get job posts (public/vendor/admin)
+  - Public: See all active posts (can filter by vendor, city, state, etc.)
+  - Vendor: See only their own posts (vendor query param ignored for security)
+  - Admin: See all posts, can filter by any vendor using `?vendor=vendorId`
+- `GET /api/rider-job-post/admin/all` - Get all job posts (admin only, can filter by any vendor)
 - `GET /api/rider-job-post/:id` - Get job post by ID (public)
 - `PUT /api/rider-job-post/:id` - Update job post (vendor only, own posts)
 - `DELETE /api/rider-job-post/:id` - Delete job post (vendor only, own posts)
-- `PUT /api/rider-job-post/:id/toggle-status` - Toggle job post status (vendor only, own posts)
+- `PATCH /api/rider-job-post/:id/toggle-status` - Toggle job post status (vendor only, own posts)
+
+#### Vendor Routes for Job Posts
+
+- `POST /api/vendor/job-posts/create` - Create job post (vendor only)
+- `GET /api/vendor/job-posts` - Get all job posts for this vendor (vendor only)
+- `GET /api/vendor/job-posts/:id` - Get single job post (vendor can only see their own)
+- `PUT /api/vendor/job-posts/:id` - Update job post (vendor can only update their own)
+- `DELETE /api/vendor/job-posts/:id` - Delete job post (vendor can only delete their own)
+- `PATCH /api/vendor/job-posts/:id/toggle-status` - Toggle job post status (vendor can only toggle their own)
 
 ### Rider Job Applications
 
@@ -326,6 +345,16 @@ The API will be available at `http://localhost:3000`
 - `PUT /api/rider-job-application/:applicationId/review` - Review application (approve/reject) (vendor only)
 - `PUT /api/rider-job-application/:applicationId/assign` - Assign rider to job (vendor only)
 - `GET /api/rider-job-application/job/:jobPostId/assigned` - Get assigned riders for job post (vendor only)
+
+#### Vendor Routes for Job Applications
+
+- `GET /api/vendor/job-applications` - Get all applications for all job posts of this vendor (vendor only)
+  - Query params: `?status=pending`, `?jobPostId=xxx`, `?page=1&limit=10`
+- `GET /api/vendor/job-posts/:jobPostId/applications` - Get applications for a specific job post (vendor only)
+- `GET /api/vendor/job-applications/:applicationId` - Get single application (vendor can only see applications for their own job posts)
+- `PUT /api/vendor/job-applications/:applicationId/review` - Review application (approve/reject) (vendor only)
+- `PUT /api/vendor/job-applications/:applicationId/assign` - Assign rider to job (vendor only)
+- `GET /api/vendor/job-posts/:jobPostId/assigned-riders` - Get assigned riders for a job post (vendor only)
 
 ### Health Check
 

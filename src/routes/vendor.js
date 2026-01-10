@@ -3,6 +3,8 @@ const { body } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
 const { getVendorProducts } = require('../controllers/productGet');
+const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
+const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -189,6 +191,168 @@ router.put(
 router.get('/orders/:id', protectVendor, getVendorOrderById);
 
 router.get('/products', protectVendor, getVendorProducts);
+
+// Rider Job Posting Routes - Vendor specific
+// Create job post - Only Vendor can post
+router.post(
+  '/job-posts/create',
+  protectVendor,
+  [
+    body('jobTitle')
+      .trim()
+      .notEmpty()
+      .withMessage('Job title is required')
+      .isLength({ max: 200 })
+      .withMessage('Job title cannot be more than 200 characters'),
+    body('joiningBonus')
+      .notEmpty()
+      .withMessage('Joining bonus is required')
+      .isFloat({ min: 0 })
+      .withMessage('Joining bonus must be a number greater than or equal to 0'),
+    body('onboardingFee')
+      .notEmpty()
+      .withMessage('Onboarding fee is required')
+      .isFloat({ min: 0 })
+      .withMessage('Onboarding fee must be a number greater than or equal to 0'),
+    body('locationLine1')
+      .trim()
+      .notEmpty()
+      .withMessage('Location address line 1 is required'),
+    body('locationPinCode')
+      .trim()
+      .notEmpty()
+      .withMessage('PIN code is required')
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('locationLine2')
+      .optional()
+      .trim(),
+    body('locationCity')
+      .optional()
+      .trim(),
+    body('locationState')
+      .optional()
+      .trim(),
+    body('locationLatitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('locationLongitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+  ],
+  createJobPost
+);
+
+// Get all job posts for this vendor
+router.get('/job-posts', protectVendor, getJobPosts);
+
+// Get single job post (vendor can only see their own)
+router.get('/job-posts/:id', protectVendor, getJobPost);
+
+// Update job post - Only Vendor (vendor can only update their own)
+router.put(
+  '/job-posts/:id',
+  protectVendor,
+  [
+    body('jobTitle')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Job title cannot be empty')
+      .isLength({ max: 200 })
+      .withMessage('Job title cannot be more than 200 characters'),
+    body('joiningBonus')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Joining bonus must be a number greater than or equal to 0'),
+    body('onboardingFee')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Onboarding fee must be a number greater than or equal to 0'),
+    body('locationLine1')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Location address line 1 cannot be empty'),
+    body('locationPinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('locationLine2')
+      .optional()
+      .trim(),
+    body('locationCity')
+      .optional()
+      .trim(),
+    body('locationState')
+      .optional()
+      .trim(),
+    body('locationLatitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('locationLongitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+  ],
+  updateJobPost
+);
+
+// Delete job post - Only Vendor (vendor can only delete their own)
+router.delete('/job-posts/:id', protectVendor, deleteJobPost);
+
+// Toggle job post status - Only Vendor (vendor can only toggle their own)
+router.patch('/job-posts/:id/toggle-status', protectVendor, toggleJobPostStatus);
+
+// Rider Job Application Routes - Vendor specific
+// Get all applications for all job posts of this vendor (with optional filters)
+router.get('/job-applications', protectVendor, getAllVendorApplications);
+
+// Get applications for a specific job post
+router.get('/job-posts/:jobPostId/applications', protectVendor, getJobApplications);
+
+// Get single application (vendor can only see applications for their job posts)
+router.get('/job-applications/:applicationId', protectVendor, getApplication);
+
+// Review application (approve/reject)
+router.put(
+  '/job-applications/:applicationId/review',
+  protectVendor,
+  [
+    body('status')
+      .notEmpty()
+      .withMessage('Status is required')
+      .isIn(['approved', 'rejected'])
+      .withMessage('Status must be either "approved" or "rejected"'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  reviewApplication
+);
+
+// Assign rider to job (rider must be approved first)
+router.put(
+  '/job-applications/:applicationId/assign',
+  protectVendor,
+  [
+    body('assignmentNotes')
+      .optional()
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Assignment notes cannot be more than 1000 characters'),
+  ],
+  assignRider
+);
+
+// Get assigned riders for a job post
+router.get('/job-posts/:jobPostId/assigned-riders', protectVendor, getAssignedRiders);
 
 router.get('/:id', protect, getVendor);
 

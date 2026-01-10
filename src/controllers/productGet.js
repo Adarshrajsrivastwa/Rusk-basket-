@@ -286,7 +286,7 @@ exports.getNearbyProducts = async (req, res, next) => {
     const products = await Product.find(query)
       .populate('category', 'name categoryName')
       .populate('subCategory', 'name subCategoryName')
-      .populate('vendor', 'vendorName storeName contactNumber')
+      .populate('vendor', 'vendorName storeName contactNumber serviceRadius storeAddress')
       .populate('createdBy', 'vendorName')
       .lean();
 
@@ -294,25 +294,73 @@ exports.getNearbyProducts = async (req, res, next) => {
     let total;
 
     if (hasLocation) {
-      // Calculate distance for each product and filter by radius
+      // Calculate distance for each product and filter by user query radius OR vendor serviceRadius
+      // Product will be shown if:
+      // 1. Product location is within user's query radius, OR
+      // 2. User location is within vendor's serviceRadius (even if product is not in user's query radius)
       const productsWithDistance = products
         .map(product => {
+          // Check if vendor exists and has storeAddress with coordinates and serviceRadius
+          if (!product.vendor || !product.vendor.storeAddress) {
+            return null;
+          }
+
+          const vendorLat = product.vendor.storeAddress.latitude;
+          const vendorLon = product.vendor.storeAddress.longitude;
+          const vendorServiceRadius = product.vendor.serviceRadius || 0;
+
+          if (!vendorLat || !vendorLon || vendorServiceRadius <= 0) {
+            return null;
+          }
+
+          // Calculate distance from user location to vendor store location
+          const vendorStoreDistance = calculateDistance(
+            userLat,
+            userLon,
+            vendorLat,
+            vendorLon
+          );
+
+          // Calculate distance from user location to product location (if product has coordinates)
+          let productDistance = null;
           if (product.latitude && product.longitude) {
-            const distance = calculateDistance(
+            productDistance = calculateDistance(
               userLat,
               userLon,
               product.latitude,
               product.longitude
             );
-            return {
-              ...product,
-              distance: parseFloat(distance.toFixed(2)), // Distance in km, rounded to 2 decimals
-              discountPercentage: calculateDiscountPercentage(product.regularPrice, product.salePrice),
-            };
           }
-          return null;
+
+          // Product should be shown if EITHER:
+          // 1. Product is within user's query radius, OR
+          // 2. User is within vendor's serviceRadius (regardless of product location)
+          let shouldShow = false;
+          let displayDistance = null;
+
+          // Check if product location is within user's query radius
+          if (productDistance !== null && productDistance <= searchRadius) {
+            shouldShow = true;
+            displayDistance = productDistance;
+          }
+          // Check if user is within vendor's serviceRadius
+          else if (vendorStoreDistance <= vendorServiceRadius) {
+            shouldShow = true;
+            // Use vendor store distance for sorting if product distance is not available
+            displayDistance = productDistance !== null ? productDistance : vendorStoreDistance;
+          }
+
+          if (!shouldShow) {
+            return null;
+          }
+
+          return {
+            ...product,
+            distance: parseFloat(displayDistance.toFixed(2)), // Distance in km, rounded to 2 decimals
+            discountPercentage: calculateDiscountPercentage(product.regularPrice, product.salePrice),
+          };
         })
-        .filter(product => product !== null && product.distance <= searchRadius)
+        .filter(product => product !== null)
         .sort((a, b) => a.distance - b.distance); // Sort by distance (nearest first)
 
       total = productsWithDistance.length;
