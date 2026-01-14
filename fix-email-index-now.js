@@ -1,8 +1,3 @@
-/**
- * Quick Fix Script - Run this immediately to fix index issues (email, phone, etc.)
- * 
- * Usage: node fix-email-index-now.js
- */
 
 require('dotenv').config();
 const mongoose = require('mongoose');

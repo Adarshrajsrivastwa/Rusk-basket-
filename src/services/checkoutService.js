@@ -51,14 +51,7 @@ const validateProductAvailability = (product) => {
  * Get or create cart for user
  */
 exports.getOrCreateCart = async (userId) => {
-  let cart = await Cart.findOne({ user: userId }).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  });
+  let cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
     cart = await Cart.create({ user: userId, items: [] });
@@ -110,10 +103,17 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
     cart = await Cart.create({ user: userId, items: [] });
   }
 
-  // Get the current price of the product (salePrice or regularPrice or actualPrice)
   const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+  const totalPrice = unitPrice * quantity;
 
-  // Check if item already exists in cart
+  let thumbnail = undefined;
+  if (product.thumbnail && product.thumbnail.url) {
+    thumbnail = {
+      url: product.thumbnail.url,
+      publicId: product.thumbnail.publicId || undefined,
+    };
+  }
+
   const existingItemIndex = cart.items.findIndex(
     item => item.product.toString() === productId.toString() && item.sku === sku
   );
@@ -123,32 +123,30 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
     if (newQuantity > availableInventory) {
       throw new Error(`Only ${availableInventory} items available in stock`);
     }
-    // Update quantity and price (in case price changed)
+    const newTotalPrice = unitPrice * newQuantity;
     cart.items[existingItemIndex].quantity = newQuantity;
     cart.items[existingItemIndex].price = unitPrice;
+    cart.items[existingItemIndex].unitPrice = unitPrice;
+    cart.items[existingItemIndex].totalPrice = newTotalPrice;
+    if (thumbnail) {
+      cart.items[existingItemIndex].thumbnail = thumbnail;
+    }
   } else {
     cart.items.push({
       product: productId,
       quantity,
       sku,
       price: unitPrice,
+      unitPrice: unitPrice,
+      totalPrice: totalPrice,
+      thumbnail: thumbnail,
     });
   }
 
   await cart.save();
-  return await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  });
+  return await Cart.findById(cart._id);
 };
 
-/**
- * Update cart item quantity
- */
 exports.updateCartItem = async (userId, itemId, quantity) => {
   const cart = await Cart.findOne({ user: userId });
 
@@ -236,27 +234,30 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
       throw new Error(`Only ${availableInventory} items available in stock. Please reduce quantity`);
     }
 
-    // Get the current price of the product (salePrice or regularPrice or actualPrice)
     const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+    const totalPrice = unitPrice * quantity;
+
+    let thumbnail = undefined;
+    if (product.thumbnail && product.thumbnail.url) {
+      thumbnail = {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId || undefined,
+      };
+    }
 
     item.quantity = quantity;
-    item.price = unitPrice; // Update price in case it changed
+    item.price = unitPrice;
+    item.unitPrice = unitPrice;
+    item.totalPrice = totalPrice;
+    if (thumbnail) {
+      item.thumbnail = thumbnail;
+    }
   }
 
   await cart.save();
-  return await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  });
+  return await Cart.findById(cart._id);
 };
 
-/**
- * Remove item from cart
- */
 exports.removeFromCart = async (userId, itemId) => {
   const cart = await Cart.findOne({ user: userId });
 
@@ -267,14 +268,7 @@ exports.removeFromCart = async (userId, itemId) => {
   cart.items.pull(itemId);
   await cart.save();
 
-  return await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  });
+  return await Cart.findById(cart._id);
 };
 
 /**
@@ -353,14 +347,7 @@ exports.applyCoupon = async (userId, couponCode) => {
 
   await cart.save();
 
-  return await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  }).populate('coupon.couponId');
+  return await Cart.findById(cart._id).populate('coupon.couponId');
 };
 
 /**
@@ -376,30 +363,13 @@ exports.removeCoupon = async (userId) => {
   cart.coupon = undefined;
   await cart.save();
 
-  return await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  });
+  return await Cart.findById(cart._id);
 };
 
-/**
- * Get cart with calculated totals
- */
 exports.getCartWithTotals = async (userId) => {
-  const cart = await Cart.findOne({ user: userId }).populate({
-    path: 'items.product',
-    select: 'productName thumbnail actualPrice regularPrice salePrice cashback inventory skus isActive approvalStatus vendor',
-    populate: {
-      path: 'vendor',
-      select: 'storeName storeId isActive',
-    },
-  }).populate('coupon.couponId');
+  const cart = await Cart.findOne({ user: userId }).populate('coupon.couponId');
 
-  if (!cart) {
+  if (!cart || !cart.items || cart.items.length === 0) {
     return {
       items: [],
       unavailableItems: [],
@@ -411,21 +381,173 @@ exports.getCartWithTotals = async (userId) => {
         total: 0,
         totalCashback: 0,
       },
+      totalPrice: 0,
     };
   }
 
-  const totals = await cart.calculateTotals();
+  const Product = require('../models/Product');
+  const Coupon = require('../models/Coupon');
 
-  // Remove unavailable items from cart if any
-  if (totals.unavailableItems && totals.unavailableItems.length > 0) {
-    const itemIdsToRemove = totals.unavailableItems.map(item => item.itemId);
+  let subtotal = 0;
+  let totalCashback = 0;
+  const itemsWithDetails = [];
+  const unavailableItems = [];
+
+  for (const item of cart.items) {
+    const product = await Product.findById(item.product)
+      .populate('vendor', 'storeName storeId isActive');
+
+    if (!product) {
+      unavailableItems.push({
+        itemId: item._id,
+        reason: 'Product not found',
+      });
+      continue;
+    }
+
+    if (!product.vendor || !product.vendor.isActive) {
+      unavailableItems.push({
+        itemId: item._id,
+        productName: product.productName,
+        reason: 'Vendor is inactive',
+      });
+      continue;
+    }
+
+    if (!product.isActive) {
+      unavailableItems.push({
+        itemId: item._id,
+        productName: product.productName,
+        reason: 'Product is inactive',
+      });
+      continue;
+    }
+
+    const approvalStatus = product.approvalStatus ? String(product.approvalStatus).trim().toLowerCase() : null;
+
+    if (!approvalStatus || approvalStatus !== 'approved') {
+      const statusMessages = {
+        'pending': 'Product is pending approval',
+        'rejected': 'Product has been rejected',
+      };
+      unavailableItems.push({
+        itemId: item._id,
+        productName: product.productName,
+        reason: statusMessages[approvalStatus] || `Product status is ${product.approvalStatus}`,
+      });
+      continue;
+    }
+
+    const availableInventory = product.skus && product.skus.length > 0
+      ? product.skus.find(s => s.sku === item.sku)?.inventory || 0
+      : product.inventory;
+
+    if (availableInventory < item.quantity) {
+      unavailableItems.push({
+        itemId: item._id,
+        productName: product.productName,
+        reason: `Only ${availableInventory} items available in stock`,
+      });
+      continue;
+    }
+
+    const unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
+    const itemTotal = item.totalPrice || (unitPrice * item.quantity);
+    const itemCashback = (product.cashback || 0) * item.quantity;
+
+    subtotal += itemTotal;
+    totalCashback += itemCashback;
+
+    const vendorId = product.vendor && typeof product.vendor === 'object' && product.vendor._id
+      ? product.vendor._id
+      : product.vendor;
+
+    let thumbnail = undefined;
+    if (item.thumbnail && item.thumbnail.url) {
+      thumbnail = {
+        url: item.thumbnail.url,
+        publicId: item.thumbnail.publicId || undefined,
+      };
+    } else if (product.thumbnail && typeof product.thumbnail === 'object' && product.thumbnail.url) {
+      thumbnail = {
+        url: product.thumbnail.url || undefined,
+        publicId: product.thumbnail.publicId || undefined,
+      };
+      if (!thumbnail.url) {
+        thumbnail = undefined;
+      }
+    }
+
+    itemsWithDetails.push({
+      itemId: item._id,
+      product: product._id,
+      vendor: vendorId,
+      productName: product.productName,
+      thumbnail: thumbnail,
+      quantity: item.quantity,
+      unitPrice: unitPrice,
+      salePrice: unitPrice,
+      price: unitPrice,
+      totalPrice: itemTotal,
+      cashback: itemCashback,
+      sku: item.sku,
+    });
+  }
+
+  let discount = 0;
+  if (cart.coupon && cart.coupon.couponId) {
+    const coupon = await Coupon.findById(cart.coupon.couponId);
+    if (coupon && coupon.isValid()) {
+      const discountResult = coupon.calculateDiscount(subtotal);
+      if (discountResult.valid) {
+        discount = discountResult.discount;
+      }
+    }
+  }
+
+  const shipping = subtotal >= 500 ? 0 : 50;
+  const tax = (subtotal - discount) * 0.05;
+  const total = subtotal - discount + shipping + tax;
+
+  if (unavailableItems.length > 0) {
+    const itemIdsToRemove = unavailableItems.map(item => item.itemId);
     cart.items = cart.items.filter(item => !itemIdsToRemove.includes(item._id.toString()));
+    cart.totalPrice = parseFloat(total.toFixed(2));
+    await cart.save();
+  } else {
+    cart.totalPrice = parseFloat(total.toFixed(2));
     await cart.save();
   }
 
+  const cartData = cart.toObject();
+  delete cartData.items;
+
   return {
-    cart: cart,
-    ...totals,
+    cart: {
+      ...cartData,
+      items: itemsWithDetails.map(item => ({
+        _id: item.itemId,
+        product: item.product,
+        quantity: item.quantity,
+        sku: item.sku,
+        price: item.price,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        thumbnail: item.thumbnail,
+        addedAt: cart.items.find(i => i._id.toString() === item.itemId.toString())?.addedAt,
+      })),
+    },
+    items: itemsWithDetails,
+    unavailableItems: unavailableItems,
+    pricing: {
+      subtotal: parseFloat(subtotal.toFixed(2)),
+      discount: parseFloat(discount.toFixed(2)),
+      shipping: parseFloat(shipping.toFixed(2)),
+      tax: parseFloat(tax.toFixed(2)),
+      total: parseFloat(total.toFixed(2)),
+      totalCashback: parseFloat(totalCashback.toFixed(2)),
+    },
+    totalPrice: parseFloat(total.toFixed(2)),
   };
 };
 

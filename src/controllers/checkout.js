@@ -4,6 +4,8 @@ const { validationResult } = require('express-validator');
 
 exports.getCart = async (req, res, next) => {
   try {
+
+    console.log('Fetching cart for user:', req.user._id);
     const result = await checkoutService.getCartWithTotals(req.user._id);
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({

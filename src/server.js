@@ -35,6 +35,7 @@ const queueRoutes = require('./routes/queue');
 const riderJobPostRoutes = require('./routes/riderJobPost');
 const riderJobApplicationRoutes = require('./routes/riderJobApplication');
 const bannerRoutes = require('./routes/banner');
+const analyticsRoutes = require('./routes/analytics');
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -90,6 +91,7 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/rider-job-post', riderJobPostRoutes);
 app.use('/api/rider-job-application', riderJobApplicationRoutes);
 app.use('/api/banner', bannerRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

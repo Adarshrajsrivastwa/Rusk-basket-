@@ -1,10 +1,11 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
+const { updateInventory, getInventory, getAllInventory } = require('../controllers/inventory');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -192,8 +193,6 @@ router.get('/orders/:id', protectVendor, getVendorOrderById);
 
 router.get('/products', protectVendor, getVendorProducts);
 
-// Rider Job Posting Routes - Vendor specific
-// Create job post - Only Vendor can post
 router.post(
   '/job-posts/create',
   protectVendor,
@@ -245,13 +244,10 @@ router.post(
   createJobPost
 );
 
-// Get all job posts for this vendor
 router.get('/job-posts', protectVendor, getJobPosts);
 
-// Get single job post (vendor can only see their own)
 router.get('/job-posts/:id', protectVendor, getJobPost);
 
-// Update job post - Only Vendor (vendor can only update their own)
 router.put(
   '/job-posts/:id',
   protectVendor,
@@ -302,23 +298,16 @@ router.put(
   updateJobPost
 );
 
-// Delete job post - Only Vendor (vendor can only delete their own)
 router.delete('/job-posts/:id', protectVendor, deleteJobPost);
 
-// Toggle job post status - Only Vendor (vendor can only toggle their own)
 router.patch('/job-posts/:id/toggle-status', protectVendor, toggleJobPostStatus);
 
-// Rider Job Application Routes - Vendor specific
-// Get all applications for all job posts of this vendor (with optional filters)
 router.get('/job-applications', protectVendor, getAllVendorApplications);
 
-// Get applications for a specific job post
 router.get('/job-posts/:jobPostId/applications', protectVendor, getJobApplications);
 
-// Get single application (vendor can only see applications for their job posts)
 router.get('/job-applications/:applicationId', protectVendor, getApplication);
 
-// Review application (approve/reject)
 router.put(
   '/job-applications/:applicationId/review',
   protectVendor,
@@ -337,7 +326,6 @@ router.put(
   reviewApplication
 );
 
-// Assign rider to job (rider must be approved first)
 router.put(
   '/job-applications/:applicationId/assign',
   protectVendor,
@@ -351,8 +339,65 @@ router.put(
   assignRider
 );
 
-// Get assigned riders for a job post
 router.get('/job-posts/:jobPostId/assigned-riders', protectVendor, getAssignedRiders);
+
+router.get(
+  '/inventory',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search term cannot exceed 200 characters'),
+  ],
+  getAllInventory
+);
+
+router.get('/inventory/:id', protectVendor, getInventory);
+
+router.put(
+  '/inventory/:id',
+  protectVendor,
+  [
+    body('inventory')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Inventory must be a number greater than or equal to 0'),
+    body('action')
+      .optional()
+      .isIn(['add', 'subtract', 'set'])
+      .withMessage('Action must be one of: add, subtract, set'),
+    body('skus')
+      .optional()
+      .isArray()
+      .withMessage('SKUs must be an array'),
+    body('skus.*.sku')
+      .if(body('skus').exists())
+      .trim()
+      .notEmpty()
+      .withMessage('Each SKU must have a valid sku string'),
+    body('skus.*.inventory')
+      .if(body('skus').exists())
+      .isFloat({ min: 0 })
+      .withMessage('Each SKU inventory must be a number greater than or equal to 0'),
+    body().custom((value, { req }) => {
+      if (!req.body.inventory && (!req.body.skus || !Array.isArray(req.body.skus) || req.body.skus.length === 0)) {
+        throw new Error('Either inventory or skus must be provided');
+      }
+      return true;
+    }),
+  ],
+  updateInventory
+);
 
 router.get('/:id', protect, getVendor);
 

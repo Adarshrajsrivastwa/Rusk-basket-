@@ -27,6 +27,22 @@ const CartSchema = new mongoose.Schema({
       type: Number,
       min: [0, 'Price cannot be negative'],
     },
+    unitPrice: {
+      type: Number,
+      min: [0, 'Unit price cannot be negative'],
+    },
+    totalPrice: {
+      type: Number,
+      min: [0, 'Total price cannot be negative'],
+    },
+    thumbnail: {
+      url: {
+        type: String,
+      },
+      publicId: {
+        type: String,
+      },
+    },
     addedAt: {
       type: Date,
       default: Date.now,
@@ -43,6 +59,11 @@ const CartSchema = new mongoose.Schema({
       uppercase: true,
     },
   },
+  totalPrice: {
+    type: Number,
+    default: 0,
+    min: [0, 'Total price cannot be negative'],
+  },
   updatedAt: {
     type: Date,
     default: Date.now,
@@ -51,6 +72,15 @@ const CartSchema = new mongoose.Schema({
 
 CartSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
+  
+  let itemsTotal = 0;
+  if (this.items && this.items.length > 0) {
+    itemsTotal = this.items.reduce((sum, item) => {
+      return sum + (item.totalPrice || (item.unitPrice || item.price || 0) * item.quantity || 0);
+    }, 0);
+  }
+  
+  this.totalPrice = itemsTotal;
   next();
 });
 
@@ -137,27 +167,28 @@ CartSchema.methods.calculateTotals = async function () {
       continue;
     }
 
-    // Use the stored price from cart item, or fallback to product price if not stored
-    const unitPrice = item.price || (product.salePrice || product.regularPrice || product.actualPrice);
-    const itemTotal = unitPrice * item.quantity;
+    const unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
+    const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
 
     subtotal += itemTotal;
     totalCashback += itemCashback;
 
-    // Handle vendor - could be ObjectId or populated object
     const vendorId = product.vendor && typeof product.vendor === 'object' && product.vendor._id
       ? product.vendor._id
       : product.vendor;
 
-    // Handle thumbnail - ensure it's an object or undefined, not null
     let thumbnail = undefined;
-    if (product.thumbnail && typeof product.thumbnail === 'object') {
+    if (item.thumbnail && item.thumbnail.url) {
+      thumbnail = {
+        url: item.thumbnail.url,
+        publicId: item.thumbnail.publicId || undefined,
+      };
+    } else if (product.thumbnail && typeof product.thumbnail === 'object' && product.thumbnail.url) {
       thumbnail = {
         url: product.thumbnail.url || undefined,
         publicId: product.thumbnail.publicId || undefined,
       };
-      // Only set thumbnail if it has at least a URL
       if (!thumbnail.url) {
         thumbnail = undefined;
       }
@@ -169,9 +200,9 @@ CartSchema.methods.calculateTotals = async function () {
       productName: product.productName,
       thumbnail: thumbnail,
       quantity: item.quantity,
-      unitPrice: product.actualPrice,
+      unitPrice: unitPrice,
       salePrice: unitPrice,
-      price: unitPrice, // Individual product price stored in cart
+      price: unitPrice,
       totalPrice: itemTotal,
       cashback: itemCashback,
       sku: item.sku,
@@ -197,6 +228,9 @@ CartSchema.methods.calculateTotals = async function () {
   const tax = (subtotal - discount) * 0.05;
 
   const total = subtotal - discount + shipping + tax;
+
+  this.totalPrice = parseFloat(total.toFixed(2));
+  await this.save();
 
   return {
     items: itemsWithDetails,
