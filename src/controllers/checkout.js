@@ -4,9 +4,12 @@ const { validationResult } = require('express-validator');
 
 exports.getCart = async (req, res, next) => {
   try {
-
-    console.log('Fetching cart for user:', req.user._id);
-    const result = await checkoutService.getCartWithTotals(req.user._id);
+    // Ensure we're getting cart for the authenticated user only
+    const userId = req.user._id;
+    console.log('User ID in getCart:', userId);
+    logger.info(`Fetching cart for user: ${userId}`);
+    
+    const result = await checkoutService.getCartWithTotals(userId);
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({
         success: true,
@@ -38,8 +41,12 @@ exports.addToCart = async (req, res, next) => {
 
     const { productId, quantity, sku } = req.body;
 
+    // Ensure we're adding to the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Adding product ${productId} to cart for user: ${userId}`);
+
     const cart = await checkoutService.addToCart(
-      req.user._id,
+      userId,
       productId,
       quantity,
       sku
@@ -83,10 +90,14 @@ exports.updateCartItem = async (req, res, next) => {
     }
 
     const { quantity } = req.body;
+    
+    // Ensure we're updating cart for the authenticated user only
+    const userId = req.user._id;
+    logger.info(`Updating cart item ${itemId} for user: ${userId}`);
 
     try {
       const cart = await checkoutService.updateCartItem(
-        req.user._id,
+        userId,
         itemId,
         quantity
       );
@@ -103,7 +114,7 @@ exports.updateCartItem = async (req, res, next) => {
       });
     } catch (updateError) {
       if (updateError.message.includes('removed from cart')) {
-        const updatedCart = await checkoutService.getCartWithTotals(req.user._id);
+        const updatedCart = await checkoutService.getCartWithTotals(userId);
         return res.status(400).json({
           success: false,
           error: updateError.message,
@@ -114,6 +125,13 @@ exports.updateCartItem = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('Update cart item error:', error);
+    // Check if it's an authorization error
+    if (error.message.includes('Unauthorized') || error.message.includes('does not belong')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message || 'You do not have permission to update this cart item',
+      });
+    }
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to update cart item',
@@ -132,7 +150,11 @@ exports.removeFromCart = async (req, res, next) => {
       });
     }
 
-    const cart = await checkoutService.removeFromCart(req.user._id, itemId);
+    // Ensure we're removing from the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Removing cart item ${itemId} for user: ${userId}`);
+
+    const cart = await checkoutService.removeFromCart(userId, itemId);
 
     const totals = await cart.calculateTotals();
 
@@ -146,6 +168,13 @@ exports.removeFromCart = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Remove from cart error:', error);
+    // Check if it's an authorization error
+    if (error.message.includes('Unauthorized') || error.message.includes('does not belong')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message || 'You do not have permission to remove this cart item',
+      });
+    }
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to remove item from cart',
@@ -155,7 +184,11 @@ exports.removeFromCart = async (req, res, next) => {
 
 exports.clearCart = async (req, res, next) => {
   try {
-    const cart = await checkoutService.clearCart(req.user._id);
+    // Ensure we're clearing the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Clearing cart for user: ${userId}`);
+    
+    const cart = await checkoutService.clearCart(userId);
 
     res.status(200).json({
       success: true,
@@ -164,6 +197,13 @@ exports.clearCart = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Clear cart error:', error);
+    // Check if it's an authorization error
+    if (error.message.includes('Unauthorized') || error.message.includes('does not belong')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message || 'You do not have permission to clear this cart',
+      });
+    }
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to clear cart',
@@ -183,7 +223,11 @@ exports.applyCoupon = async (req, res, next) => {
 
     const { couponCode } = req.body;
 
-    const cart = await checkoutService.applyCoupon(req.user._id, couponCode);
+    // Ensure we're applying coupon to the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Applying coupon ${couponCode} to cart for user: ${userId}`);
+
+    const cart = await checkoutService.applyCoupon(userId, couponCode);
 
     const totals = await cart.calculateTotals();
 
@@ -206,7 +250,11 @@ exports.applyCoupon = async (req, res, next) => {
 
 exports.removeCoupon = async (req, res, next) => {
   try {
-    const cart = await checkoutService.removeCoupon(req.user._id);
+    // Ensure we're removing coupon from the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Removing coupon from cart for user: ${userId}`);
+    
+    const cart = await checkoutService.removeCoupon(userId);
 
     const totals = await cart.calculateTotals();
 
@@ -239,8 +287,12 @@ exports.createOrder = async (req, res, next) => {
 
     const { shippingAddress, paymentMethod, notes } = req.body;
 
+    // Ensure we're creating order from the authenticated user's cart only
+    const userId = req.user._id;
+    logger.info(`Creating order from cart for user: ${userId}`);
+
     const order = await checkoutService.createOrder(
-      req.user._id,
+      userId,
       shippingAddress,
       paymentMethod,
       notes

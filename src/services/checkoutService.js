@@ -148,15 +148,23 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
 };
 
 exports.updateCartItem = async (userId, itemId, quantity) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
-    throw new Error('Cart not found');
+    throw new Error('Cart not found for this user');
   }
 
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
+  }
+
+  // Find item in this user's cart only
   const item = cart.items.id(itemId);
   if (!item) {
-    throw new Error('Item not found in cart');
+    throw new Error('Item not found in your cart');
   }
 
   // Log item details for debugging
@@ -259,10 +267,23 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
 };
 
 exports.removeFromCart = async (userId, itemId) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
-    throw new Error('Cart not found');
+    throw new Error('Cart not found for this user');
+  }
+
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
+  }
+
+  // Verify item exists in this user's cart
+  const item = cart.items.id(itemId);
+  if (!item) {
+    throw new Error('Item not found in your cart');
   }
 
   cart.items.pull(itemId);
@@ -275,10 +296,17 @@ exports.removeFromCart = async (userId, itemId) => {
  * Clear cart
  */
 exports.clearCart = async (userId) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
-    throw new Error('Cart not found');
+    throw new Error('Cart not found for this user');
+  }
+
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
   cart.items = [];
@@ -292,10 +320,17 @@ exports.clearCart = async (userId) => {
  * Apply coupon to cart
  */
 exports.applyCoupon = async (userId, couponCode) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
-    throw new Error('Cart not found');
+    throw new Error('Cart not found for this user');
+  }
+
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
   if (cart.items.length === 0) {
@@ -354,10 +389,17 @@ exports.applyCoupon = async (userId, couponCode) => {
  * Remove coupon from cart
  */
 exports.removeCoupon = async (userId) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
   if (!cart) {
-    throw new Error('Cart not found');
+    throw new Error('Cart not found for this user');
+  }
+
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
   cart.coupon = undefined;
@@ -367,7 +409,14 @@ exports.removeCoupon = async (userId) => {
 };
 
 exports.getCartWithTotals = async (userId) => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId }).populate('coupon.couponId');
+
+  // Verify cart ownership if cart exists
+  if (cart && cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
+  }
 
   if (!cart || !cart.items || cart.items.length === 0) {
     return {
@@ -555,9 +604,20 @@ exports.getCartWithTotals = async (userId) => {
  * Create order from cart
  */
 exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '') => {
+  // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
-  if (!cart || cart.items.length === 0) {
+  if (!cart) {
+    throw new Error('Cart not found for this user');
+  }
+
+  // Verify the cart belongs to the user (additional security check)
+  if (cart.user.toString() !== userId.toString()) {
+    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
+    throw new Error('Unauthorized: Cart does not belong to this user');
+  }
+
+  if (cart.items.length === 0) {
     throw new Error('Cart is empty');
   }
 
