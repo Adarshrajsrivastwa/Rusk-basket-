@@ -184,7 +184,17 @@ CartSchema.methods.calculateTotals = async function () {
         url: item.thumbnail.url,
         publicId: item.thumbnail.publicId || undefined,
       };
+    } else if (product.images && product.images.length > 0 && product.images[0].url) {
+      // Use first image from images array
+      thumbnail = {
+        url: product.images[0].url || undefined,
+        publicId: product.images[0].publicId || undefined,
+      };
+      if (!thumbnail.url) {
+        thumbnail = undefined;
+      }
     } else if (product.thumbnail && typeof product.thumbnail === 'object' && product.thumbnail.url) {
+      // Fall back to thumbnail if no images are available
       thumbnail = {
         url: product.thumbnail.url || undefined,
         publicId: product.thumbnail.publicId || undefined,

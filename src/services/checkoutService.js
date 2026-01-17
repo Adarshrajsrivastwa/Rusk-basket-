@@ -107,7 +107,14 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
   const totalPrice = unitPrice * quantity;
 
   let thumbnail = undefined;
-  if (product.thumbnail && product.thumbnail.url) {
+  // First, try to get the first image from the images array
+  if (product.images && product.images.length > 0 && product.images[0].url) {
+    thumbnail = {
+      url: product.images[0].url,
+      publicId: product.images[0].publicId || undefined,
+    };
+  } else if (product.thumbnail && product.thumbnail.url) {
+    // Fall back to thumbnail if no images are available
     thumbnail = {
       url: product.thumbnail.url,
       publicId: product.thumbnail.publicId || undefined,
@@ -246,7 +253,14 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
     const totalPrice = unitPrice * quantity;
 
     let thumbnail = undefined;
-    if (product.thumbnail && product.thumbnail.url) {
+    // First, try to get the first image from the images array
+    if (product.images && product.images.length > 0 && product.images[0].url) {
+      thumbnail = {
+        url: product.images[0].url,
+        publicId: product.images[0].publicId || undefined,
+      };
+    } else if (product.thumbnail && product.thumbnail.url) {
+      // Fall back to thumbnail if no images are available
       thumbnail = {
         url: product.thumbnail.url,
         publicId: product.thumbnail.publicId || undefined,
@@ -517,7 +531,17 @@ exports.getCartWithTotals = async (userId) => {
         url: item.thumbnail.url,
         publicId: item.thumbnail.publicId || undefined,
       };
+    } else if (product.images && product.images.length > 0 && product.images[0].url) {
+      // Use first image from images array
+      thumbnail = {
+        url: product.images[0].url || undefined,
+        publicId: product.images[0].publicId || undefined,
+      };
+      if (!thumbnail.url) {
+        thumbnail = undefined;
+      }
     } else if (product.thumbnail && typeof product.thumbnail === 'object' && product.thumbnail.url) {
+      // Fall back to thumbnail if no images are available
       thumbnail = {
         url: product.thumbnail.url || undefined,
         publicId: product.thumbnail.publicId || undefined,
