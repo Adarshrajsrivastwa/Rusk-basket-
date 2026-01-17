@@ -16,6 +16,38 @@ const PORT = process.env.PORT || 3000;
 const cookieParser = require('cookie-parser');
 
 app.use(compression());
+
+// Middleware to capture raw body for incorrect content-type handling
+// This must run BEFORE express.json() to intercept requests with wrong content-type
+app.use((req, res, next) => {
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    const contentType = req.headers['content-type'] || '';
+    // If content-type is wrong but should be JSON, capture and parse raw body
+    if (contentType.includes('javascript') || (contentType.includes('text') && !contentType.includes('json'))) {
+      let data = '';
+      req.on('data', chunk => {
+        data += chunk.toString();
+      });
+      req.on('end', () => {
+        try {
+          req.rawBody = data;
+          if (data.trim()) {
+            req.body = JSON.parse(data);
+          } else {
+            req.body = {};
+          }
+        } catch (e) {
+          req.rawBody = data;
+          req.body = {};
+        }
+        next();
+      });
+      return;
+    }
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
@@ -31,6 +63,7 @@ const subCategoryRoutes = require('./routes/subCategory');
 const productRoutes = require('./routes/product');
 const couponRoutes = require('./routes/coupon');
 const checkoutRoutes = require('./routes/checkout');
+const wishlistRoutes = require('./routes/wishlist');
 const queueRoutes = require('./routes/queue');
 const riderJobPostRoutes = require('./routes/riderJobPost');
 const riderJobApplicationRoutes = require('./routes/riderJobApplication');
@@ -87,6 +120,7 @@ app.use('/api/subcategory', subCategoryRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/coupon', couponRoutes);
 app.use('/api/checkout', checkoutRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/queue', queueRoutes);
 app.use('/api/rider-job-post', riderJobPostRoutes);
 app.use('/api/rider-job-application', riderJobApplicationRoutes);
