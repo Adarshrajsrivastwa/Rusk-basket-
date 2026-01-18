@@ -165,10 +165,12 @@ exports.createCoupon = async (req, res, next) => {
       validFrom: validFrom ? new Date(validFrom) : new Date(),
       validUntil: validUntil ? new Date(validUntil) : undefined,
       usageLimit: usageLimit ? parseInt(usageLimit) : undefined,
-      createdBy: req.admin._id,
+      createdBy: req.admin ? req.admin._id : req.vendor._id,
+      createdByModel: req.admin ? 'Admin' : 'Vendor',
     });
 
-    logger.info(`Coupon created: ${coupon.code} (Offer ID: ${coupon.offerId}) by Admin: ${req.admin.email || req.admin._id}`);
+    const creatorInfo = req.admin ? `Admin: ${req.admin.email || req.admin._id}` : `Vendor: ${req.vendor.storeId || req.vendor._id}`;
+    logger.info(`Coupon created: ${coupon.code} (Offer ID: ${coupon.offerId}) by ${creatorInfo}`);
 
     res.status(201).json({
       success: true,
@@ -489,6 +491,132 @@ exports.toggleCouponStatus = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Toggle coupon status error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get available coupons for user
+ * - Admin coupons: visible to all users if cart amount >= minAmount
+ * - Vendor coupons: only visible to users who have purchased from that vendor AND cart amount >= minAmount
+ */
+exports.getAvailableCoupons = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const cartAmount = parseFloat(req.query.cartAmount) || 0;
+
+    // Get user's cart to calculate subtotal if not provided
+    let subtotal = cartAmount;
+    if (!cartAmount || cartAmount === 0) {
+      const Cart = require('../models/Cart');
+      const cart = await Cart.findOne({ user: userId });
+      if (cart && cart.items && cart.items.length > 0) {
+        const totals = await cart.calculateTotals();
+        subtotal = totals.pricing.subtotal || 0;
+      }
+    }
+
+    // Get all active admin coupons (visible to all users)
+    // Include coupons without createdByModel (backward compatibility - old coupons were admin-only)
+    const adminCouponsQuery = {
+      status: 'active',
+      isActive: true,
+      $or: [
+        { createdByModel: 'Admin' },
+        { createdByModel: { $exists: false } }, // Backward compatibility for old coupons
+      ],
+      minAmount: { $lte: subtotal }, // Cart amount must be >= minAmount
+    };
+
+    // Get user's past orders to find vendors they've purchased from
+    const Order = require('../models/Order');
+    const userOrders = await Order.find({ 
+      user: userId,
+      status: { $in: ['delivered', 'confirmed', 'processing', 'ready', 'out_for_delivery'] }
+    }).select('items.vendor');
+
+    // Extract unique vendor IDs from user's past orders
+    const purchasedVendorIds = new Set();
+    userOrders.forEach(order => {
+      order.items.forEach(item => {
+        if (item.vendor) {
+          purchasedVendorIds.add(item.vendor.toString());
+        }
+      });
+    });
+
+    // Get vendor coupons for vendors the user has purchased from
+    const vendorCouponsQuery = {
+      status: 'active',
+      isActive: true,
+      createdByModel: 'Vendor',
+      minAmount: { $lte: subtotal }, // Cart amount must be >= minAmount
+    };
+
+    // If user has purchased from vendors, filter by those vendor IDs
+    if (purchasedVendorIds.size > 0) {
+      // Get vendor coupons created by vendors the user has purchased from
+      const vendorCouponsPromise = Coupon.find({
+        ...vendorCouponsQuery,
+        createdBy: { $in: Array.from(purchasedVendorIds) },
+      });
+
+      // Get admin coupons
+      const adminCouponsPromise = Coupon.find(adminCouponsQuery);
+
+      // Execute both queries in parallel
+      const [adminCoupons, vendorCoupons] = await Promise.all([
+        adminCouponsPromise,
+        vendorCouponsPromise,
+      ]);
+
+      // Combine and filter valid coupons
+      const allCoupons = [...adminCoupons, ...vendorCoupons];
+      
+      // Filter coupons that are currently valid
+      const validCoupons = allCoupons.filter(coupon => {
+        if (!coupon.isValid()) {
+          return false;
+        }
+        // Check if cart amount meets minimum requirement
+        if (subtotal < coupon.minAmount) {
+          return false;
+        }
+        return true;
+      });
+
+      // Remove duplicates (in case of edge cases)
+      const uniqueCoupons = validCoupons.filter((coupon, index, self) =>
+        index === self.findIndex(c => c._id.toString() === coupon._id.toString())
+      );
+
+      res.status(200).json({
+        success: true,
+        count: uniqueCoupons.length,
+        data: uniqueCoupons,
+      });
+    } else {
+      // User hasn't purchased from any vendor yet - only show admin coupons
+      const adminCoupons = await Coupon.find(adminCouponsQuery);
+      
+      const validCoupons = adminCoupons.filter(coupon => {
+        if (!coupon.isValid()) {
+          return false;
+        }
+        if (subtotal < coupon.minAmount) {
+          return false;
+        }
+        return true;
+      });
+
+      res.status(200).json({
+        success: true,
+        count: validCoupons.length,
+        data: validCoupons,
+      });
+    }
+  } catch (error) {
+    logger.error('Get available coupons error:', error);
     next(error);
   }
 };

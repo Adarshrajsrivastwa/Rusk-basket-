@@ -7,14 +7,29 @@ const {
   updateCoupon,
   deleteCoupon,
   toggleCouponStatus,
+  getAvailableCoupons,
 } = require('../controllers/coupon');
 const { getActiveTodayOffers } = require('../controllers/couponNotification');
 const { protect } = require('../middleware/adminAuth');
+const { protect: protectUser } = require('../middleware/userAuth');
 
 const router = express.Router();
 
 // Public route for users to get active today's offers (must be before admin routes)
 router.get('/today-offers', getActiveTodayOffers);
+
+// User route to get available coupons (must be before admin routes)
+router.get(
+  '/available',
+  protectUser,
+  [
+    query('cartAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Cart amount must be a non-negative number'),
+  ],
+  getAvailableCoupons
+);
 
 // All routes below require admin authentication
 router.post(

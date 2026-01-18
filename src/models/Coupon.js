@@ -132,7 +132,12 @@ const CouponSchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Admin',
+    required: true,
+    refPath: 'createdByModel',
+  },
+  createdByModel: {
+    type: String,
+    enum: ['Admin', 'Vendor'],
     required: true,
   },
   createdAt: {
