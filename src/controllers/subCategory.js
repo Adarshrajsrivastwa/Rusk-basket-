@@ -477,9 +477,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
 
     const subCategories = await SubCategory.find(subCategoryQuery)
       .populate('category', 'name')
-      .sort({ name: 1 });
-
-    res.status(200).json({
+      .sort({ name: 1 });    res.status(200).json({
       success: true,
       count: subCategories.length,
       radius: radius,
