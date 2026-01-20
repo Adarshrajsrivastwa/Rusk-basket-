@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const compression = require('compression');
 const logger = require('./utils/logger');
 const { initializeQueues } = require('./utils/queue');
+const { disableExpiredOffers } = require('./utils/offerExpiryService');
 
 require('./workers/emailWorker');
 require('./workers/smsWorker');
@@ -256,6 +257,26 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
   
   server.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    
+    disableExpiredOffers().then(result => {
+      if (result.success && result.disabledCount > 0) {
+        logger.info(`Disabled ${result.disabledCount} expired offers on startup`);
+      }
+    });
+    
+    setInterval(() => {
+      disableExpiredOffers().then(result => {
+        if (result.success && result.disabledCount > 0) {
+          logger.info(`Disabled ${result.disabledCount} expired offers`);
+        }
+      }).catch(error => {
+        logger.error('Error in offer expiry service:', error);
+      });
+    }, FIVE_MINUTES);
+    
+    logger.info('Offer expiry service scheduled to run every 5 minutes');
   });
 })
 .catch((error) => {

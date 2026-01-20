@@ -6,6 +6,7 @@ const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
 const { updateInventory, getInventory, getAllInventory } = require('../controllers/inventory');
+const { toggleProductOffer, getVendorOffers, getProductOffer } = require('../controllers/productOffer');
 const { protect } = require('../middleware/adminAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -451,6 +452,57 @@ router.put(
 router.put('/:id/suspend', protect, suspendVendor);
 
 router.delete('/:id', protect, deleteVendor);
+
+// Product Offer Routes
+router.put(
+  '/products/:productId/offer',
+  protectVendor,
+  [
+    body('offerEnabled')
+      .optional()
+      .isBoolean()
+      .withMessage('offerEnabled must be a boolean'),
+    body('offerDiscountPercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Discount percentage must be between 0 and 100'),
+    body('offerStartDate')
+      .optional()
+      .isISO8601()
+      .withMessage('Start date must be a valid date'),
+    body('offerEndDate')
+      .optional()
+      .isISO8601()
+      .withMessage('End date must be a valid date'),
+    body('isDailyOffer')
+      .optional()
+      .isBoolean()
+      .withMessage('isDailyOffer must be a boolean'),
+  ],
+  toggleProductOffer
+);
+
+router.get(
+  '/products/offers',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['all', 'active', 'upcoming', 'expired', 'enabled'])
+      .withMessage('Status must be one of: all, active, upcoming, expired, enabled'),
+  ],
+  getVendorOffers
+);
+
+router.get('/products/:productId/offer', protectVendor, getProductOffer);
 
 module.exports = router;
 

@@ -108,17 +108,16 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
   }
 
   const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+  
   const totalPrice = unitPrice * quantity;
 
   let thumbnail = undefined;
-  // First, try to get the first image from the images array
   if (product.images && product.images.length > 0 && product.images[0].url) {
     thumbnail = {
       url: product.images[0].url,
       publicId: product.images[0].publicId || undefined,
     };
   } else if (product.thumbnail && product.thumbnail.url) {
-    // Fall back to thumbnail if no images are available
     thumbnail = {
       url: product.thumbnail.url,
       publicId: product.thumbnail.publicId || undefined,
@@ -257,7 +256,6 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
     const totalPrice = unitPrice * quantity;
 
     let thumbnail = undefined;
-    // First, try to get the first image from the images array
     if (product.images && product.images.length > 0 && product.images[0].url) {
       thumbnail = {
         url: product.images[0].url,
@@ -518,7 +516,36 @@ exports.getCartWithTotals = async (userId) => {
       continue;
     }
 
-    const unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
+    // Check for active offer on this product (from Product model)
+    let unitPrice;
+    const now = new Date();
+    let isOfferActive = false;
+    
+    if (product.offerEnabled && product.offerDiscountPercentage > 0) {
+      // Check date range if dates are set
+      if (product.offerStartDate && product.offerEndDate) {
+        const startDate = new Date(product.offerStartDate);
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now >= startDate && now <= endDate;
+      } else if (product.offerStartDate) {
+        const startDate = new Date(product.offerStartDate);
+        isOfferActive = now >= startDate;
+      } else if (product.offerEndDate) {
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now <= endDate;
+      } else {
+        isOfferActive = true;
+      }
+    }
+    
+    if (isOfferActive) {
+      const basePrice = product.regularPrice || product.salePrice || product.actualPrice;
+      const discountAmount = (basePrice * product.offerDiscountPercentage) / 100;
+      unitPrice = basePrice - discountAmount;
+    } else {
+      unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
+    }
+    
     const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
 

@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const { checkAndDisableExpiredOffer } = require('../utils/offerExpiryService');
 const logger = require('../utils/logger');
 
 /**
@@ -30,6 +31,53 @@ const calculateDiscountPercentage = (regularPrice, salePrice) => {
   }
   const discount = ((regularPrice - salePrice) / regularPrice) * 100;
   return parseFloat(discount.toFixed(2));
+};
+
+const applyOfferToProducts = async (products) => {
+  const productArray = Array.isArray(products) ? products : [products];
+  const now = new Date();
+  
+  const productsWithOffers = productArray.map(product => {
+    let isOfferActive = false;
+    
+    if (product.offerEnabled && product.offerDiscountPercentage > 0) {
+      if (product.offerStartDate && product.offerEndDate) {
+        const startDate = new Date(product.offerStartDate);
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now >= startDate && now <= endDate;
+      } else if (product.offerStartDate) {
+        const startDate = new Date(product.offerStartDate);
+        isOfferActive = now >= startDate;
+      } else if (product.offerEndDate) {
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now <= endDate;
+      } else {
+        isOfferActive = true;
+      }
+    }
+    
+    if (isOfferActive) {
+      return {
+        ...product,
+        hasOffer: true,
+        offer: {
+          discountPercentage: product.offerDiscountPercentage,
+          startDate: product.offerStartDate,
+          endDate: product.offerEndDate,
+          isDailyOffer: product.isDailyOffer,
+        },
+        discountPercentage: product.offerDiscountPercentage,
+      };
+    }
+    
+    return {
+      ...product,
+      hasOffer: false,
+      discountPercentage: calculateDiscountPercentage(product.regularPrice, product.salePrice),
+    };
+  });
+  
+  return Array.isArray(products) ? productsWithOffers : productsWithOffers[0];
 };
 
 /**
@@ -174,8 +222,8 @@ exports.getAllProducts = async (req, res, next) => {
       .limit(limit)
       .lean();
 
-    // Add discount percentage to products
-    const productsWithDiscount = addDiscountToProduct(products);
+    // Apply offer discounts to products (overrides salePrice if active offer exists)
+    const productsWithOffers = await applyOfferToProducts(products);
 
     // Get total count for pagination
     const total = await Product.countDocuments(query);
@@ -184,14 +232,14 @@ exports.getAllProducts = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: productsWithDiscount.length,
+      count: productsWithOffers.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: productsWithDiscount,
+      data: productsWithOffers,
     });
   } catch (error) {
     logger.error('Get all products error:', error);
@@ -379,6 +427,9 @@ exports.getNearbyProducts = async (req, res, next) => {
     // Apply pagination
     const paginatedProducts = finalProducts.slice(skip, skip + limitNum);
 
+    // Apply offer discounts to products (overrides salePrice if active offer exists)
+    const productsWithOffers = await applyOfferToProducts(paginatedProducts);
+
     const logMessage = hasLocation
       ? `Products retrieved: Lat: ${userLat}, Lon: ${userLon}, Radius: ${searchRadius}km, Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`
       : `Products retrieved: Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`;
@@ -387,7 +438,7 @@ exports.getNearbyProducts = async (req, res, next) => {
 
     const response = {
       success: true,
-      count: paginatedProducts.length,
+      count: productsWithOffers.length,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -399,7 +450,7 @@ exports.getNearbyProducts = async (req, res, next) => {
         ...(category && { category }),
         ...(search && { search }),
       },
-      data: paginatedProducts,
+      data: productsWithOffers,
     };
 
     // Include location info only if location was provided
@@ -476,8 +527,8 @@ exports.getPendingProducts = async (req, res, next) => {
       .limit(limit)
       .lean();
 
-    // Add discount percentage to products
-    const productsWithDiscount = addDiscountToProduct(products);
+    // Apply offer discounts to products (overrides salePrice if active offer exists)
+    const productsWithOffers = await applyOfferToProducts(products);
 
     // Get total count for pagination
     const total = await Product.countDocuments(query);
@@ -486,14 +537,14 @@ exports.getPendingProducts = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: productsWithDiscount.length,
+      count: productsWithOffers.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: productsWithDiscount,
+      data: productsWithOffers,
     });
   } catch (error) {
     logger.error('Get pending products error:', error);
@@ -551,14 +602,14 @@ exports.getProductById = async (req, res, next) => {
       });
     }
 
-    // Add discount percentage to product
-    const productWithDiscount = addDiscountToProduct(product);
+    // Apply offer discount to product (overrides salePrice if active offer exists)
+    const productWithOffer = await applyOfferToProducts(product);
 
     logger.info(`Product retrieved by ID: ${id}`);
 
     res.status(200).json({
       success: true,
-      data: productWithDiscount,
+      data: productWithOffer,
     });
   } catch (error) {
     logger.error('Get product by ID error:', error);

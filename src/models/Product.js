@@ -171,19 +171,111 @@ const ProductSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  offerEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  offerDiscountPercentage: {
+    type: Number,
+    default: 0,
+    min: [0, 'Discount percentage cannot be negative'],
+    max: [100, 'Discount percentage cannot exceed 100'],
+  },
+  offerStartDate: {
+    type: Date,
+  },
+  offerEndDate: {
+    type: Date,
+  },
+  isDailyOffer: {
+    type: Boolean,
+    default: false,
+  },
+  originalSalePrice: {
+    type: Number,
+  },
 });
 
 ProductSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   
-  // Auto-calculate discount percentage before saving
-  // Only calculate if both regularPrice and salePrice exist
-  if (this.regularPrice != null && this.salePrice != null) {
-    const regularPrice = parseFloat(this.regularPrice);
-    const salePrice = parseFloat(this.salePrice);
+  const now = new Date();
+  const regularPrice = parseFloat(this.regularPrice) || 0;
+  
+  if (this.isNew || (this.isModified('salePrice') && !this.isModified('offerEnabled'))) {
+    if (!this.originalSalePrice && this.salePrice) {
+      this.originalSalePrice = parseFloat(this.salePrice);
+    }
+  }
+  
+  if (this.offerEnabled === false) {
+    this.offerStartDate = undefined;
+    this.offerEndDate = undefined;
+    if (this.originalSalePrice != null) {
+      this.salePrice = this.originalSalePrice;
+      this.originalSalePrice = undefined;
+    }
+  }
+  
+  if (this.offerEnabled && this.offerEndDate) {
+    const endDate = new Date(this.offerEndDate);
+    if (now > endDate) {
+      this.offerEnabled = false;
+      this.offerStartDate = undefined;
+      this.offerEndDate = undefined;
+      if (this.originalSalePrice != null) {
+        this.salePrice = this.originalSalePrice;
+        this.originalSalePrice = undefined;
+      }
+    }
+  }
+  
+  if (this.offerEnabled && this.offerDiscountPercentage > 0 && regularPrice > 0) {
+    let isWithinDateRange = true;
     
-    if (regularPrice > 0 && salePrice < regularPrice) {
-      this.discountPercentage = parseFloat((((regularPrice - salePrice) / regularPrice) * 100).toFixed(2));
+    if (this.offerStartDate || this.offerEndDate) {
+      if (this.offerStartDate) {
+        const startDate = new Date(this.offerStartDate);
+        if (now < startDate) {
+          isWithinDateRange = false;
+        }
+      }
+      
+      if (this.offerEndDate) {
+        const endDate = new Date(this.offerEndDate);
+        if (now > endDate) {
+          isWithinDateRange = false;
+        }
+      }
+    }
+    
+    if (isWithinDateRange) {
+      if (!this.originalSalePrice && this.salePrice) {
+        this.originalSalePrice = parseFloat(this.salePrice);
+      }
+      
+      const discountAmount = (regularPrice * this.offerDiscountPercentage) / 100;
+      const newSalePrice = regularPrice - discountAmount;
+      if (this.salePrice !== newSalePrice) {
+        this.salePrice = newSalePrice;
+      }
+    } else {
+      if (this.originalSalePrice != null) {
+        this.salePrice = this.originalSalePrice;
+        this.originalSalePrice = undefined;
+      }
+    }
+  } else if (!this.offerEnabled && this.originalSalePrice != null) {
+    this.salePrice = this.originalSalePrice;
+    this.originalSalePrice = undefined;
+  }
+  
+  if (this.regularPrice != null && this.salePrice != null) {
+    const regularPriceCalc = parseFloat(this.regularPrice);
+    const salePriceCalc = parseFloat(this.salePrice);
+    
+    if (regularPriceCalc > 0 && salePriceCalc < regularPriceCalc) {
+      this.discountPercentage = parseFloat((((regularPriceCalc - salePriceCalc) / regularPriceCalc) * 100).toFixed(2));
     } else {
       this.discountPercentage = 0;
     }
@@ -191,13 +283,34 @@ ProductSchema.pre('save', function (next) {
     this.discountPercentage = 0;
   }
   
+  if (this.offerStartDate || this.offerEndDate) {
+    let isWithinDateRange = true;
+    
+    if (this.offerStartDate) {
+      const startDate = new Date(this.offerStartDate);
+      if (now < startDate) {
+        isWithinDateRange = false;
+      }
+    }
+    
+    if (this.offerEndDate) {
+      const endDate = new Date(this.offerEndDate);
+      if (now > endDate) {
+        isWithinDateRange = false;
+      }
+    }
+    
+    if (this.isModified('offerStartDate') || this.isModified('offerEndDate')) {
+      if (this.offerDiscountPercentage > 0) {
+        this.offerEnabled = isWithinDateRange;
+      }
+    }
+  }
+  
   next();
 });
 
-// Text search index for productName and description
 ProductSchema.index({ productName: 'text', description: 'text' });
-
-// Other indexes for better query performance
 ProductSchema.index({ vendor: 1 });
 ProductSchema.index({ category: 1 });
 ProductSchema.index({ subCategory: 1 });
@@ -205,11 +318,11 @@ ProductSchema.index({ approvalStatus: 1 });
 ProductSchema.index({ isActive: 1 });
 ProductSchema.index({ tags: 1 });
 ProductSchema.index({ createdAt: -1 });
-
-// Geospatial index for location-based queries (2dsphere for better accuracy)
 ProductSchema.index({ latitude: 1, longitude: 1 });
-
-// Compound index for nearby approved products query
 ProductSchema.index({ approvalStatus: 1, isActive: 1, latitude: 1, longitude: 1 });
+ProductSchema.index({ offerEnabled: 1 });
+ProductSchema.index({ offerEnabled: 1, offerStartDate: 1, offerEndDate: 1 });
+ProductSchema.index({ isDailyOffer: 1, offerEnabled: 1 });
+ProductSchema.index({ offerEnabled: 1, offerEndDate: 1 });
 
 module.exports = mongoose.model('Product', ProductSchema);

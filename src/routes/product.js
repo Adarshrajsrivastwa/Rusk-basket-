@@ -7,6 +7,7 @@ const { getAllProducts, getNearbyProducts, getPendingProducts, getProductById } 
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
+const { getAllDailyOffers, getVendorDailyOffers } = require('../controllers/productOffer');
 
 // Middleware
 const { protect } = require('../middleware/adminAuth');
@@ -53,6 +54,65 @@ router.get(
       .withMessage('Search query must be between 1 and 200 characters'),
   ],
   getNearbyProducts
+);
+
+router.get(
+  '/daily-offers',
+  [
+    query('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    query('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    query('radius')
+      .optional()
+      .isFloat({ min: 0.1, max: 100 })
+      .withMessage('Radius must be between 0.1 and 100 kilometers'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('category')
+      .optional()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    query('subCategory')
+      .optional()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('vendorId')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+  ],
+  getAllDailyOffers
+);
+
+router.get(
+  '/vendors/:vendorId/daily-offers',
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getVendorDailyOffers
 );
 
 // Admin Routes
