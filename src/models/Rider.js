@@ -178,6 +178,14 @@ const RiderSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Rejection reason cannot be more than 500 characters'],
   },
+  vendor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+    index: true,
+  },
+  assignedToVendorAt: {
+    type: Date,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -234,6 +242,11 @@ RiderSchema.methods.getSignedJwtToken = function () {
     expiresIn: process.env.JWT_EXPIRE || '7d',
   });
 };
+
+// Indexes for better query performance
+RiderSchema.index({ vendor: 1 });
+RiderSchema.index({ vendor: 1, isActive: 1, approvalStatus: 1 });
+RiderSchema.index({ mobileNumber: 1 });
 
 module.exports = mongoose.model('Rider', RiderSchema);
 

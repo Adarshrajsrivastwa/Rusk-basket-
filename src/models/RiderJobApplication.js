@@ -44,6 +44,17 @@ const RiderJobApplicationSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Assignment notes cannot be more than 1000 characters'],
   },
+  confirmed: {
+    type: Boolean,
+    default: false,
+  },
+  confirmedAt: {
+    type: Date,
+  },
+  confirmedForVendor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -69,6 +80,9 @@ RiderJobApplicationSchema.pre('save', function (next) {
   }
   if (this.status === 'assigned' && !this.assignedAt) {
     this.assignedAt = Date.now();
+  }
+  if (this.confirmed && !this.confirmedAt) {
+    this.confirmedAt = Date.now();
   }
   next();
 });

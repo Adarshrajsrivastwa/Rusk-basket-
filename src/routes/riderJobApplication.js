@@ -6,6 +6,7 @@ const {
   getJobApplications,
   reviewApplication,
   getApplication,
+  confirmApplication,
   assignRider,
   getAssignedRiders,
 } = require('../controllers/riderJobApplication');
@@ -31,6 +32,13 @@ router.post(
 
 // Get rider's own applications
 router.get('/my-applications', protectRider, getMyApplications);
+
+// Rider confirms approved application (must come before /:applicationId)
+router.post(
+  '/:applicationId/confirm',
+  protectRider,
+  confirmApplication
+);
 
 // Vendor routes - Specific routes must come before parameterized routes
 // Get applications for a specific job post

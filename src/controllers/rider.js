@@ -277,18 +277,9 @@ exports.getAvailableOrders = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Find vendors this rider is assigned to
-    const riderApplications = await RiderJobApplication.find({
-      rider: riderId,
-      status: 'assigned',
-    }).populate('jobPost', 'vendor');
-
-    const vendorIds = riderApplications
-      .map(app => app.jobPost?.vendor)
-      .filter(Boolean)
-      .map(vendor => vendor._id || vendor);
-
-    if (vendorIds.length === 0) {
+    // Get vendor this rider works for (from Rider model)
+    const rider = await Rider.findById(riderId);
+    if (!rider || !rider.vendor) {
       return res.status(200).json({
         success: true,
         count: 0,
@@ -299,9 +290,11 @@ exports.getAvailableOrders = async (req, res, next) => {
           pages: 0,
         },
         data: [],
-        message: 'No vendors assigned. You need to be assigned to a vendor to receive orders.',
+        message: 'No vendor assigned. You need to be approved by a vendor to receive orders.',
       });
     }
+
+    const vendorIds = [rider.vendor.toString()];
 
     // Find orders that are ready and have assignment requests for this rider
     const orders = await Order.find({
@@ -374,10 +367,10 @@ exports.acceptOrderAssignment = async (req, res, next) => {
     const riderId = req.rider._id;
     const { orderId } = req.params;
 
-    // Find the order
-    const order = await Order.findById(orderId);
+    // Find the order for initial validation
+    const initialOrder = await Order.findById(orderId);
 
-    if (!order) {
+    if (!initialOrder) {
       return res.status(404).json({
         success: false,
         error: 'Order not found',
@@ -385,80 +378,115 @@ exports.acceptOrderAssignment = async (req, res, next) => {
     }
 
     // Check if order is in ready status
-    if (order.status !== 'ready') {
+    if (initialOrder.status !== 'ready') {
       return res.status(400).json({
         success: false,
-        error: `Order is not available for assignment. Current status: ${order.status}`,
+        error: `Order is not available for assignment. Current status: ${initialOrder.status}`,
       });
     }
 
     // Check if rider is already assigned
-    if (order.rider) {
+    if (initialOrder.rider) {
       return res.status(400).json({
         success: false,
         error: 'This order has already been assigned to another rider',
       });
     }
 
-    // Verify rider is assigned to the vendor
-    const vendorIds = [...new Set(order.items.map(item => {
+    // Verify rider works for the vendor
+    const rider = await Rider.findById(riderId);
+    if (!rider || !rider.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'You are not assigned to any vendor. Please get approved by a vendor first.',
+      });
+    }
+
+    const vendorIds = [...new Set(initialOrder.items.map(item => {
       const vendorId = item.vendor?._id || item.vendor;
       return vendorId?.toString();
     }).filter(Boolean))];
 
-    const riderApplications = await RiderJobApplication.find({
-      rider: riderId,
-      status: 'assigned',
-    }).populate('jobPost', 'vendor');
-
-    const assignedVendorIds = riderApplications
-      .map(app => app.jobPost?.vendor)
-      .filter(Boolean)
-      .map(vendor => (vendor._id || vendor).toString());
-
-    const hasAccess = vendorIds.some(vid => assignedVendorIds.includes(vid));
+    const riderVendorId = rider.vendor.toString();
+    const hasAccess = vendorIds.includes(riderVendorId);
 
     if (!hasAccess) {
       return res.status(403).json({
         success: false,
-        error: 'You are not assigned to any vendor for this order',
+        error: 'You are not assigned to any vendor for this order. You can only accept orders from your assigned vendor.',
       });
     }
 
     // Check if rider has a pending assignment request
-    const riderRequest = order.assignmentRequestSentTo?.find(
+    const riderRequest = initialOrder.assignmentRequestSentTo?.find(
       req => req.rider?.toString() === riderId.toString()
     );
 
-    if (!riderRequest && order.assignmentRequestSentTo?.length > 0) {
+    if (!riderRequest && initialOrder.assignmentRequestSentTo?.length > 0) {
       return res.status(403).json({
         success: false,
         error: 'You were not notified about this order',
       });
     }
 
-    // Assign rider to order
-    order.rider = riderId;
-    order.assignedAt = new Date();
-    order.status = 'out_for_delivery';
-    
-    // Update assignment request status
-    if (riderRequest) {
-      riderRequest.status = 'accepted';
-      riderRequest.respondedAt = new Date();
-    }
-
-    // Mark other pending requests as expired
-    if (order.assignmentRequestSentTo) {
-      order.assignmentRequestSentTo.forEach(req => {
-        if (req.rider?.toString() !== riderId.toString() && req.status === 'pending') {
-          req.status = 'expired';
-          req.respondedAt = new Date();
+    // Use atomic update to prevent race condition when multiple riders accept simultaneously
+    // Only update if rider is still null (not assigned yet) - CRITICAL for preventing double assignment
+    const updateResult = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        status: 'ready',
+        rider: null, // CRITICAL: Only update if no rider assigned yet (atomic check)
+      },
+      {
+        $set: {
+          rider: riderId,
+          assignedAt: new Date(),
+          status: 'out_for_delivery',
+          'assignmentRequestSentTo.$[acceptedElem].status': 'accepted',
+          'assignmentRequestSentTo.$[acceptedElem].respondedAt': new Date(),
+          'assignmentRequestSentTo.$[expiredElem].status': 'expired',
+          'assignmentRequestSentTo.$[expiredElem].respondedAt': new Date(),
         }
+      },
+      {
+        arrayFilters: [
+          { 'acceptedElem.rider': riderId }, // This rider's request
+          { 'expiredElem.rider': { $ne: riderId }, 'expiredElem.status': 'pending' } // Other pending requests
+        ],
+        new: true, // Return updated document
+        runValidators: true,
+      }
+    );
+
+    // If updateResult is null, another rider already accepted (race condition handled)
+    if (!updateResult) {
+      // Re-fetch to get current state
+      const currentOrder = await Order.findById(orderId).populate('rider', 'fullName mobileNumber');
+      if (currentOrder && currentOrder.rider) {
+        return res.status(400).json({
+          success: false,
+          error: 'This order has already been assigned to another rider. Another rider accepted it just before you.',
+          assignedRider: {
+            name: currentOrder.rider.fullName,
+            mobile: currentOrder.rider.mobileNumber
+          }
+        });
+      }
+      if (currentOrder && currentOrder.status !== 'ready') {
+        return res.status(400).json({
+          success: false,
+          error: `Order is no longer available for assignment. Current status: ${currentOrder.status}`,
+        });
+      }
+      // If still available but update failed, return conflict error
+      return res.status(409).json({
+        success: false,
+        error: 'Order assignment conflict. Please try again.',
       });
     }
 
-    await order.save();
+    // Use the updated order from atomic operation
+    const order = updateResult;
 
     // Notify user about rider assignment
     const populatedOrder = await Order.findById(orderId)
@@ -485,14 +513,36 @@ exports.acceptOrderAssignment = async (req, res, next) => {
       });
     }
 
-    // Notify rider via WebSocket about the assignment
+    // Notify rider via WebSocket about the assignment with amount and location
     try {
-      notifyRiderOrderUpdate(riderId, {
+      const orderUpdateData = {
         orderId: order._id,
         orderNumber: order.orderNumber,
         status: 'out_for_delivery',
+        amount: order.pricing?.total || 0,
+        deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0,
+        pricing: order.pricing,
+        shippingAddress: order.shippingAddress,
+        location: {
+          address: [
+            order.shippingAddress?.line1,
+            order.shippingAddress?.line2,
+            order.shippingAddress?.city,
+            order.shippingAddress?.state,
+            order.shippingAddress?.pinCode
+          ].filter(Boolean).join(', '),
+          city: order.shippingAddress?.city || '',
+          state: order.shippingAddress?.state || '',
+          pinCode: order.shippingAddress?.pinCode || '',
+          coordinates: {
+            latitude: order.shippingAddress?.latitude || null,
+            longitude: order.shippingAddress?.longitude || null,
+          }
+        },
         rider: populatedOrder.rider,
-      });
+      };
+      
+      notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
     }
@@ -551,6 +601,87 @@ exports.getMyOrders = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get my orders error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Reject order assignment
+ */
+exports.rejectOrderAssignment = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { orderId } = req.params;
+    const { reason } = req.body; // Optional rejection reason
+
+    // Find the order
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Check if order is in ready status
+    if (order.status !== 'ready') {
+      return res.status(400).json({
+        success: false,
+        error: `Order is not available for assignment. Current status: ${order.status}`,
+      });
+    }
+
+    // Check if rider is already assigned
+    if (order.rider) {
+      return res.status(400).json({
+        success: false,
+        error: 'This order has already been assigned to another rider',
+      });
+    }
+
+    // Check if rider has a pending assignment request
+    const riderRequest = order.assignmentRequestSentTo?.find(
+      req => req.rider?.toString() === riderId.toString() && req.status === 'pending'
+    );
+
+    if (!riderRequest) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have a pending assignment request for this order',
+      });
+    }
+
+    // Update assignment request status to rejected
+    riderRequest.status = 'rejected';
+    riderRequest.respondedAt = new Date();
+    if (reason) {
+      riderRequest.rejectionReason = reason;
+    }
+
+    await order.save();
+
+    logger.info(`Rider ${riderId} rejected assignment for order ${order.orderNumber}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Order assignment rejected successfully',
+      data: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: 'rejected',
+      },
+    });
+  } catch (error) {
+    logger.error('Reject order assignment error:', error);
     next(error);
   }
 };

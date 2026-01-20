@@ -41,6 +41,14 @@ app.use((req, res, next) => {
         } catch (e) {
           req.rawBody = data;
           req.body = {};
+          logger.error('JSON parsing error in custom middleware:', {
+            error: e.message,
+            position: e.message.match(/position (\d+)/)?.[1],
+            body: data.substring(0, 200),
+            url: req.url,
+            method: req.method
+          });
+          // Don't fail, let express.json handle it
         }
         next();
       });
@@ -50,7 +58,23 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+// JSON parser with better error handling
+app.use(express.json({ 
+  limit: '10mb',
+  strict: true,
+  verify: (req, res, buf, encoding) => {
+    try {
+      JSON.parse(buf.toString());
+    } catch (e) {
+      logger.error('Invalid JSON in request body:', {
+        error: e.message,
+        body: buf.toString().substring(0, 200), // First 200 chars
+        url: req.url,
+        method: req.method
+      });
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
@@ -110,6 +134,25 @@ app.use((req, res, next) => {
     return originalJson.call(this, data);
   };
   next();
+});
+
+// Error handler for JSON parsing errors (must be before routes)
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    logger.error('JSON parsing error:', {
+      error: err.message,
+      url: req.url,
+      method: req.method,
+      contentType: req.headers['content-type']
+    });
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid JSON format in request body',
+      message: err.message,
+      hint: 'Please ensure: 1) All property names use double quotes, 2) No trailing commas, 3) Valid JSON syntax'
+    });
+  }
+  next(err);
 });
 
 app.use('/api/auth', authRoutes);

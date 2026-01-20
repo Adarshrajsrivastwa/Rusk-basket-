@@ -144,6 +144,8 @@ const getIO = () => {
  * Send order assignment request to a specific rider
  */
 const sendOrderAssignmentRequest = async (riderId, orderData) => {
+  const riderIdStr = riderId.toString();
+
   if (!socketIOAvailable || !io) {
     logger.debug(`Socket.io not available. Skipping WebSocket notification for rider ${riderId}`);
     return false;
@@ -151,20 +153,31 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
   
   try {
     const ioInstance = getIO();
-    const socketId = connectedRiders.get(riderId.toString());
+    const socketId = connectedRiders.get(riderIdStr);
 
     if (socketId) {
-      ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', {
+      const notificationPayload = {
         type: 'order_assignment_request',
         title: 'New Order Assignment Available',
-        message: `Order ${orderData.orderNumber} is ready for delivery. Would you like to accept?`,
+        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || orderData.pricing?.total || 0}. Would you like to accept?`,
         data: {
           orderId: orderData.orderId,
           orderNumber: orderData.orderNumber,
           order: orderData,
+          // Amount information
+          amount: orderData.amount || orderData.pricing?.total || 0,
+          deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || orderData.pricing?.shipping || 0,
+          pricing: orderData.pricing,
+          // Location information
+          location: orderData.location,
+          shippingAddress: orderData.shippingAddress,
+          // Full order data
+          order: orderData,
         },
         timestamp: new Date().toISOString(),
-      });
+      };
+
+      ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
 
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
@@ -190,6 +203,7 @@ const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
   const results = await Promise.all(
     riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
   );
+  
   return results.filter(Boolean).length;
 };
 
@@ -204,14 +218,42 @@ const notifyRiderOrderUpdate = (riderId, orderData) => {
   
   try {
     const ioInstance = getIO();
-    ioInstance.to(`rider:${riderId}`).emit('order_update', {
+    
+    // Prepare update payload with amount and location
+    const updatePayload = {
       type: 'order_update',
       orderId: orderData.orderId,
       orderNumber: orderData.orderNumber,
       status: orderData.status,
+      // Amount information
+      amount: orderData.amount || orderData.pricing?.total || 0,
+      deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || orderData.pricing?.shipping || 0,
+      pricing: orderData.pricing || {},
+      // Location information
+      location: orderData.location || (orderData.shippingAddress ? {
+        address: [
+          orderData.shippingAddress?.line1,
+          orderData.shippingAddress?.line2,
+          orderData.shippingAddress?.city,
+          orderData.shippingAddress?.state,
+          orderData.shippingAddress?.pinCode
+        ].filter(Boolean).join(', '),
+        city: orderData.shippingAddress?.city || '',
+        state: orderData.shippingAddress?.state || '',
+        pinCode: orderData.shippingAddress?.pinCode || '',
+        coordinates: {
+          latitude: orderData.shippingAddress?.latitude || null,
+          longitude: orderData.shippingAddress?.longitude || null,
+        }
+      } : null),
+      shippingAddress: orderData.shippingAddress || {},
+      // Full order data
       data: orderData,
       timestamp: new Date().toISOString(),
-    });
+    };
+    
+    ioInstance.to(`rider:${riderId}`).emit('order_update', updatePayload);
+    
     logger.info(`Order update sent to rider ${riderId} via WebSocket`);
   } catch (error) {
     logger.error(`Error sending order update to rider ${riderId}:`, error);

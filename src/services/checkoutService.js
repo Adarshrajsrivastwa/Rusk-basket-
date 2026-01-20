@@ -970,28 +970,14 @@ exports.notifyRidersForOrder = async (order) => {
       return;
     }
 
-    // Find job posts for these vendors
-    const RiderJobPost = require('../models/RiderJobPost');
-    const jobPostIds = await RiderJobPost.find({ 
+    // Find riders who work for these vendors (direct vendor assignment from Rider model)
+    const ridersForVendors = await Rider.find({
       vendor: { $in: vendorIds },
       isActive: true,
-    }).distinct('_id');
+      approvalStatus: 'approved',
+    }).select('_id fullName mobileNumber');
 
-    if (jobPostIds.length === 0) {
-      logger.info(`No job posts found for vendors in order ${order.orderNumber}`);
-      return;
-    }
-
-    // Find all riders assigned to these job posts
-    const assignedRiders = await RiderJobApplication.find({
-      status: 'assigned',
-      jobPost: { $in: jobPostIds },
-    }).populate('rider', 'fullName mobileNumber isActive approvalStatus');
-
-    // Filter active and approved riders
-    const activeRiders = assignedRiders
-      .filter(app => app.rider && app.rider.isActive && app.rider.approvalStatus === 'approved')
-      .map(app => app.rider._id);
+    const activeRiders = ridersForVendors.map(r => r._id.toString());
 
     if (activeRiders.length === 0) {
       logger.info(`No active riders found for vendors in order ${order.orderNumber}`);
@@ -1010,14 +996,57 @@ exports.notifyRidersForOrder = async (order) => {
     order.assignmentRequestSentTo = assignmentRequests;
     await order.save();
 
-    // Prepare order data for WebSocket
+    // Prepare order data for WebSocket with amount and location
     const orderData = {
       orderId: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
       items: order.items,
-      shippingAddress: order.shippingAddress,
-      pricing: order.pricing,
+      shippingAddress: {
+        line1: order.shippingAddress?.line1 || '',
+        line2: order.shippingAddress?.line2 || '',
+        pinCode: order.shippingAddress?.pinCode || '',
+        city: order.shippingAddress?.city || '',
+        state: order.shippingAddress?.state || '',
+        country: order.shippingAddress?.country || '',
+        latitude: order.shippingAddress?.latitude || null,
+        longitude: order.shippingAddress?.longitude || null,
+        fullAddress: [
+          order.shippingAddress?.line1,
+          order.shippingAddress?.line2,
+          order.shippingAddress?.city,
+          order.shippingAddress?.state,
+          order.shippingAddress?.pinCode,
+          order.shippingAddress?.country
+        ].filter(Boolean).join(', ')
+      },
+      pricing: {
+        subtotal: order.pricing?.subtotal || 0,
+        discount: order.pricing?.discount || 0,
+        shipping: order.pricing?.shipping || 0,
+        tax: order.pricing?.tax || 0,
+        total: order.pricing?.total || 0,
+        totalCashback: order.pricing?.totalCashback || 0,
+        deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0, // Delivery amount for rider
+      },
+      amount: order.pricing?.total || 0, // Total order amount
+      deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0, // Delivery amount for rider
+      location: {
+        address: [
+          order.shippingAddress?.line1,
+          order.shippingAddress?.line2,
+          order.shippingAddress?.city,
+          order.shippingAddress?.state,
+          order.shippingAddress?.pinCode
+        ].filter(Boolean).join(', '),
+        city: order.shippingAddress?.city || '',
+        state: order.shippingAddress?.state || '',
+        pinCode: order.shippingAddress?.pinCode || '',
+        coordinates: {
+          latitude: order.shippingAddress?.latitude || null,
+          longitude: order.shippingAddress?.longitude || null,
+        }
+      },
       createdAt: order.createdAt,
     };
 
@@ -1035,11 +1064,18 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
               data: {
                 orderId: order._id,
                 orderNumber: order.orderNumber,
                 type: 'rider',
+                // Include amount and location
+                amount: orderData.amount || 0,
+                deliveryAmount: orderData.deliveryAmount || 0,
+                pricing: orderData.pricing,
+                location: orderData.location,
+                shippingAddress: orderData.shippingAddress,
+                order: orderData,
               },
             });
           }
@@ -1056,11 +1092,18 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
               data: {
                 orderId: order._id,
                 orderNumber: order.orderNumber,
                 type: 'rider',
+                // Include amount and location
+                amount: orderData.amount || 0,
+                deliveryAmount: orderData.deliveryAmount || 0,
+                pricing: orderData.pricing,
+                location: orderData.location,
+                shippingAddress: orderData.shippingAddress,
+                order: orderData,
               },
             });
           }

@@ -162,6 +162,10 @@ router.put(
       .trim()
       .isLength({ max: 1000 })
       .withMessage('Notes cannot be more than 1000 characters'),
+    body('deliveryAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Delivery amount must be a number greater than or equal to 0'),
   ],
   updateOrderStatus
 );

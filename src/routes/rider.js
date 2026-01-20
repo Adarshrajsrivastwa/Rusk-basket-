@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, getMyOrders } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -261,6 +261,19 @@ router.post(
   '/orders/:orderId/accept',
   protect,
   acceptOrderAssignment
+);
+
+router.post(
+  '/orders/:orderId/reject',
+  protect,
+  [
+    body('reason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  rejectOrderAssignment
 );
 
 router.get(

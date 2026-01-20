@@ -237,6 +237,11 @@ const OrderSchema = new mongoose.Schema({
     respondedAt: {
       type: Date,
     },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Rejection reason cannot be more than 500 characters'],
+    },
   }],
   estimatedDelivery: {
     type: Date,
@@ -260,6 +265,11 @@ const OrderSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [1000, 'Notes cannot be more than 1000 characters'],
+  },
+  deliveryAmount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Delivery amount must be greater than or equal to 0'],
   },
   createdAt: {
     type: Date,

@@ -629,7 +629,7 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     const vendorId = req.vendor._id;
     const orderId = req.params.id;
-    const { status, notes } = req.body;
+    const { status, notes, deliveryAmount } = req.body;
 
     const order = await Order.findById(orderId);
 
@@ -685,6 +685,18 @@ exports.updateOrderStatus = async (req, res, next) => {
       order.notes = notes;
     }
 
+    // Update delivery amount if provided
+    if (deliveryAmount !== undefined) {
+      const deliveryAmountNum = parseFloat(deliveryAmount);
+      if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Delivery amount must be a valid positive number',
+        });
+      }
+      order.deliveryAmount = deliveryAmountNum;
+    }
+
     await order.save();
 
     // If status changed to 'ready', notify riders
@@ -705,6 +717,42 @@ exports.updateOrderStatus = async (req, res, next) => {
     logger.info(
       `Order status updated: ${order.orderNumber} from ${previousStatus} to ${status} by Vendor: ${req.vendor.storeId || req.vendor._id}`
     );
+
+    // Notify rider about order status update with amount and location
+    if (order.rider && ['out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+      try {
+        const { notifyRiderOrderUpdate } = require('../utils/socket');
+        const orderUpdateData = {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: status,
+          amount: order.pricing?.total || 0,
+          deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0,
+          pricing: order.pricing,
+          shippingAddress: order.shippingAddress,
+          location: {
+            address: [
+              order.shippingAddress?.line1,
+              order.shippingAddress?.line2,
+              order.shippingAddress?.city,
+              order.shippingAddress?.state,
+              order.shippingAddress?.pinCode
+            ].filter(Boolean).join(', '),
+            city: order.shippingAddress?.city || '',
+            state: order.shippingAddress?.state || '',
+            pinCode: order.shippingAddress?.pinCode || '',
+            coordinates: {
+              latitude: order.shippingAddress?.latitude || null,
+              longitude: order.shippingAddress?.longitude || null,
+            }
+          },
+        };
+        
+        notifyRiderOrderUpdate(order.rider, orderUpdateData);
+      } catch (notifyError) {
+        logger.error(`Error notifying rider about order status update: ${notifyError.message}`);
+      }
+    }
 
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'name email contactNumber')

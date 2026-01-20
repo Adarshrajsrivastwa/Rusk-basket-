@@ -64,8 +64,11 @@ exports.applyForJob = async (req, res, next) => {
     });
 
     const populatedApplication = await RiderJobApplication.findById(application._id)
-      .populate('jobPost', 'jobTitle joiningBonus onboardingFee location')
-      .populate('rider', 'fullName mobileNumber');
+      .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor')
+      .populate('jobPost.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber')
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName');
 
     logger.info(`Rider ${req.rider.mobileNumber} applied for job post: ${jobPostId}`);
 
@@ -105,6 +108,7 @@ exports.getMyApplications = async (req, res, next) => {
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor isActive')
       .populate('jobPost.vendor', 'vendorName storeName')
       .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName')
       .skip(skip)
       .limit(limit)
       .sort({ appliedAt: -1 });
@@ -199,6 +203,7 @@ exports.getAllVendorApplications = async (req, res, next) => {
       .populate('jobPost.vendor', 'vendorName storeName contactNumber')
       .populate('reviewedBy', 'vendorName storeName')
       .populate('assignedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName')
       .skip(skip)
       .limit(limit)
       .sort({ appliedAt: -1 });
@@ -275,6 +280,7 @@ exports.getJobApplications = async (req, res, next) => {
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee')
       .populate('reviewedBy', 'vendorName storeName')
       .populate('assignedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName')
       .skip(skip)
       .limit(limit)
       .sort({ appliedAt: -1 });
@@ -378,10 +384,29 @@ exports.reviewApplication = async (req, res, next) => {
 
     await application.save();
 
+    // If approved, update rider to work for this vendor
+    if (status === 'approved') {
+      const rider = await Rider.findById(application.rider);
+      if (rider) {
+        // Check if rider already works for another vendor
+        if (rider.vendor && rider.vendor.toString() !== req.vendor._id.toString()) {
+          logger.warn(`Rider ${rider.mobileNumber} already works for another vendor. Updating to new vendor.`);
+        }
+        
+        // Assign rider to this vendor
+        rider.vendor = req.vendor._id;
+        rider.assignedToVendorAt = new Date();
+        await rider.save();
+        
+        logger.info(`Rider ${rider.mobileNumber} assigned to vendor ${req.vendor.storeId || req.vendor._id} after application approval`);
+      }
+    }
+
     const populatedApplication = await RiderJobApplication.findById(application._id)
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee')
       .populate('rider', 'fullName mobileNumber')
-      .populate('reviewedBy', 'vendorName storeName');
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName');
 
     logger.info(`Application ${applicationId} ${status} by vendor ${req.vendor.email}`);
 
@@ -413,7 +438,8 @@ exports.getApplication = async (req, res, next) => {
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor')
       .populate('jobPost.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber email city currentAddress')
-      .populate('reviewedBy', 'vendorName storeName');
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName');
 
     if (!application) {
       return res.status(404).json({
@@ -456,7 +482,106 @@ exports.getApplication = async (req, res, next) => {
   }
 };
 
-// Vendor assigns rider to job (rider must be approved first)
+// Rider confirms approved application (vendor-specific)
+exports.confirmApplication = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Only riders can confirm their applications
+    if (!req.rider) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only riders can confirm applications',
+      });
+    }
+
+    const { applicationId } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(applicationId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid application ID format',
+      });
+    }
+
+    const application = await RiderJobApplication.findById(applicationId)
+      .populate('jobPost')
+      .populate('reviewedBy');
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      });
+    }
+
+    // Verify application belongs to this rider
+    if (application.rider.toString() !== req.rider._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. You can only confirm your own applications.',
+      });
+    }
+
+    // Check if application is approved
+    if (application.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot confirm application. Application must be approved first. Current status: ${application.status}`,
+      });
+    }
+
+    // Check if already confirmed
+    if (application.confirmed) {
+      return res.status(400).json({
+        success: false,
+        error: 'This application has already been confirmed',
+      });
+    }
+
+    // Verify reviewedBy (vendor) exists
+    if (!application.reviewedBy) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application has not been reviewed by a vendor yet',
+      });
+    }
+
+    // Confirm application for the vendor who approved it
+    application.confirmed = true;
+    application.confirmedAt = new Date();
+    application.confirmedForVendor = application.reviewedBy._id;
+
+    await application.save();
+
+    const populatedApplication = await RiderJobApplication.findById(application._id)
+      .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor')
+      .populate('jobPost.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber')
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName');
+
+    logger.info(`Rider ${req.rider.mobileNumber} confirmed application ${applicationId} for vendor ${application.reviewedBy._id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Application confirmed successfully. You are now ready to be assigned by the vendor.',
+      data: populatedApplication,
+    });
+  } catch (error) {
+    logger.error('Confirm application error:', error);
+    next(error);
+  }
+};
+
+// Vendor assigns rider to job (rider must be approved and confirmed first)
 exports.assignRider = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -513,6 +638,38 @@ exports.assignRider = async (req, res, next) => {
       });
     }
 
+    // Check if rider has confirmed the approval (vendor-specific)
+    if (!application.confirmed) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot assign rider. Rider must confirm the approval first. Please ask the rider to confirm the application.',
+      });
+    }
+
+    // Verify confirmation is for this vendor
+    if (application.confirmedForVendor && application.confirmedForVendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This rider has confirmed for a different vendor. They cannot be assigned by you.',
+      });
+    }
+
+    // Verify rider works for this vendor (from Rider model)
+    const rider = await Rider.findById(application.rider);
+    if (!rider || !rider.vendor) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rider is not assigned to any vendor. Please approve the application first.',
+      });
+    }
+
+    if (rider.vendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This rider works for a different vendor. They cannot be assigned by you.',
+      });
+    }
+
     // Check if already assigned
     if (application.status === 'assigned') {
       return res.status(400).json({
@@ -543,7 +700,8 @@ exports.assignRider = async (req, res, next) => {
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee location')
       .populate('rider', 'fullName mobileNumber email city currentAddress')
       .populate('assignedBy', 'vendorName storeName contactNumber email')
-      .populate('reviewedBy', 'vendorName storeName');
+      .populate('reviewedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName');
 
     logger.info(`Rider ${application.rider.mobileNumber} assigned to job post ${application.jobPost._id} by vendor ${req.vendor.email || req.vendor.contactNumber}`);
 
@@ -604,6 +762,7 @@ exports.getAssignedRiders = async (req, res, next) => {
     })
       .populate('rider', 'fullName mobileNumber email city currentAddress approvalStatus')
       .populate('assignedBy', 'vendorName storeName')
+      .populate('confirmedForVendor', 'vendorName storeName')
       .skip(skip)
       .limit(limit)
       .sort({ assignedAt: -1 });

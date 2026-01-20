@@ -6,7 +6,6 @@ exports.getCart = async (req, res, next) => {
   try {
     // Ensure we're getting cart for the authenticated user only
     const userId = req.user._id;
-    console.log('User ID in getCart:', userId);
     logger.info(`Fetching cart for user: ${userId}`);
     
     const result = await checkoutService.getCartWithTotals(userId);
