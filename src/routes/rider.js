@@ -3,11 +3,15 @@ const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, getMyOrders } = require('../controllers/rider');
+const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
 
-const router = express.Router();
+const 
+
+
+router = express.Router();
 
 // Public routes - Authentication
 router.post(
@@ -278,6 +282,31 @@ router.get(
   ],
   getMyOrders
 );
+
+// WebSocket connection status
+router.get('/websocket/status', protect, (req, res) => {
+  try {
+    const riderId = req.rider._id;
+    const connected = isRiderConnected(riderId);
+    const totalConnected = getConnectedRidersCount();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        connected,
+        totalConnectedRiders: totalConnected,
+        message: connected 
+          ? 'You are connected to the real-time order assignment service' 
+          : 'You are not connected. Please connect to receive real-time order assignments.',
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check WebSocket status',
+    });
+  }
+});
 
 module.exports = router;
 

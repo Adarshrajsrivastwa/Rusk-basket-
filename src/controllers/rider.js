@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const RiderJobPost = require('../models/RiderJobPost');
 const { notificationQueue } = require('../utils/queue');
+const { notifyRiderOrderUpdate } = require('../utils/socket');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { updateRiderProfileData } = require('../services/riderService');
@@ -482,6 +483,18 @@ exports.acceptOrderAssignment = async (req, res, next) => {
           type: 'user',
         },
       });
+    }
+
+    // Notify rider via WebSocket about the assignment
+    try {
+      notifyRiderOrderUpdate(riderId, {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: 'out_for_delivery',
+        rider: populatedOrder.rider,
+      });
+    } catch (socketError) {
+      logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
     }
 
     logger.info(`Rider ${riderId} accepted assignment for order ${order.orderNumber}`);

@@ -1,0 +1,206 @@
+const { Server } = require('socket.io');
+const logger = require('./logger');
+const jwt = require('jsonwebtoken');
+const Rider = require('../models/Rider');
+
+let io = null;
+const connectedRiders = new Map(); // Map<riderId, socketId>
+
+/**
+ * Initialize Socket.io server
+ */
+const initializeSocket = (server) => {
+  io = new Server(server, {
+    cors: {
+      origin: function (origin, callback) {
+        const allowedOrigins = [
+          'http://localhost:3000',
+          'http://localhost:5173',
+          'http://localhost:5174',
+          'http://localhost:3001',
+          'http://127.0.0.1:3000',
+          'http://127.0.0.1:5173',
+          'http://127.0.0.1:5174',
+          'http://46.202.164.93',
+          process.env.CORS_ORIGIN,
+        ].filter(Boolean);
+        
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(null, true);
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'POST'],
+    },
+    transports: ['websocket', 'polling'],
+  });
+
+  // Authentication middleware for Socket.io
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
+      
+      if (!token) {
+        return next(new Error('Authentication token required'));
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      if (decoded.role !== 'rider') {
+        return next(new Error('Only riders can connect to this socket'));
+      }
+
+      // Verify rider exists and is active
+      const rider = await Rider.findById(decoded.id);
+      if (!rider) {
+        return next(new Error('Rider not found'));
+      }
+
+      if (!rider.isActive) {
+        return next(new Error('Rider account is inactive'));
+      }
+
+      if (rider.approvalStatus !== 'approved') {
+        return next(new Error('Rider account is not approved'));
+      }
+
+      socket.riderId = decoded.id;
+      socket.rider = rider;
+      next();
+    } catch (error) {
+      logger.error('Socket authentication error:', error);
+      next(new Error('Authentication failed'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    const riderId = socket.riderId;
+    logger.info(`Rider connected: ${riderId} (Socket ID: ${socket.id})`);
+
+    // Store rider connection
+    connectedRiders.set(riderId.toString(), socket.id);
+
+    // Join rider to their personal room
+    socket.join(`rider:${riderId}`);
+
+    // Send connection confirmation
+    socket.emit('connected', {
+      success: true,
+      message: 'Connected to order assignment service',
+      riderId: riderId,
+    });
+
+    // Handle disconnect
+    socket.on('disconnect', () => {
+      logger.info(`Rider disconnected: ${riderId} (Socket ID: ${socket.id})`);
+      connectedRiders.delete(riderId.toString());
+    });
+
+    // Handle errors
+    socket.on('error', (error) => {
+      logger.error(`Socket error for rider ${riderId}:`, error);
+    });
+  });
+
+  logger.info('Socket.io server initialized');
+  return io;
+};
+
+/**
+ * Get Socket.io instance
+ */
+const getIO = () => {
+  if (!io) {
+    throw new Error('Socket.io not initialized. Call initializeSocket first.');
+  }
+  return io;
+};
+
+/**
+ * Send order assignment request to a specific rider
+ */
+const sendOrderAssignmentRequest = async (riderId, orderData) => {
+  try {
+    const io = getIO();
+    const socketId = connectedRiders.get(riderId.toString());
+
+    if (socketId) {
+      io.to(`rider:${riderId}`).emit('order_assignment_request', {
+        type: 'order_assignment_request',
+        title: 'New Order Assignment Available',
+        message: `Order ${orderData.orderNumber} is ready for delivery. Would you like to accept?`,
+        data: {
+          orderId: orderData.orderId,
+          orderNumber: orderData.orderNumber,
+          order: orderData,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
+      return true;
+    } else {
+      logger.warn(`Rider ${riderId} is not connected. Order assignment request will not be delivered.`);
+      return false;
+    }
+  } catch (error) {
+    logger.error(`Error sending order assignment request to rider ${riderId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Send order assignment request to multiple riders
+ */
+const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
+  const results = await Promise.all(
+    riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
+  );
+  return results.filter(Boolean).length;
+};
+
+/**
+ * Notify rider about order status update
+ */
+const notifyRiderOrderUpdate = (riderId, orderData) => {
+  try {
+    const io = getIO();
+    io.to(`rider:${riderId}`).emit('order_update', {
+      type: 'order_update',
+      orderId: orderData.orderId,
+      orderNumber: orderData.orderNumber,
+      status: orderData.status,
+      data: orderData,
+      timestamp: new Date().toISOString(),
+    });
+    logger.info(`Order update sent to rider ${riderId} via WebSocket`);
+  } catch (error) {
+    logger.error(`Error sending order update to rider ${riderId}:`, error);
+  }
+};
+
+/**
+ * Get connected riders count
+ */
+const getConnectedRidersCount = () => {
+  return connectedRiders.size;
+};
+
+/**
+ * Check if a rider is connected
+ */
+const isRiderConnected = (riderId) => {
+  return connectedRiders.has(riderId.toString());
+};
+
+module.exports = {
+  initializeSocket,
+  getIO,
+  sendOrderAssignmentRequest,
+  sendOrderAssignmentRequestToRiders,
+  notifyRiderOrderUpdate,
+  getConnectedRidersCount,
+  isRiderConnected,
+};

@@ -12,6 +12,8 @@ require('./workers/imageProcessingWorker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const http = require('http');
+let server = null;
 
 const cookieParser = require('cookie-parser');
 
@@ -191,8 +193,17 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
   }
   
   initializeQueues();
-  app.listen(PORT, () => {
+  
+  // Create HTTP server
+  server = http.createServer(app);
+  
+  // Initialize Socket.io
+  const { initializeSocket } = require('./utils/socket');
+  initializeSocket(server);
+  
+  server.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    logger.info(`WebSocket server initialized for real-time rider notifications`);
   });
 })
 .catch((error) => {
@@ -210,5 +221,6 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
+// Export app for backward compatibility
 module.exports = app;
 

@@ -5,6 +5,7 @@ const Coupon = require('../models/Coupon');
 const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const { notificationQueue } = require('../utils/queue');
+const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
 const logger = require('../utils/logger');
 
 /**
@@ -818,10 +819,19 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
 };
 
 /**
- * Get order by ID
+ * Get order by ID or order number
  */
 exports.getOrderById = async (orderId, userId = null) => {
-  const query = { _id: orderId };
+  const mongoose = require('mongoose');
+  let query = {};
+  
+  // Check if orderId is a valid ObjectId, otherwise search by orderNumber
+  if (mongoose.Types.ObjectId.isValid(orderId)) {
+    query._id = orderId;
+  } else {
+    query.orderNumber = orderId;
+  }
+  
   if (userId) {
     query.user = userId;
   }
@@ -891,15 +901,29 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
 };
 
 /**
- * Get vendor order by ID
+ * Get vendor order by ID or order number
  */
 exports.getVendorOrderById = async (orderId, vendorId) => {
-  const order = await Order.findById(orderId)
-    .populate('user', 'userName contactNumber email address')
-    .populate('items.product', 'productName thumbnail description')
-    .populate('items.vendor', 'storeName storeId storeAddress')
-    .populate('coupon.couponId', 'couponName code offerType')
-    .populate('rider', 'fullName mobileNumber');
+  let order;
+  const mongoose = require('mongoose');
+  
+  // Check if orderId is a valid ObjectId, otherwise search by orderNumber
+  if (mongoose.Types.ObjectId.isValid(orderId)) {
+    order = await Order.findById(orderId)
+      .populate('user', 'userName contactNumber email address')
+      .populate('items.product', 'productName thumbnail description')
+      .populate('items.vendor', 'storeName storeId storeAddress')
+      .populate('coupon.couponId', 'couponName code offerType')
+      .populate('rider', 'fullName mobileNumber');
+  } else {
+    // Search by orderNumber
+    order = await Order.findOne({ orderNumber: orderId })
+      .populate('user', 'userName contactNumber email address')
+      .populate('items.product', 'productName thumbnail description')
+      .populate('items.vendor', 'storeName storeId storeAddress')
+      .populate('coupon.couponId', 'couponName code offerType')
+      .populate('rider', 'fullName mobileNumber');
+  }
 
   if (!order) {
     return null;
@@ -986,21 +1010,61 @@ exports.notifyRidersForOrder = async (order) => {
     order.assignmentRequestSentTo = assignmentRequests;
     await order.save();
 
-    // Send notifications to riders
-    for (const riderId of activeRiders) {
-      const rider = await Rider.findById(riderId);
-      if (rider && notificationQueue) {
-        await notificationQueue.add({
-          userId: riderId,
-          type: 'order_assignment_request',
-          title: 'New Order Assignment Available',
-          message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
-          data: {
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            type: 'rider',
-          },
-        });
+    // Prepare order data for WebSocket
+    const orderData = {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      items: order.items,
+      shippingAddress: order.shippingAddress,
+      pricing: order.pricing,
+      createdAt: order.createdAt,
+    };
+
+    // Send WebSocket notifications to riders
+    try {
+      const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
+      logger.info(`Sent assignment requests via WebSocket to ${sentCount} connected riders for order ${order.orderNumber}`);
+      
+      // Also send to notification queue for offline riders (optional fallback)
+      if (notificationQueue) {
+        for (const riderId of activeRiders) {
+          const rider = await Rider.findById(riderId);
+          if (rider) {
+            await notificationQueue.add({
+              userId: riderId,
+              type: 'order_assignment_request',
+              title: 'New Order Assignment Available',
+              message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
+              data: {
+                orderId: order._id,
+                orderNumber: order.orderNumber,
+                type: 'rider',
+              },
+            });
+          }
+        }
+      }
+    } catch (socketError) {
+      logger.error(`Error sending WebSocket notifications: ${socketError.message}`);
+      // Fallback to notification queue if WebSocket fails
+      if (notificationQueue) {
+        for (const riderId of activeRiders) {
+          const rider = await Rider.findById(riderId);
+          if (rider) {
+            await notificationQueue.add({
+              userId: riderId,
+              type: 'order_assignment_request',
+              title: 'New Order Assignment Available',
+              message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
+              data: {
+                orderId: order._id,
+                orderNumber: order.orderNumber,
+                type: 'rider',
+              },
+            });
+          }
+        }
       }
     }
 

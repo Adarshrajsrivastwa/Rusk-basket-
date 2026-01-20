@@ -545,12 +545,24 @@ exports.getVendorOrderById = async (req, res, next) => {
     const vendorId = req.vendor._id;
     const orderId = req.params.id;
 
-    const order = await Order.findById(orderId)
-      .populate('user', 'name email contactNumber')
-      .populate('items.product', 'name description')
-      .populate('items.vendor', 'vendorName storeName')
-      .populate('rider', 'riderName contactNumber')
-      .lean();
+    let order;
+    // Check if orderId is a valid ObjectId, otherwise search by orderNumber
+    if (mongoose.Types.ObjectId.isValid(orderId)) {
+      order = await Order.findById(orderId)
+        .populate('user', 'name email contactNumber')
+        .populate('items.product', 'name description')
+        .populate('items.vendor', 'vendorName storeName')
+        .populate('rider', 'riderName contactNumber')
+        .lean();
+    } else {
+      // Search by orderNumber
+      order = await Order.findOne({ orderNumber: orderId })
+        .populate('user', 'name email contactNumber')
+        .populate('items.product', 'name description')
+        .populate('items.vendor', 'vendorName storeName')
+        .populate('rider', 'riderName contactNumber')
+        .lean();
+    }
 
     if (!order) {
       return res.status(404).json({
