@@ -36,6 +36,18 @@ const OrderSchema = new mongoose.Schema({
         type: String,
       },
     },
+    image: {
+      url: {
+        type: String,
+      },
+      publicId: {
+        type: String,
+      },
+      mediaType: {
+        type: String,
+        enum: ['image', 'video'],
+      },
+    },
     quantity: {
       type: Number,
       required: true,
@@ -205,6 +217,27 @@ const OrderSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Assignment notes cannot be more than 1000 characters'],
   },
+  assignmentRequestSentAt: {
+    type: Date,
+  },
+  assignmentRequestSentTo: [{
+    rider: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Rider',
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'rejected', 'expired'],
+      default: 'pending',
+    },
+    respondedAt: {
+      type: Date,
+    },
+  }],
   estimatedDelivery: {
     type: Date,
   },

@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, getMyOrders } = require('../controllers/rider');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
@@ -235,6 +235,49 @@ router.put('/:id/reject', protectAdmin, [
 ], approveRider);
 
 router.put('/:id/suspend', protectAdmin, suspendRider);
+
+// Rider order management routes
+router.get(
+  '/orders/available',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getAvailableOrders
+);
+
+router.post(
+  '/orders/:orderId/accept',
+  protect,
+  acceptOrderAssignment
+);
+
+router.get(
+  '/orders/my-orders',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'])
+      .withMessage('Invalid status'),
+  ],
+  getMyOrders
+);
 
 module.exports = router;
 

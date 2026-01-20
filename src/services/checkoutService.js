@@ -2,6 +2,9 @@ const Cart = require('../models/Cart');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Coupon = require('../models/Coupon');
+const Rider = require('../models/Rider');
+const RiderJobApplication = require('../models/RiderJobApplication');
+const { notificationQueue } = require('../utils/queue');
 const logger = require('../utils/logger');
 
 /**
@@ -666,11 +669,29 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     await cart.save();
   }
 
-  // Validate and update inventory
+  // Validate and update inventory, and collect product images
+  const productImagesMap = new Map();
   for (const item of totals.items) {
     const product = await Product.findById(item.product);
     if (!product) {
       throw new Error(`Product ${item.product} not found`);
+    }
+
+    // Get first image from product
+    if (product.images && product.images.length > 0) {
+      const firstImage = product.images[0];
+      productImagesMap.set(item.product.toString(), {
+        url: firstImage.url,
+        publicId: firstImage.publicId,
+        mediaType: firstImage.mediaType || 'image',
+      });
+    } else if (product.thumbnail && product.thumbnail.url) {
+      // Fallback to thumbnail if no images
+      productImagesMap.set(item.product.toString(), {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId,
+        mediaType: 'image',
+      });
     }
 
     if (product.skus && product.skus.length > 0 && item.sku) {
@@ -692,7 +713,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   // Generate order number
   const orderNumber = await Order.generateOrderNumber();
 
-  // Clean up items - ensure thumbnail is properly formatted (not null)
+  // Clean up items - ensure thumbnail and image are properly formatted (not null)
   const cleanedItems = totals.items.map(item => {
     const cleanedItem = { ...item };
     
@@ -704,6 +725,16 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       cleanedItem.thumbnail = {
         url: cleanedItem.thumbnail.url || undefined,
         publicId: cleanedItem.thumbnail.publicId || undefined,
+      };
+    }
+    
+    // Add first image from product
+    const productImage = productImagesMap.get(item.product.toString());
+    if (productImage) {
+      cleanedItem.image = {
+        url: productImage.url,
+        publicId: productImage.publicId || undefined,
+        mediaType: productImage.mediaType || 'image',
       };
     }
     
@@ -900,6 +931,86 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
 };
 
 /**
+ * Notify riders when order is ready for delivery
+ */
+exports.notifyRidersForOrder = async (order) => {
+  try {
+    // Get unique vendor IDs from order items
+    const vendorIds = [...new Set(order.items.map(item => {
+      const vendorId = item.vendor?._id || item.vendor;
+      return vendorId?.toString();
+    }).filter(Boolean))];
+
+    if (vendorIds.length === 0) {
+      logger.warn(`No vendors found for order ${order.orderNumber}`);
+      return;
+    }
+
+    // Find job posts for these vendors
+    const RiderJobPost = require('../models/RiderJobPost');
+    const jobPostIds = await RiderJobPost.find({ 
+      vendor: { $in: vendorIds },
+      isActive: true,
+    }).distinct('_id');
+
+    if (jobPostIds.length === 0) {
+      logger.info(`No job posts found for vendors in order ${order.orderNumber}`);
+      return;
+    }
+
+    // Find all riders assigned to these job posts
+    const assignedRiders = await RiderJobApplication.find({
+      status: 'assigned',
+      jobPost: { $in: jobPostIds },
+    }).populate('rider', 'fullName mobileNumber isActive approvalStatus');
+
+    // Filter active and approved riders
+    const activeRiders = assignedRiders
+      .filter(app => app.rider && app.rider.isActive && app.rider.approvalStatus === 'approved')
+      .map(app => app.rider._id);
+
+    if (activeRiders.length === 0) {
+      logger.info(`No active riders found for vendors in order ${order.orderNumber}`);
+      return;
+    }
+
+    // Create assignment requests for each rider
+    const assignmentRequests = activeRiders.map(riderId => ({
+      rider: riderId,
+      requestedAt: new Date(),
+      status: 'pending',
+    }));
+
+    // Update order with assignment requests
+    order.assignmentRequestSentAt = new Date();
+    order.assignmentRequestSentTo = assignmentRequests;
+    await order.save();
+
+    // Send notifications to riders
+    for (const riderId of activeRiders) {
+      const rider = await Rider.findById(riderId);
+      if (rider && notificationQueue) {
+        await notificationQueue.add({
+          userId: riderId,
+          type: 'order_assignment_request',
+          title: 'New Order Assignment Available',
+          message: `Order ${order.orderNumber} is ready for delivery. Would you like to accept?`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            type: 'rider',
+          },
+        });
+      }
+    }
+
+    logger.info(`Sent assignment requests to ${activeRiders.length} riders for order ${order.orderNumber}`);
+  } catch (error) {
+    logger.error(`Error notifying riders for order ${order.orderNumber}:`, error);
+  }
+};
+
+/**
  * Update order status (for vendor)
  */
 exports.updateOrderStatus = async (orderId, vendorId, status) => {
@@ -929,7 +1040,8 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
 
   // Set timestamps based on status
   if (status === 'ready') {
-    // Ready for pickup
+    // Ready for pickup - notify riders
+    await exports.notifyRidersForOrder(order);
   } else if (status === 'out_for_delivery') {
     // Out for delivery
   } else if (status === 'delivered') {

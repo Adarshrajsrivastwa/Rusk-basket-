@@ -675,6 +675,21 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     await order.save();
 
+    // If status changed to 'ready', notify riders
+    if (status === 'ready' && previousStatus !== 'ready') {
+      try {
+        const checkoutService = require('../services/checkoutService');
+        // Get fresh order with populated fields
+        const orderForNotification = await Order.findById(orderId);
+        if (orderForNotification) {
+          await checkoutService.notifyRidersForOrder(orderForNotification);
+        }
+      } catch (notifyError) {
+        logger.error(`Error notifying riders after status update: ${notifyError.message}`);
+        // Don't fail the request if notification fails
+      }
+    }
+
     logger.info(
       `Order status updated: ${order.orderNumber} from ${previousStatus} to ${status} by Vendor: ${req.vendor.storeId || req.vendor._id}`
     );
