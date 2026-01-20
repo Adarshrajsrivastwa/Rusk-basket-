@@ -197,13 +197,22 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
   // Create HTTP server
   server = http.createServer(app);
   
-  // Initialize Socket.io
-  const { initializeSocket } = require('./utils/socket');
-  initializeSocket(server);
+  // Initialize Socket.io (optional - will gracefully handle if not installed)
+  try {
+    const { initializeSocket } = require('./utils/socket');
+    const socketResult = initializeSocket(server);
+    if (socketResult) {
+      logger.info('WebSocket server initialized for real-time rider notifications');
+    } else {
+      logger.warn('WebSocket server not initialized. Socket.io may not be installed.');
+    }
+  } catch (socketError) {
+    logger.warn('Failed to initialize WebSocket server:', socketError.message);
+    logger.warn('Server will continue without WebSocket functionality. Install socket.io to enable real-time notifications.');
+  }
   
   server.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-    logger.info(`WebSocket server initialized for real-time rider notifications`);
   });
 })
 .catch((error) => {
