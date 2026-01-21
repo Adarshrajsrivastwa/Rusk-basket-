@@ -13,12 +13,18 @@ const setTokenCookie = (res, token) => {
     cookieExpireMs = minutes * 60 * 1000;
   }
   
+  // Determine if we're in production (using HTTPS domains)
+  const isProduction = process.env.NODE_ENV === 'production' || 
+                       process.env.BACKEND_URL?.includes('api.rushbaskets.com') ||
+                       process.env.FRONTEND_URL?.includes('grocery.rushbaskets.com');
+  
   const cookieOptions = {
     maxAge: cookieExpireMs,
     httpOnly: false,
-    secure: false,
-    sameSite: 'lax',
+    secure: isProduction ? true : false, // Use secure cookies in production (HTTPS only)
+    sameSite: isProduction ? 'none' : 'lax', // 'none' required for cross-subdomain (api.rushbaskets.com to grocery.rushbaskets.com)
     path: '/',
+    domain: isProduction ? '.rushbaskets.com' : undefined, // Set domain for cross-subdomain cookies in production
   };
 
   try {
@@ -40,11 +46,17 @@ const setTokenCookie = (res, token) => {
 };
 
 const clearTokenCookie = (res) => {
+  // Determine if we're in production (using HTTPS domains)
+  const isProduction = process.env.NODE_ENV === 'production' || 
+                       process.env.BACKEND_URL?.includes('api.rushbaskets.com') ||
+                       process.env.FRONTEND_URL?.includes('grocery.rushbaskets.com');
+  
   const cookieOptions = {
     httpOnly: false,
-    secure: false,
-    sameSite: 'lax',
+    secure: isProduction ? true : false,
+    sameSite: isProduction ? 'none' : 'lax', // 'none' required for cross-subdomain
     path: '/',
+    domain: isProduction ? '.rushbaskets.com' : undefined,
     expires: new Date(0),
     maxAge: 0,
   };

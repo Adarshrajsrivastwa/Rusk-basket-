@@ -1332,6 +1332,15 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       throw new Error(`${validation.reason} for product ${product.productName}`);
     }
 
+    // Check if product already exists in order (same productId and SKU)
+    const existingItemIndex = order.items.findIndex(item => {
+      const itemProductId = item.product?._id || item.product;
+      const itemSku = item.sku || '';
+      const newSku = sku || '';
+      return itemProductId && itemProductId.toString() === productId.toString() && 
+             itemSku === newSku;
+    });
+
     // Check inventory
     let availableInventory = product.inventory;
     if (product.skus && product.skus.length > 0) {
@@ -1380,67 +1389,92 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     }
 
     const salePrice = unitPrice;
-    const totalPrice = unitPrice * quantity;
-    const itemCashback = (product.cashback || 0) * quantity;
+    const itemCashbackPerUnit = product.cashback || 0;
 
-    newSubtotal += totalPrice;
-    newCashback += itemCashback;
+    // If product already exists in order, update quantity instead of creating new item
+    if (existingItemIndex !== -1) {
+      const existingItem = order.items[existingItemIndex];
+      const oldTotalPrice = existingItem.totalPrice || 0;
+      const oldCashback = existingItem.cashback || 0;
+      
+      const newQuantity = existingItem.quantity + quantity;
+      const newTotalPrice = unitPrice * newQuantity;
+      const newItemCashback = itemCashbackPerUnit * newQuantity;
 
-    // Get product images
-    if (product.images && product.images.length > 0) {
-      const firstImage = product.images[0];
-      productImagesMap.set(productId.toString(), {
-        url: firstImage.url,
-        publicId: firstImage.publicId,
-        mediaType: firstImage.mediaType || 'image',
-      });
-    } else if (product.thumbnail && product.thumbnail.url) {
-      productImagesMap.set(productId.toString(), {
-        url: product.thumbnail.url,
-        publicId: product.thumbnail.publicId,
-        mediaType: 'image',
-      });
-    }
+      // Update existing item
+      existingItem.quantity = newQuantity;
+      existingItem.unitPrice = unitPrice;
+      existingItem.salePrice = salePrice;
+      existingItem.totalPrice = newTotalPrice;
+      existingItem.cashback = newItemCashback;
 
-    // Get thumbnail
-    let thumbnail = undefined;
-    if (product.thumbnail && product.thumbnail.url) {
-      thumbnail = {
-        url: product.thumbnail.url,
-        publicId: product.thumbnail.publicId || undefined,
+      // Calculate the difference in subtotal and cashback
+      newSubtotal += (newTotalPrice - oldTotalPrice);
+      newCashback += (newItemCashback - oldCashback);
+    } else {
+      // Create new order item
+      const totalPrice = unitPrice * quantity;
+      const itemCashback = itemCashbackPerUnit * quantity;
+
+      newSubtotal += totalPrice;
+      newCashback += itemCashback;
+
+      // Get product images
+      if (product.images && product.images.length > 0) {
+        const firstImage = product.images[0];
+        productImagesMap.set(productId.toString(), {
+          url: firstImage.url,
+          publicId: firstImage.publicId,
+          mediaType: firstImage.mediaType || 'image',
+        });
+      } else if (product.thumbnail && product.thumbnail.url) {
+        productImagesMap.set(productId.toString(), {
+          url: product.thumbnail.url,
+          publicId: product.thumbnail.publicId,
+          mediaType: 'image',
+        });
+      }
+
+      // Get thumbnail
+      let thumbnail = undefined;
+      if (product.thumbnail && product.thumbnail.url) {
+        thumbnail = {
+          url: product.thumbnail.url,
+          publicId: product.thumbnail.publicId || undefined,
+        };
+      } else if (product.images && product.images.length > 0 && product.images[0].url) {
+        thumbnail = {
+          url: product.images[0].url,
+          publicId: product.images[0].publicId || undefined,
+        };
+      }
+
+      // Create order item
+      const orderItem = {
+        product: productId,
+        vendor: vendorId,
+        productName: product.productName,
+        thumbnail: thumbnail,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        salePrice: salePrice,
+        totalPrice: totalPrice,
+        cashback: itemCashback,
+        sku: sku || undefined,
       };
-    } else if (product.images && product.images.length > 0 && product.images[0].url) {
-      thumbnail = {
-        url: product.images[0].url,
-        publicId: product.images[0].publicId || undefined,
-      };
+
+      // Add image if available
+      const productImage = productImagesMap.get(productId.toString());
+      if (productImage) {
+        orderItem.image = {
+          url: productImage.url,
+          publicId: productImage.publicId || undefined,
+          mediaType: productImage.mediaType || 'image',
+        };
+      }
+
+      newOrderItems.push(orderItem);
     }
-
-    // Create order item
-    const orderItem = {
-      product: productId,
-      vendor: vendorId,
-      productName: product.productName,
-      thumbnail: thumbnail,
-      quantity: quantity,
-      unitPrice: unitPrice,
-      salePrice: salePrice,
-      totalPrice: totalPrice,
-      cashback: itemCashback,
-      sku: sku || undefined,
-    };
-
-    // Add image if available
-    const productImage = productImagesMap.get(productId.toString());
-    if (productImage) {
-      orderItem.image = {
-        url: productImage.url,
-        publicId: productImage.publicId || undefined,
-        mediaType: productImage.mediaType || 'image',
-      };
-    }
-
-    newOrderItems.push(orderItem);
 
     // Update inventory
     if (product.skus && product.skus.length > 0 && sku) {
@@ -1455,12 +1489,17 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     await product.save();
   }
 
-  // Add new items to order
-  order.items.push(...newOrderItems);
+  // Add new items to order (only items that don't already exist)
+  if (newOrderItems.length > 0) {
+    order.items.push(...newOrderItems);
+  }
 
   // Recalculate order pricing
   const allItemsSubtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
   const allItemsCashback = order.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
+
+  // Update totalProductsAmount (total amount of all products)
+  order.totalProductsAmount = parseFloat(allItemsSubtotal.toFixed(2));
 
   // Apply coupon discount if exists
   let discount = order.pricing.discount || 0;

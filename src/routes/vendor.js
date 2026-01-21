@@ -3,6 +3,7 @@ const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
+const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
@@ -196,6 +197,34 @@ router.put(
 );
 
 router.get('/orders/:id', protectVendor, getVendorOrderById);
+
+router.post(
+  '/order/:orderId/items',
+  protectVendor,
+  [
+    body('items')
+      .isArray({ min: 1 })
+      .withMessage('Items must be a non-empty array'),
+    body('items.*.productId')
+      .notEmpty()
+      .withMessage('Product ID is required for each item')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid product ID'),
+    body('items.*.quantity')
+      .notEmpty()
+      .withMessage('Quantity is required for each item')
+      .bail()
+      .isInt({ min: 1 })
+      .withMessage('Quantity must be a positive integer'),
+    body('items.*.sku')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('SKU cannot be empty if provided'),
+  ],
+  addItemsToOrder
+);
 
 router.get('/products', protectVendor, getVendorProducts);
 
