@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
-const { riderLogin, riderVerifyOTP } = require('../controllers/riderAuth');
+const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
@@ -320,6 +320,9 @@ router.get('/websocket/status', protect, (req, res) => {
     });
   }
 });
+
+// Logout route (protected)
+router.post('/logout', protect, riderLogout);
 
 module.exports = router;
 

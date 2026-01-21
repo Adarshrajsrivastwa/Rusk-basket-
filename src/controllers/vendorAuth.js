@@ -2,7 +2,7 @@ const Vendor = require('../models/Vendor');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { setTokenCookie } = require('../utils/cookieHelper');
+const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
 exports.vendorLogin = async (req, res, next) => {
   try {
@@ -133,3 +133,27 @@ exports.vendorVerifyOTP = async (req, res, next) => {
   }
 };
 
+exports.vendorLogout = async (req, res, next) => {
+  try {
+    const vendorId = req.vendor?._id || req.vendor?.id;
+    const contactNumber = req.vendor?.contactNumber;
+    const storeId = req.vendor?.storeId;
+
+    clearTokenCookie(res);
+
+    logger.info(`Vendor logged out successfully: ${contactNumber || storeId || vendorId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    logger.error('Vendor logout error:', error);
+    // Even if there's an error, clear the cookie
+    clearTokenCookie(res);
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  }
+};

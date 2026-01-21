@@ -1,6 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { login, verifyOTP } = require('../controllers/unifiedAuth');
+const { login, verifyOTP, adminLogout } = require('../controllers/unifiedAuth');
+const { protect } = require('../middleware/adminAuth');
 
 const router = express.Router();
 
@@ -52,5 +53,8 @@ router.post(
   ],
   verifyOTP
 );
+
+// Admin logout route (protected)
+router.post('/admin/logout', protect, adminLogout);
 
 module.exports = router;

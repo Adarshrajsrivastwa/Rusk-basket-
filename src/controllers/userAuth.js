@@ -2,7 +2,7 @@ const User = require('../models/User');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { setTokenCookie } = require('../utils/cookieHelper');
+const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
 exports.userLogin = async (req, res, next) => {
   try {
@@ -230,5 +230,29 @@ exports.userVerifyOTP = async (req, res, next) => {
   } catch (error) {
     logger.error('User OTP verification error:', error);
     next(error);
+  }
+};
+
+exports.userLogout = async (req, res, next) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    const contactNumber = req.user?.contactNumber;
+
+    clearTokenCookie(res);
+
+    logger.info(`User logged out successfully: ${contactNumber || userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    logger.error('User logout error:', error);
+    // Even if there's an error, clear the cookie
+    clearTokenCookie(res);
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
   }
 };

@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/userOTP');
-const { userLogin, userVerifyOTP } = require('../controllers/userAuth');
+const { userLogin, userVerifyOTP, userLogout } = require('../controllers/userAuth');
 const { getProfile, updateProfile, getCashback } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
 const { protect } = require('../middleware/userAuth');
@@ -131,6 +131,9 @@ router.put(
 
 // Cashback route (protected)
 router.get('/cashback', protect, getCashback);
+
+// Logout route (protected)
+router.post('/logout', protect, userLogout);
 
 // Products routes (protected)
 router.get(

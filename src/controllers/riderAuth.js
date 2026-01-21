@@ -2,7 +2,7 @@ const Rider = require('../models/Rider');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { setTokenCookie } = require('../utils/cookieHelper');
+const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
 exports.riderLogin = async (req, res, next) => {
   try {
@@ -169,3 +169,26 @@ exports.riderVerifyOTP = async (req, res, next) => {
   }
 };
 
+exports.riderLogout = async (req, res, next) => {
+  try {
+    const riderId = req.rider?._id || req.rider?.id;
+    const mobileNumber = req.rider?.mobileNumber;
+
+    clearTokenCookie(res);
+
+    logger.info(`Rider logged out successfully: ${mobileNumber || riderId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    logger.error('Rider logout error:', error);
+    // Even if there's an error, clear the cookie
+    clearTokenCookie(res);
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  }
+};

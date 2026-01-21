@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
+const { vendorLogout } = require('../controllers/vendorAuth');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
@@ -503,6 +504,9 @@ router.get(
 );
 
 router.get('/products/:productId/offer', protectVendor, getProductOffer);
+
+// Logout route (protected)
+router.post('/logout', protectVendor, vendorLogout);
 
 module.exports = router;
 

@@ -3,6 +3,7 @@ const Vendor = require('../models/Vendor');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { clearTokenCookie } = require('../utils/cookieHelper');
 
 exports.login = async (req, res, next) => {
   try {
@@ -203,5 +204,30 @@ exports.verifyOTP = async (req, res, next) => {
   } catch (error) {
     logger.error('Unified OTP verification error:', error);
     next(error);
+  }
+};
+
+exports.adminLogout = async (req, res, next) => {
+  try {
+    const adminId = req.admin?._id || req.admin?.id;
+    const mobile = req.admin?.mobile;
+    const name = req.admin?.name;
+
+    clearTokenCookie(res);
+
+    logger.info(`Admin logged out successfully: ${name || mobile || adminId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    logger.error('Admin logout error:', error);
+    // Even if there's an error, clear the cookie
+    clearTokenCookie(res);
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
   }
 };
