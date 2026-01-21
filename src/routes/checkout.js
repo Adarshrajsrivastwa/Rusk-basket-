@@ -15,6 +15,7 @@ const {
   getVendorOrders,
   getVendorOrder,
   updateOrderStatus,
+  addItemsToOrder,
   getOrderInvoice,
 } = require('../controllers/checkout');
 const { protect } = require('../middleware/userAuth');
@@ -88,6 +89,40 @@ router.put(
       .withMessage('Status must be one of: pending, confirmed, processing, ready, out_for_delivery, delivered, cancelled'),
   ],
   updateOrderStatus
+);
+
+router.post(
+  '/vendor/order/:orderId/items',
+  protectVendor,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+    body('items')
+      .isArray({ min: 1 })
+      .withMessage('Items must be a non-empty array'),
+    body('items.*.productId')
+      .notEmpty()
+      .withMessage('Product ID is required for each item')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid product ID'),
+    body('items.*.quantity')
+      .notEmpty()
+      .withMessage('Quantity is required for each item')
+      .bail()
+      .isInt({ min: 1 })
+      .withMessage('Quantity must be a positive integer'),
+    body('items.*.sku')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('SKU cannot be empty if provided'),
+  ],
+  addItemsToOrder
 );
 
 router.use((req, res, next) => {

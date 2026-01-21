@@ -471,9 +471,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
     // Add category filter to subcategory query if provided
     if (category) {
       subCategoryQuery.category = category;
-    }
-
-    const subCategories = await SubCategory.find(subCategoryQuery)
+    }    const subCategories = await SubCategory.find(subCategoryQuery)
       .populate('category', 'name')
       .sort({ name: 1 });    res.status(200).json({
       success: true,

@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const compression = require('compression');
 const logger = require('./utils/logger');
 const { initializeQueues } = require('./utils/queue');
-const { disableExpiredOffers } = require('./utils/offerExpiryService');
+const { disableExpiredOffers, processDailyOffers } = require('./utils/offerExpiryService');
 
 require('./workers/emailWorker');
 require('./workers/smsWorker');
@@ -47,9 +47,34 @@ app.use((req, res, next) => {
             position: e.message.match(/position (\d+)/)?.[1],
             body: data.substring(0, 200),
             url: req.url,
-            method: req.method
+            method: req.method,
+            service: 'rush-basket-backend',
+            timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
           });
-          // Don't fail, let express.json handle it
+          
+          // Check for common JSON errors and provide helpful messages
+          let errorMessage = 'Invalid JSON format in request body';
+          let hint = '';
+          
+          if (e.message.includes('trailing comma') || e.message.includes('Expected double-quoted property name')) {
+            errorMessage = 'JSON syntax error: Trailing comma detected';
+            hint = 'Remove trailing commas from your JSON. Example: {"quantity": 5} not {"quantity": 5,}';
+          } else if (e.message.includes('Unexpected token')) {
+            errorMessage = 'JSON syntax error: Unexpected token';
+            hint = 'Check for missing quotes, brackets, or invalid characters';
+          } else if (e.message.includes('Unexpected end')) {
+            errorMessage = 'JSON syntax error: Incomplete JSON';
+            hint = 'Ensure all brackets and braces are properly closed';
+          }
+          
+          // Return error response immediately for better UX
+          return res.status(400).json({
+            success: false,
+            error: errorMessage,
+            message: e.message,
+            hint: hint || 'Please ensure: 1) All property names use double quotes, 2) No trailing commas, 3) Valid JSON syntax',
+            position: e.message.match(/position (\d+)/)?.[1]
+          });
         }
         next();
       });
@@ -260,25 +285,61 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
   server.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
     
-    const FIVE_MINUTES = 5 * 60 * 1000;
-    
+    // Run on startup
     disableExpiredOffers().then(result => {
       if (result.success && result.disabledCount > 0) {
         logger.info(`Disabled ${result.disabledCount} expired offers on startup`);
       }
     });
     
-    setInterval(() => {
-      disableExpiredOffers().then(result => {
-        if (result.success && result.disabledCount > 0) {
-          logger.info(`Disabled ${result.disabledCount} expired offers`);
-        }
-      }).catch(error => {
-        logger.error('Error in offer expiry service:', error);
-      });
-    }, FIVE_MINUTES);
+    // Schedule daily offer processing to run daily at 5 AM IST
+    const scheduleDailyOfferCheck = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(5, 0, 0, 0); // Set to 5 AM tomorrow
+      
+      // If it's already past 5 AM today, schedule for tomorrow
+      const today5AM = new Date(now);
+      today5AM.setHours(5, 0, 0, 0);
+      
+      const nextRun = now < today5AM ? today5AM : tomorrow;
+      const msUntilNextRun = nextRun.getTime() - now.getTime();
+      
+      logger.info(`Daily offer check scheduled for: ${nextRun.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}`);
+      logger.info(`Next check in: ${Math.round(msUntilNextRun / 1000 / 60)} minutes`);
+      
+      setTimeout(() => {
+        // Process daily offers (disable expired and enable new ones)
+        processDailyOffers().then(result => {
+          if (result.success) {
+            if (result.disabledCount > 0 || result.enabledCount > 0) {
+              logger.info(`Daily offer processing at 5 AM: Disabled ${result.disabledCount} expired, Enabled ${result.enabledCount} new daily offers`);
+            } else {
+              logger.info('Daily offer check completed at 5 AM - no changes needed');
+            }
+          }
+        }).catch(error => {
+          logger.error('Error in daily offer processing service:', error);
+        });
+        
+        // Also run general expired offers check
+        disableExpiredOffers().then(result => {
+          if (result.success && result.disabledCount > 0) {
+            logger.info(`Disabled ${result.disabledCount} expired offers at 5 AM daily check`);
+          }
+        }).catch(error => {
+          logger.error('Error in offer expiry service:', error);
+        });
+        
+        // Schedule next day
+        scheduleDailyOfferCheck();
+      }, msUntilNextRun);
+    };
     
-    logger.info('Offer expiry service scheduled to run every 5 minutes');
+    // Start scheduling
+    scheduleDailyOfferCheck();
+    logger.info('Daily offer processing service scheduled to run every day at 5 AM (IST)');
   });
 })
 .catch((error) => {

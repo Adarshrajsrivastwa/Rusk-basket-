@@ -467,6 +467,48 @@ exports.cancelOrder = async (req, res, next) => {
   }
 };
 
+exports.addItemsToOrder = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderId } = req.params;
+    const { items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Items array is required and must not be empty',
+      });
+    }
+
+    const order = await checkoutService.addItemsToOrder(
+      orderId,
+      req.vendor._id,
+      items
+    );
+
+    logger.info(`Items added to order ${order.orderNumber} by Vendor: ${req.vendor.storeId || req.vendor._id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Items added to order successfully',
+      data: order,
+    });
+  } catch (error) {
+    logger.error('Add items to order error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to add items to order',
+    });
+  }
+};
+
 exports.getOrderInvoice = async (req, res, next) => {
   try {
     const { orderId } = req.params;

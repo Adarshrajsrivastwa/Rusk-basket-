@@ -1272,6 +1272,252 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     .populate('coupon.couponId', 'couponName code');
 };
 
+/**
+ * Add items to existing order (vendor only)
+ * Only allowed if order status is NOT "ready"
+ */
+exports.addItemsToOrder = async (orderId, vendorId, items) => {
+  const order = await Order.findById(orderId)
+    .populate('items.product', 'productName thumbnail images')
+    .populate('items.vendor', 'storeName storeId');
+
+  if (!order) {
+    throw new Error('Order not found');
+  }
+
+  // Check if order status is NOT "ready"
+  if (order.status === 'ready') {
+    throw new Error('Cannot add items to order. Order status is already "ready"');
+  }
+
+  // Check if order has items from this vendor
+  const vendorItems = order.items.filter(item => {
+    const itemVendorId = item.vendor?._id || item.vendor;
+    return itemVendorId && itemVendorId.toString() === vendorId.toString();
+  });
+
+  if (vendorItems.length === 0) {
+    throw new Error('Order does not belong to this vendor');
+  }
+
+  // Validate and process new items
+  const newOrderItems = [];
+  let newSubtotal = 0;
+  let newCashback = 0;
+  const productImagesMap = new Map();
+
+  for (const itemData of items) {
+    const { productId, quantity, sku } = itemData;
+
+    if (!productId || !quantity || quantity <= 0) {
+      throw new Error('Invalid item data. Product ID and quantity are required');
+    }
+
+    const product = await Product.findById(productId)
+      .populate('vendor', 'storeName storeId isActive');
+
+    if (!product) {
+      throw new Error(`Product ${productId} not found`);
+    }
+
+    // Verify product belongs to the vendor
+    const productVendorId = product.vendor?._id || product.vendor;
+    if (!productVendorId || productVendorId.toString() !== vendorId.toString()) {
+      throw new Error(`Product ${product.productName} does not belong to this vendor`);
+    }
+
+    // Validate product availability
+    const validation = validateProductAvailability(product);
+    if (!validation.available) {
+      throw new Error(`${validation.reason} for product ${product.productName}`);
+    }
+
+    // Check inventory
+    let availableInventory = product.inventory;
+    if (product.skus && product.skus.length > 0) {
+      if (sku) {
+        const skuItem = product.skus.find(s => s.sku === sku);
+        if (!skuItem) {
+          throw new Error(`Invalid SKU ${sku} for product ${product.productName}`);
+        }
+        availableInventory = skuItem.inventory;
+      } else {
+        throw new Error(`SKU is required for product ${product.productName}`);
+      }
+    }
+
+    if (availableInventory < quantity) {
+      throw new Error(`Insufficient inventory for product ${product.productName}. Only ${availableInventory} items available`);
+    }
+
+    // Calculate pricing
+    const now = new Date();
+    let unitPrice;
+    let isOfferActive = false;
+    
+    if (product.offerEnabled && product.offerDiscountPercentage > 0) {
+      if (product.offerStartDate && product.offerEndDate) {
+        const startDate = new Date(product.offerStartDate);
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now >= startDate && now <= endDate;
+      } else if (product.offerStartDate) {
+        const startDate = new Date(product.offerStartDate);
+        isOfferActive = now >= startDate;
+      } else if (product.offerEndDate) {
+        const endDate = new Date(product.offerEndDate);
+        isOfferActive = now <= endDate;
+      } else {
+        isOfferActive = true;
+      }
+    }
+    
+    if (isOfferActive) {
+      const basePrice = product.regularPrice || product.salePrice || product.actualPrice;
+      const discountAmount = (basePrice * product.offerDiscountPercentage) / 100;
+      unitPrice = basePrice - discountAmount;
+    } else {
+      unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+    }
+
+    const salePrice = unitPrice;
+    const totalPrice = unitPrice * quantity;
+    const itemCashback = (product.cashback || 0) * quantity;
+
+    newSubtotal += totalPrice;
+    newCashback += itemCashback;
+
+    // Get product images
+    if (product.images && product.images.length > 0) {
+      const firstImage = product.images[0];
+      productImagesMap.set(productId.toString(), {
+        url: firstImage.url,
+        publicId: firstImage.publicId,
+        mediaType: firstImage.mediaType || 'image',
+      });
+    } else if (product.thumbnail && product.thumbnail.url) {
+      productImagesMap.set(productId.toString(), {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId,
+        mediaType: 'image',
+      });
+    }
+
+    // Get thumbnail
+    let thumbnail = undefined;
+    if (product.thumbnail && product.thumbnail.url) {
+      thumbnail = {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId || undefined,
+      };
+    } else if (product.images && product.images.length > 0 && product.images[0].url) {
+      thumbnail = {
+        url: product.images[0].url,
+        publicId: product.images[0].publicId || undefined,
+      };
+    }
+
+    // Create order item
+    const orderItem = {
+      product: productId,
+      vendor: vendorId,
+      productName: product.productName,
+      thumbnail: thumbnail,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      salePrice: salePrice,
+      totalPrice: totalPrice,
+      cashback: itemCashback,
+      sku: sku || undefined,
+    };
+
+    // Add image if available
+    const productImage = productImagesMap.get(productId.toString());
+    if (productImage) {
+      orderItem.image = {
+        url: productImage.url,
+        publicId: productImage.publicId || undefined,
+        mediaType: productImage.mediaType || 'image',
+      };
+    }
+
+    newOrderItems.push(orderItem);
+
+    // Update inventory
+    if (product.skus && product.skus.length > 0 && sku) {
+      const skuItem = product.skus.find(s => s.sku === sku);
+      if (skuItem) {
+        skuItem.inventory -= quantity;
+      }
+    } else {
+      product.inventory -= quantity;
+    }
+
+    await product.save();
+  }
+
+  // Add new items to order
+  order.items.push(...newOrderItems);
+
+  // Recalculate order pricing
+  const allItemsSubtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const allItemsCashback = order.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
+
+  // Apply coupon discount if exists
+  let discount = order.pricing.discount || 0;
+  if (order.coupon && order.coupon.couponId) {
+    const coupon = await Coupon.findById(order.coupon.couponId);
+    if (coupon && coupon.isValid()) {
+      const discountResult = coupon.calculateDiscount(allItemsSubtotal);
+      if (discountResult.valid) {
+        discount = discountResult.discount;
+      }
+    }
+  }
+
+  // Recalculate shipping and tax
+  const shipping = allItemsSubtotal >= 500 ? 0 : 50;
+  const tax = (allItemsSubtotal - discount) * 0.05;
+  const total = allItemsSubtotal - discount + shipping + tax;
+
+  // Update order pricing
+  order.pricing = {
+    subtotal: parseFloat(allItemsSubtotal.toFixed(2)),
+    discount: parseFloat(discount.toFixed(2)),
+    shipping: parseFloat(shipping.toFixed(2)),
+    tax: parseFloat(tax.toFixed(2)),
+    total: parseFloat(total.toFixed(2)),
+    totalCashback: parseFloat(allItemsCashback.toFixed(2)),
+  };
+
+  // Update payment amount
+  order.payment.amount = parseFloat(total.toFixed(2));
+
+  await order.save();
+
+  // Add cashback to user account
+  if (newCashback > 0) {
+    try {
+      const user = await User.findById(order.user);
+      if (user) {
+        const previousCashback = user.cashback || 0;
+        const newCashbackTotal = previousCashback + newCashback;
+        user.cashback = newCashbackTotal;
+        await user.save();
+        logger.info(`Cashback ${newCashback} added to user ${order.user} account for order ${order.orderNumber}`);
+      }
+    } catch (error) {
+      logger.error(`Error adding cashback to user ${order.user} account:`, error);
+    }
+  }
+
+  return await Order.findById(order._id)
+    .populate('user', 'userName contactNumber email')
+    .populate('items.product', 'productName thumbnail')
+    .populate('items.vendor', 'storeName storeId')
+    .populate('coupon.couponId', 'couponName code offerType')
+    .populate('rider', 'fullName mobileNumber');
+};
+
 
 
 
