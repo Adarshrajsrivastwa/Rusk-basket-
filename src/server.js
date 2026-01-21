@@ -108,6 +108,8 @@ const corsOptions = {
       'http://127.0.0.1:5173',
       'http://127.0.0.1:5174',
       'http://46.202.164.93',
+      'https://grocery.rushbaskets.com',
+      'https://admin.rushbaskets.com',
       process.env.CORS_ORIGIN,
     ].filter(Boolean);
     
