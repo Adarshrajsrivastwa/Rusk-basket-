@@ -209,7 +209,7 @@ exports.userVerifyOTP = async (req, res, next) => {
     logger.info(`User logged in successfully: ${contactNumber}`);
     logger.info(`Setting token cookie for user: ${contactNumber}`);
 
-    setTokenCookie(res, token);
+    setTokenCookie(res, token, req);
 
     const responseData = {
       success: true,

@@ -93,7 +93,7 @@ exports.verifyOTP = async (req, res, next) => {
 
     const token = rider.getSignedJwtToken();
 
-    setTokenCookie(res, token);
+    setTokenCookie(res, token, req);
 
     logger.info(`Rider mobile number verified: ${mobileNumber}`);
 

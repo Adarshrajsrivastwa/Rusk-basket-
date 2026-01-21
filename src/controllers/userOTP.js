@@ -148,7 +148,7 @@ exports.verifyOTP = async (req, res, next) => {
 
     const token = user.getSignedJwtToken();
 
-    setTokenCookie(res, token);
+    setTokenCookie(res, token, req);
 
     logger.info(`User contact number verified: ${contactNumber}`);
 
