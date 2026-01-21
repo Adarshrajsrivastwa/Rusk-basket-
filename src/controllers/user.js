@@ -87,6 +87,35 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
+exports.getCashback = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select('cashback');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    // Get cashback directly from user schema
+    const cashbackData = {
+      cashback: user.cashback || 0,
+      currency: 'INR',
+    };
+
+    logger.info(`Cashback retrieved for user: ${req.user._id} - Balance: ${cashbackData.cashback}`);
+
+    res.status(200).json({
+      success: true,
+      data: cashbackData,
+    });
+  } catch (error) {
+    logger.error('Get cashback error:', error);
+    next(error);
+  }
+};
+
 
 
 

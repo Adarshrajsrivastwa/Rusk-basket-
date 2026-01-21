@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/userOTP');
 const { userLogin, userVerifyOTP } = require('../controllers/userAuth');
-const { getProfile, updateProfile } = require('../controllers/user');
+const { getProfile, updateProfile, getCashback } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
 const { protect } = require('../middleware/userAuth');
 const { uploadProfileImage } = require('../middleware/userUpload');
@@ -128,6 +128,9 @@ router.put(
   ],
   updateProfile
 );
+
+// Cashback route (protected)
+router.get('/cashback', protect, getCashback);
 
 // Products routes (protected)
 router.get(

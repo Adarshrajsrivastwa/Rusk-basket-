@@ -58,6 +58,11 @@ const UserSchema = new mongoose.Schema({
     url: String,
     publicId: String,
   },
+  cashback: {
+    type: Number,
+    default: 0,
+    min: [0, 'Cashback cannot be negative'],
+  },
   isActive: {
     type: Boolean,
     default: true,

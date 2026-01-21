@@ -462,9 +462,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
         },
         data: [],
       });
-    }
-
-    // Get subcategories that have products in the area
+    }    // Get subcategories that have products in the area
     let subCategoryQuery = {
       _id: { $in: products },
       isActive: true,

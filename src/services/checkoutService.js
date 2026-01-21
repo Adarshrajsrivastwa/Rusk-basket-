@@ -2,6 +2,7 @@ const Cart = require('../models/Cart');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Coupon = require('../models/Coupon');
+const User = require('../models/User');
 const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const { notificationQueue } = require('../utils/queue');
@@ -797,6 +798,37 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       coupon.usedCount = (coupon.usedCount || 0) + 1;
       await coupon.save();
     }
+  }
+
+  // Add cashback to user account
+  const totalCashback = totals.pricing?.totalCashback || 0;
+  logger.info(`Processing cashback for order ${orderNumber}: totalCashback = ${totalCashback}`);
+  
+  if (totalCashback > 0) {
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        const previousCashback = user.cashback || 0;
+        const newCashback = previousCashback + totalCashback;
+        user.cashback = newCashback;
+        await user.save();
+        
+        // Verify cashback was saved
+        const updatedUser = await User.findById(userId).select('cashback');
+        if (updatedUser && updatedUser.cashback === newCashback) {
+          logger.info(`✓ Cashback ${totalCashback} successfully added to user ${userId} account for order ${orderNumber}. Previous: ${previousCashback}, New: ${updatedUser.cashback}`);
+        } else {
+          logger.error(`✗ Cashback save verification failed for user ${userId} order ${orderNumber}. Expected: ${newCashback}, Got: ${updatedUser?.cashback}`);
+        }
+      } else {
+        logger.error(`User ${userId} not found when trying to add cashback for order ${orderNumber}`);
+      }
+    } catch (error) {
+      logger.error(`Error adding cashback to user ${userId} account for order ${orderNumber}:`, error);
+      // Don't throw error, just log it - order should still be created
+    }
+  } else {
+    logger.info(`No cashback to add for order ${orderNumber} (totalCashback: ${totalCashback})`);
   }
 
   // Clear cart
