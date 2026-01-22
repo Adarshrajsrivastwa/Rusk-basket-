@@ -172,9 +172,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
 exports.riderLogout = async (req, res, next) => {
   try {
     const riderId = req.rider?._id || req.rider?.id;
-    const mobileNumber = req.rider?.mobileNumber;    clearTokenCookie(res);
-
-    logger.info(`Rider logged out successfully: ${mobileNumber || riderId}`);
+    const mobileNumber = req.rider?.mobileNumber;    clearTokenCookie(res);    logger.info(`Rider logged out successfully: ${mobileNumber || riderId}`);
 
     res.status(200).json({
       success: true,

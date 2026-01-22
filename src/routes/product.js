@@ -3,7 +3,7 @@ const { body, query } = require('express-validator');
 const router = express.Router();
 
 // Controllers
-const { getAllProducts, getNearbyProducts, getPendingProducts, getProductById } = require('../controllers/productGet');
+const { getAllProducts, getNearbyProducts, getPendingProducts, getProductById, scanQRCode } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
@@ -491,6 +491,26 @@ router.put(
 
 // Delete product (Admin only)
 router.delete('/admin/:id', protect, deleteProduct);
+
+// Scan QR code to check if product exists (Vendor only - vendor ID extracted from credentials)
+router.post(
+  '/scan-qr',
+  protectVendor,
+  [
+    body('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+    body('sku')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 100 })
+      .withMessage('SKU must be between 1 and 100 characters'),
+  ],
+  scanQRCode
+);
 
 // Get single product by ID (Public - returns approved products only)
 // Must be placed after all specific routes to avoid conflicts

@@ -466,9 +466,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
     let subCategoryQuery = {
       _id: { $in: products },
       isActive: true,
-    };
-
-    // Add category filter to subcategory query if provided
+    };    // Add category filter to subcategory query if provided
     if (category) {
       subCategoryQuery.category = category;
     }    const subCategories = await SubCategory.find(subCategoryQuery)

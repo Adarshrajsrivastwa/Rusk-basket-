@@ -622,3 +622,94 @@ exports.getProductById = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Scan QR code and check if product exists
+ * Vendor ID is extracted from authentication credentials
+ * Accepts productId (required) and sku (optional) in request body
+ * Returns true if product exists and belongs to the authenticated vendor (and SKU matches if provided), false otherwise
+ */
+exports.scanQRCode = async (req, res, next) => {
+  try {
+    const { productId, sku } = req.body;
+    const vendorId = req.vendor._id;
+
+    // Validate productId is provided
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Product ID is required',
+      });
+    }
+
+    // Validate ObjectId format
+    if (!/^[0-9a-fA-F]{24}$/.test(productId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid product ID format',
+      });
+    }
+
+    // Find product by ID and filter by vendor at database level for security
+    const product = await Product.findOne({
+      _id: productId,
+      vendor: vendorId
+    })
+      .select('_id skus isActive approvalStatus vendor')
+      .lean();
+
+    // Check if product exists and belongs to vendor
+    if (!product) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: 'Product not found or does not belong to this vendor',
+      });
+    }
+
+    // Additional explicit verification - double check vendor ownership
+    // Convert both to strings for reliable comparison
+    const productVendorId = product.vendor?.toString();
+    const authenticatedVendorId = vendorId.toString();
+
+    if (productVendorId !== authenticatedVendorId) {
+      logger.warn(`Vendor ownership mismatch detected: Product ${productId}, Expected vendor: ${authenticatedVendorId}, Product vendor: ${productVendorId}`);
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: 'Product does not belong to this vendor',
+      });
+    }
+
+    // If SKU is provided, check if it exists in the product's skus array
+    if (sku) {
+      const skuExists = product.skus && product.skus.some(
+        (item) => item.sku && item.sku.trim().toLowerCase() === sku.trim().toLowerCase()
+      );
+
+      if (!skuExists) {
+        return res.status(200).json({
+          success: true,
+          exists: false,
+          message: 'Product found but SKU does not match',
+        });
+      }
+    }
+
+    // Product exists, belongs to vendor (and SKU matches if provided)
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      message: 'Product exists',
+    });
+  } catch (error) {
+    logger.error('Scan QR code error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid product ID format',
+      });
+    }
+    next(error);
+  }
+};
