@@ -520,7 +520,7 @@ exports.acceptOrderAssignment = async (req, res, next) => {
         orderNumber: order.orderNumber,
         status: 'out_for_delivery',
         amount: order.pricing?.total || 0,
-        deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0,
+        deliveryAmount: order.deliveryAmount || 0,
         pricing: order.pricing,
         shippingAddress: order.shippingAddress,
         location: {

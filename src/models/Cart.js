@@ -231,13 +231,50 @@ CartSchema.methods.calculateTotals = async function () {
     }
   }
 
-  // Calculate shipping (can be customized based on business logic)
-  const shipping = subtotal >= 500 ? 0 : 50; // Free shipping above ₹500
+  // Calculate handling charge based on vendor's handling charge percentage
+  // Get unique vendor IDs from items
+  const vendorIds = [];
+  itemsWithDetails.forEach(item => {
+    const vendorId = item.vendor?.toString() || item.vendor;
+    if (vendorId && !vendorIds.includes(vendorId)) {
+      vendorIds.push(vendorId);
+    }
+  });
+
+  // Fetch vendors with handling charge percentages
+  const Vendor = mongoose.model('Vendor');
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id handlingChargePercentage');
+  const vendorHandlingChargeMap = new Map();
+  vendors.forEach(vendor => {
+    vendorHandlingChargeMap.set(vendor._id.toString(), vendor.handlingChargePercentage || 0);
+  });
+
+  // Group items by vendor and calculate handling charge
+  const vendorItemsMap = new Map();
+  itemsWithDetails.forEach(item => {
+    const vendorId = item.vendor?.toString() || item.vendor;
+    if (vendorId) {
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    }
+  });
+
+  let totalHandlingCharge = 0;
+  vendorItemsMap.forEach((items, vendorId) => {
+    const handlingChargePercentage = vendorHandlingChargeMap.get(vendorId) || 0;
+    if (handlingChargePercentage > 0) {
+      const vendorItemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const vendorHandlingCharge = (vendorItemsSubtotal * handlingChargePercentage) / 100;
+      totalHandlingCharge += vendorHandlingCharge;
+    }
+  });
 
   // Calculate tax (GST - 5% for example, can be customized)
   const tax = (subtotal - discount) * 0.05;
 
-  const total = subtotal - discount + shipping + tax;
+  const total = subtotal - discount + tax + totalHandlingCharge;
 
   this.totalPrice = parseFloat(total.toFixed(2));
   await this.save();
@@ -248,8 +285,8 @@ CartSchema.methods.calculateTotals = async function () {
     pricing: {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discount: parseFloat(discount.toFixed(2)),
-      shipping: parseFloat(shipping.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
+      handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
       total: parseFloat(total.toFixed(2)),
       totalCashback: parseFloat(totalCashback.toFixed(2)),
     },

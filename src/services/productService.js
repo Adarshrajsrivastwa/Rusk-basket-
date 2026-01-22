@@ -105,6 +105,8 @@ const updateProductFields = (product, body) => {
     regularPrice,
     salePrice,
     cashback,
+    latitude,
+    longitude,
   } = body;
 
   if (productName) product.productName = productName;
@@ -120,6 +122,8 @@ const updateProductFields = (product, body) => {
   if (regularPrice !== undefined) product.regularPrice = parseFloat(regularPrice);
   if (salePrice !== undefined) product.salePrice = salePrice ? parseFloat(salePrice) : null;
   if (cashback !== undefined) product.cashback = parseFloat(cashback);
+  if (latitude !== undefined) product.latitude = latitude ? parseFloat(latitude) : undefined;
+  if (longitude !== undefined) product.longitude = longitude ? parseFloat(longitude) : undefined;
 };
 
 module.exports = {

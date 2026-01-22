@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
@@ -135,6 +135,14 @@ router.post(
     body('bank_name')
       .optional()
       .trim(),
+    body('serviceRadius')
+      .optional()
+      .isFloat({ min: 0.1 })
+      .withMessage('Service radius must be a number greater than or equal to 0.1 km'),
+    body('handlingChargePercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Handling charge percentage must be between 0 and 100'),
     body().custom((value, { req }) => {
       const bankName = (req.body.bankName || req.body.bank_name || '').trim();
       if (!bankName) {
@@ -477,6 +485,20 @@ router.put(
       .withMessage('Service radius must be a number greater than or equal to 0.1 km'),
   ],
   updateVendorRadius
+);
+
+router.put(
+  '/:id/handling-charge',
+  protectVendorOrAdmin,
+  [
+    body('handlingChargePercentage')
+      .notEmpty()
+      .withMessage('Handling charge percentage is required')
+      .bail()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Handling charge percentage must be between 0 and 100'),
+  ],
+  updateVendorHandlingCharge
 );
 
 router.put('/:id/suspend', protect, suspendVendor);

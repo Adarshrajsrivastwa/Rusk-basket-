@@ -585,7 +585,7 @@ exports.getOrderInvoice = async (req, res, next) => {
     let invoiceSubtotal = order.pricing.subtotal;
     let invoiceDiscount = order.pricing.discount;
     let invoiceTax = order.pricing.tax;
-    let invoiceShipping = order.pricing.shipping;
+    let invoiceHandlingCharge = order.pricing.handlingCharge || 0;
     let invoiceTotal = order.pricing.total;
     let invoiceCashback = order.pricing.totalCashback;
 
@@ -595,8 +595,8 @@ exports.getOrderInvoice = async (req, res, next) => {
       const vendorItemPercentage = invoiceSubtotal / order.pricing.subtotal;
       invoiceDiscount = order.pricing.discount * vendorItemPercentage;
       invoiceTax = order.pricing.tax * vendorItemPercentage;
-      invoiceShipping = order.pricing.shipping * vendorItemPercentage;
-      invoiceTotal = invoiceSubtotal - invoiceDiscount + invoiceTax + invoiceShipping;
+      invoiceHandlingCharge = (order.pricing.handlingCharge || 0) * vendorItemPercentage;
+      invoiceTotal = invoiceSubtotal - invoiceDiscount + invoiceTax + invoiceHandlingCharge;
     }
 
     const invoice = {
@@ -651,8 +651,8 @@ exports.getOrderInvoice = async (req, res, next) => {
       pricing: {
         subtotal: invoiceSubtotal,
         discount: invoiceDiscount,
-        shipping: invoiceShipping,
         tax: invoiceTax,
+        handlingCharge: invoiceHandlingCharge,
         total: invoiceTotal,
         totalCashback: invoiceCashback,
       },

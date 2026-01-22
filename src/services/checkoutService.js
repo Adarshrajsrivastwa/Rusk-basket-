@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Coupon = require('../models/Coupon');
 const User = require('../models/User');
+const Vendor = require('../models/Vendor');
 const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const { notificationQueue } = require('../utils/queue');
@@ -442,7 +443,6 @@ exports.getCartWithTotals = async (userId) => {
       pricing: {
         subtotal: 0,
         discount: 0,
-        shipping: 0,
         tax: 0,
         total: 0,
         totalCashback: 0,
@@ -458,6 +458,25 @@ exports.getCartWithTotals = async (userId) => {
   let totalCashback = 0;
   const itemsWithDetails = [];
   const unavailableItems = [];
+
+  // Get unique vendor IDs to fetch handling charge percentages
+  const vendorIds = [];
+  for (const item of cart.items) {
+    const product = await Product.findById(item.product).select('vendor');
+    if (product && product.vendor) {
+      const vendorId = product.vendor.toString();
+      if (!vendorIds.includes(vendorId)) {
+        vendorIds.push(vendorId);
+      }
+    }
+  }
+
+  // Fetch vendors with handling charge percentages
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id handlingChargePercentage');
+  const vendorHandlingChargeMap = new Map();
+  vendors.forEach(vendor => {
+    vendorHandlingChargeMap.set(vendor._id.toString(), vendor.handlingChargePercentage || 0);
+  });
 
   for (const item of cart.items) {
     const product = await Product.findById(item.product)
@@ -610,9 +629,31 @@ exports.getCartWithTotals = async (userId) => {
     }
   }
 
-  const shipping = subtotal >= 500 ? 0 : 50;
+  // Calculate handling charge based on vendor's handling charge percentage
+  // Group items by vendor and calculate handling charge for each vendor's items
+  const vendorItemsMap = new Map();
+  itemsWithDetails.forEach(item => {
+    const vendorId = item.vendor?.toString() || item.vendor;
+    if (vendorId) {
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    }
+  });
+
+  let totalHandlingCharge = 0;
+  vendorItemsMap.forEach((items, vendorId) => {
+    const handlingChargePercentage = vendorHandlingChargeMap.get(vendorId) || 0;
+    if (handlingChargePercentage > 0) {
+      const vendorItemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const vendorHandlingCharge = (vendorItemsSubtotal * handlingChargePercentage) / 100;
+      totalHandlingCharge += vendorHandlingCharge;
+    }
+  });
+
   const tax = (subtotal - discount) * 0.05;
-  const total = subtotal - discount + shipping + tax;
+  const total = subtotal - discount + tax + totalHandlingCharge;
 
   if (unavailableItems.length > 0) {
     const itemIdsToRemove = unavailableItems.map(item => item.itemId);
@@ -647,8 +688,8 @@ exports.getCartWithTotals = async (userId) => {
     pricing: {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discount: parseFloat(discount.toFixed(2)),
-      shipping: parseFloat(shipping.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
+      handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
       total: parseFloat(total.toFixed(2)),
       totalCashback: parseFloat(totalCashback.toFixed(2)),
     },
@@ -1082,14 +1123,14 @@ exports.notifyRidersForOrder = async (order) => {
       pricing: {
         subtotal: order.pricing?.subtotal || 0,
         discount: order.pricing?.discount || 0,
-        shipping: order.pricing?.shipping || 0,
         tax: order.pricing?.tax || 0,
+        handlingCharge: order.pricing?.handlingCharge || 0,
         total: order.pricing?.total || 0,
         totalCashback: order.pricing?.totalCashback || 0,
-        deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0, // Delivery amount for rider
+        deliveryAmount: order.deliveryAmount || 0, // Delivery amount for rider
       },
       amount: order.pricing?.total || 0, // Total order amount
-      deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0, // Delivery amount for rider
+      deliveryAmount: order.deliveryAmount || 0, // Delivery amount for rider
       location: {
         address: [
           order.shippingAddress?.line1,
@@ -1498,9 +1539,6 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
   const allItemsSubtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
   const allItemsCashback = order.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
 
-  // Update totalProductsAmount (total amount of all products)
-  order.totalProductsAmount = parseFloat(allItemsSubtotal.toFixed(2));
-
   // Apply coupon discount if exists
   let discount = order.pricing.discount || 0;
   if (order.coupon && order.coupon.couponId) {
@@ -1513,17 +1551,50 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     }
   }
 
-  // Recalculate shipping and tax
-  const shipping = allItemsSubtotal >= 500 ? 0 : 50;
+  // Calculate handling charge based on vendor's handling charge percentage
+  const vendorIds = [...new Set(order.items.map(item => {
+    const vendorId = item.vendor?._id || item.vendor;
+    return vendorId?.toString();
+  }).filter(Boolean))];
+
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id handlingChargePercentage');
+  const vendorHandlingChargeMap = new Map();
+  vendors.forEach(vendor => {
+    vendorHandlingChargeMap.set(vendor._id.toString(), vendor.handlingChargePercentage || 0);
+  });
+
+  // Group items by vendor and calculate handling charge
+  const vendorItemsMap = new Map();
+  order.items.forEach(item => {
+    const vendorId = (item.vendor?._id || item.vendor)?.toString();
+    if (vendorId) {
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    }
+  });
+
+  let totalHandlingCharge = 0;
+  vendorItemsMap.forEach((items, vendorId) => {
+    const handlingChargePercentage = vendorHandlingChargeMap.get(vendorId) || 0;
+    if (handlingChargePercentage > 0) {
+      const vendorItemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const vendorHandlingCharge = (vendorItemsSubtotal * handlingChargePercentage) / 100;
+      totalHandlingCharge += vendorHandlingCharge;
+    }
+  });
+
+  // Recalculate tax
   const tax = (allItemsSubtotal - discount) * 0.05;
-  const total = allItemsSubtotal - discount + shipping + tax;
+  const total = allItemsSubtotal - discount + tax + totalHandlingCharge;
 
   // Update order pricing
   order.pricing = {
     subtotal: parseFloat(allItemsSubtotal.toFixed(2)),
     discount: parseFloat(discount.toFixed(2)),
-    shipping: parseFloat(shipping.toFixed(2)),
     tax: parseFloat(tax.toFixed(2)),
+    handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
     total: parseFloat(total.toFixed(2)),
     totalCashback: parseFloat(allItemsCashback.toFixed(2)),
   };

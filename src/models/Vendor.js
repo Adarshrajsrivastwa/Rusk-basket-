@@ -201,6 +201,12 @@ const VendorSchema = new mongoose.Schema({
       return !!this.storeId;
     },
   },
+  handlingChargePercentage: {
+    type: Number,
+    default: 0,
+    min: [0, 'Handling charge percentage must be greater than or equal to 0'],
+    max: [100, 'Handling charge percentage cannot exceed 100'],
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',

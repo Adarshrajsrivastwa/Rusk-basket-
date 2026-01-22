@@ -166,7 +166,7 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           order: orderData,
           // Amount information
           amount: orderData.amount || orderData.pricing?.total || 0,
-          deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || orderData.pricing?.shipping || 0,
+          deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || 0,
           pricing: orderData.pricing,
           // Location information
           location: orderData.location,
@@ -227,7 +227,7 @@ const notifyRiderOrderUpdate = (riderId, orderData) => {
       status: orderData.status,
       // Amount information
       amount: orderData.amount || orderData.pricing?.total || 0,
-      deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || orderData.pricing?.shipping || 0,
+      deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || 0,
       pricing: orderData.pricing || {},
       // Location information
       location: orderData.location || (orderData.shippingAddress ? {

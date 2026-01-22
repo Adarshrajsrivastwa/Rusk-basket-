@@ -204,7 +204,8 @@ const createVendorData = async (vendor, data, files, adminId) => {
     bankName: finalBankName,
   };
   vendor.createdBy = adminId;
-  vendor.serviceRadius = 5; // Default service radius of 5 km
+  vendor.serviceRadius = serviceRadius ? parseFloat(serviceRadius) : 5; // Default service radius of 5 km
+  vendor.handlingChargePercentage = handlingChargePercentage !== undefined ? parseFloat(handlingChargePercentage) : 0; // Default handling charge percentage 0
 
   updateVendorPermissions(vendor, permissions);
 
@@ -262,6 +263,8 @@ const updateVendorData = async (vendor, data, files) => {
     bankName,
     bank_name,
     permissions,
+    handlingChargePercentage,
+    serviceRadius,
   } = data;
 
   if (vendorName !== undefined) {
@@ -330,6 +333,14 @@ const updateVendorData = async (vendor, data, files) => {
 
   if (permissions !== undefined) {
     updateVendorPermissions(vendor, permissions);
+  }
+
+  if (serviceRadius !== undefined) {
+    vendor.serviceRadius = parseFloat(serviceRadius);
+  }
+
+  if (handlingChargePercentage !== undefined) {
+    vendor.handlingChargePercentage = parseFloat(handlingChargePercentage);
   }
 
   if (files) {

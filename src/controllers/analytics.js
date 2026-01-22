@@ -430,7 +430,7 @@ exports.getAdminDashboard = async (req, res) => {
           averageOrderValue: { $avg: '$pricing.total' },
           totalDiscount: { $sum: '$pricing.discount' },
           totalTax: { $sum: '$pricing.tax' },
-          totalShipping: { $sum: '$pricing.shipping' },
+          totalShipping: { $sum: { $ifNull: ['$pricing.shipping', 0] } },
         },
       },
     ]);

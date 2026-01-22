@@ -89,15 +89,15 @@ const OrderSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Discount must be greater than or equal to 0'],
     },
-    shipping: {
-      type: Number,
-      default: 0,
-      min: [0, 'Shipping must be greater than or equal to 0'],
-    },
     tax: {
       type: Number,
       default: 0,
       min: [0, 'Tax must be greater than or equal to 0'],
+    },
+    handlingCharge: {
+      type: Number,
+      default: 0,
+      min: [0, 'Handling charge must be greater than or equal to 0'],
     },
     total: {
       type: Number,
@@ -270,11 +270,6 @@ const OrderSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Delivery amount must be greater than or equal to 0'],
-  },
-  totalProductsAmount: {
-    type: Number,
-    default: 0,
-    min: [0, 'Total products amount must be greater than or equal to 0'],
   },
   createdAt: {
     type: Date,

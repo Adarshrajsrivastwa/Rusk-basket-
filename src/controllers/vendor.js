@@ -425,6 +425,69 @@ exports.updateVendorRadius = async (req, res, next) => {
   }
 };
 
+exports.updateVendorHandlingCharge = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { handlingChargePercentage } = req.body;
+    const vendor = await Vendor.findById(req.params.id);
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    if (!vendor.storeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor registration not completed',
+      });
+    }
+
+    // Check if vendor is trying to update their own handling charge or admin is updating
+    if (req.vendor && req.vendor._id.toString() !== vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only update your own handling charge percentage',
+      });
+    }
+
+    vendor.handlingChargePercentage = parseFloat(handlingChargePercentage);
+    await vendor.save();
+
+    const updatedBy = req.admin 
+      ? `Admin: ${req.admin.email || req.admin._id}` 
+      : `Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`;
+
+    logger.info(`Vendor handling charge percentage updated: ${vendor.storeId} to ${handlingChargePercentage}% by ${updatedBy}`);
+
+    const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor handling charge percentage updated successfully',
+      data: populatedVendor,
+    });
+  } catch (error) {
+    logger.error('Update vendor handling charge error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 exports.deleteVendor = async (req, res, next) => {
   try {
     const vendor = await Vendor.findById(req.params.id);
@@ -727,7 +790,7 @@ exports.updateOrderStatus = async (req, res, next) => {
           orderNumber: order.orderNumber,
           status: status,
           amount: order.pricing?.total || 0,
-          deliveryAmount: order.deliveryAmount || order.pricing?.shipping || 0,
+          deliveryAmount: order.deliveryAmount || 0,
           pricing: order.pricing,
           shippingAddress: order.shippingAddress,
           location: {
