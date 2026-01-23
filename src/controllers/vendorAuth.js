@@ -137,9 +137,7 @@ exports.vendorLogout = async (req, res, next) => {
   try {
     const vendorId = req.vendor?._id || req.vendor?.id;
     const contactNumber = req.vendor?.contactNumber;
-    const storeId = req.vendor?.storeId;    clearTokenCookie(res);    logger.info(`Vendor logged out successfully: ${contactNumber || storeId || vendorId}`);
-
-    res.status(200).json({
+    const storeId = req.vendor?.storeId;    clearTokenCookie(res);    logger.info(`Vendor logged out successfully: ${contactNumber || storeId || vendorId}`);    res.status(200).json({
       success: true,
       message: 'Logged out successfully',
     });

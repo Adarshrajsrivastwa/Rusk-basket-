@@ -448,9 +448,7 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
     }    // Get unique subcategory IDs from products within radius
     const products = await Product.find(productQuery)
       .select('subCategory')
-      .distinct('subCategory');
-
-    if (products.length === 0) {
+      .distinct('subCategory');    if (products.length === 0) {
       return res.status(200).json({
         success: true,
         message: 'No products found within the specified radius',

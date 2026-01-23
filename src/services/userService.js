@@ -21,14 +21,21 @@ const updateUserProfileData = async (user, data, file) => {
     pinCode,
     latitude,
     longitude,
+    // Default address fields
+    defaultAddressLine1,
+    defaultAddressLine2,
+    defaultAddressPinCode,
+    defaultAddressLatitude,
+    defaultAddressLongitude,
+    defaultAddressLabel,
   } = data;
 
   if (userName !== undefined) {
-    user.userName = userName;
+    user.userName = userName.trim();
   }
   if (email !== undefined) {
     // Email is optional - can be null or a valid email string
-    user.email = (email === null || email === '') ? null : email;
+    user.email = (email === null || email === '') ? null : email.trim().toLowerCase();
   }
   if (gender !== undefined) {
     user.gender = gender;
@@ -37,7 +44,82 @@ const updateUserProfileData = async (user, data, file) => {
     user.dateOfBirth = dateOfBirth;
   }
 
-  // Handle address updates
+  // Handle default address updates
+  if (defaultAddressLine1 !== undefined || defaultAddressLine2 !== undefined || defaultAddressPinCode !== undefined || 
+      defaultAddressLatitude !== undefined || defaultAddressLongitude !== undefined || defaultAddressLabel !== undefined) {
+    
+    // Find or create default address
+    let defaultAddress = user.addresses && user.addresses.length > 0 
+      ? user.addresses.find(addr => addr.isDefault === true)
+      : null;
+
+    if (!defaultAddress) {
+      // If no default address exists, create one
+      if (!defaultAddressLine1 || !defaultAddressPinCode) {
+        throw new Error('Address line 1 and PIN code are required to create a default address');
+      }
+      
+      const postOfficeData = await getPostOfficeDetails(defaultAddressPinCode);
+      if (!postOfficeData.success) {
+        throw new Error(postOfficeData.error || 'Invalid PIN code');
+      }
+
+      // Unset all other default addresses
+      if (user.addresses && user.addresses.length > 0) {
+        user.addresses.forEach(addr => {
+          addr.isDefault = false;
+        });
+      }
+
+      defaultAddress = {
+        label: defaultAddressLabel || 'Home',
+        line1: defaultAddressLine1.trim(),
+        line2: defaultAddressLine2 ? defaultAddressLine2.trim() : '',
+        pinCode: defaultAddressPinCode.trim(),
+        city: postOfficeData.city,
+        state: postOfficeData.state,
+        latitude: defaultAddressLatitude ? parseFloat(defaultAddressLatitude) : undefined,
+        longitude: defaultAddressLongitude ? parseFloat(defaultAddressLongitude) : undefined,
+        isDefault: true,
+        createdAt: new Date(),
+      };
+      
+      if (!user.addresses) {
+        user.addresses = [];
+      }
+      user.addresses.push(defaultAddress);
+    } else {
+      // Update existing default address
+      if (defaultAddressLine1 !== undefined) {
+        defaultAddress.line1 = defaultAddressLine1.trim();
+      }
+      if (defaultAddressLine2 !== undefined) {
+        defaultAddress.line2 = defaultAddressLine2 ? defaultAddressLine2.trim() : '';
+      }
+      if (defaultAddressLabel !== undefined) {
+        defaultAddress.label = defaultAddressLabel.trim() || 'Home';
+      }
+      
+      if (defaultAddressPinCode !== undefined) {
+        const postOfficeData = await getPostOfficeDetails(defaultAddressPinCode);
+        if (!postOfficeData.success) {
+          throw new Error(postOfficeData.error || 'Invalid PIN code');
+        }
+        defaultAddress.pinCode = defaultAddressPinCode.trim();
+        defaultAddress.city = postOfficeData.city;
+        defaultAddress.state = postOfficeData.state;
+      }
+      
+      if (defaultAddressLatitude !== undefined) {
+        defaultAddress.latitude = defaultAddressLatitude ? parseFloat(defaultAddressLatitude) : undefined;
+      }
+      if (defaultAddressLongitude !== undefined) {
+        defaultAddress.longitude = defaultAddressLongitude ? parseFloat(defaultAddressLongitude) : undefined;
+      }
+    }
+  }
+
+  // Handle legacy address updates (for backward compatibility)
   if (addressLine1 !== undefined || addressLine2 !== undefined || pinCode !== undefined || latitude !== undefined || longitude !== undefined) {
     user.address = user.address || {};
     

@@ -1,8 +1,8 @@
 const express = require('express');
-const { body, query } = require('express-validator');
+const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/userOTP');
 const { userLogin, userVerifyOTP, userLogout } = require('../controllers/userAuth');
-const { getProfile, updateProfile, getCashback } = require('../controllers/user');
+const { getProfile, updateProfile, getCashback, addAddress, getAddresses, updateAddress, deleteAddress, setDefaultAddress } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
 const { protect } = require('../middleware/userAuth');
 const { uploadProfileImage } = require('../middleware/userUpload');
@@ -104,6 +104,7 @@ router.put(
       .optional()
       .isISO8601()
       .withMessage('Please provide a valid date'),
+    // Legacy address fields (for backward compatibility)
     body('addressLine1')
       .optional()
       .trim()
@@ -125,12 +126,152 @@ router.put(
       .optional()
       .isFloat()
       .withMessage('Longitude must be a valid number'),
+    // Default address fields
+    body('defaultAddressLine1')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Default address line 1 cannot be empty'),
+    body('defaultAddressLine2')
+      .optional()
+      .trim(),
+    body('defaultAddressPinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('defaultAddressLabel')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('Default address label cannot exceed 50 characters'),
+    body('defaultAddressLatitude')
+      .optional()
+      .isFloat()
+      .withMessage('Default address latitude must be a valid number'),
+    body('defaultAddressLongitude')
+      .optional()
+      .isFloat()
+      .withMessage('Default address longitude must be a valid number'),
   ],
   updateProfile
 );
 
 // Cashback route (protected)
 router.get('/cashback', protect, getCashback);
+
+// Address routes (protected)
+router.post(
+  '/addresses',
+  protect,
+  [
+    body('line1')
+      .trim()
+      .notEmpty()
+      .withMessage('Address line 1 is required'),
+    body('line2')
+      .optional()
+      .trim(),
+    body('pinCode')
+      .trim()
+      .notEmpty()
+      .withMessage('PIN code is required')
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('label')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('Label cannot exceed 50 characters'),
+    body('latitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('longitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+    body('isDefault')
+      .optional()
+      .isBoolean()
+      .withMessage('isDefault must be a boolean'),
+  ],
+  addAddress
+);
+
+router.get('/addresses', protect, getAddresses);
+
+router.put(
+  '/addresses/:addressId',
+  protect,
+  [
+    param('addressId')
+      .notEmpty()
+      .withMessage('Address ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid address ID'),
+    body('line1')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Address line 1 cannot be empty'),
+    body('line2')
+      .optional()
+      .trim(),
+    body('pinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('label')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('Label cannot exceed 50 characters'),
+    body('latitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('longitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+    body('isDefault')
+      .optional()
+      .isBoolean()
+      .withMessage('isDefault must be a boolean'),
+  ],
+  updateAddress
+);
+
+router.delete(
+  '/addresses/:addressId',
+  protect,
+  [
+    param('addressId')
+      .notEmpty()
+      .withMessage('Address ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid address ID'),
+  ],
+  deleteAddress
+);
+
+router.patch(
+  '/addresses/:addressId/set-default',
+  protect,
+  [
+    param('addressId')
+      .notEmpty()
+      .withMessage('Address ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid address ID'),
+  ],
+  setDefaultAddress
+);
 
 // Logout route (protected)
 router.post('/logout', protect, userLogout);

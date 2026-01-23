@@ -54,6 +54,51 @@ const UserSchema = new mongoose.Schema({
     latitude: Number,
     longitude: Number,
   },
+  addresses: [{
+    label: {
+      type: String,
+      trim: true,
+      default: 'Home',
+    },
+    line1: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    line2: {
+      type: String,
+      trim: true,
+    },
+    pinCode: {
+      type: String,
+      required: true,
+      match: [/^[0-9]{6}$/, 'Please provide a valid 6-digit PIN code'],
+    },
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    state: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    latitude: {
+      type: Number,
+    },
+    longitude: {
+      type: Number,
+    },
+    isDefault: {
+      type: Boolean,
+      default: false,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   profileImage: {
     url: String,
     publicId: String,
