@@ -12,6 +12,7 @@ const {
   getOrders,
   getOrder,
   cancelOrder,
+  reorder,
   getVendorOrders,
   getVendorOrder,
   updateOrderStatus,
@@ -368,6 +369,30 @@ router.post(
       .withMessage('Cancellation reason cannot be more than 500 characters'),
   ],
   cancelOrder
+);
+
+router.post(
+  '/order/:orderId/reorder',
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .custom((value) => {
+        const mongoose = require('mongoose');
+        // Allow both ObjectId and orderNumber
+        if (mongoose.Types.ObjectId.isValid(value)) {
+          return true;
+        }
+        // Allow orderNumber format (e.g., RB1234567890123)
+        if (typeof value === 'string' && value.length > 0) {
+          return true;
+        }
+        return false;
+      })
+      .withMessage('Invalid order ID or order number'),
+  ],
+  reorder
 );
 
 module.exports = router;

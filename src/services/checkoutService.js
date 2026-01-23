@@ -886,6 +886,252 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
 };
 
 /**
+ * Reorder - Create a new order from a previous order
+ */
+exports.reorder = async (userId, orderId) => {
+  const mongoose = require('mongoose');
+  
+  // Find the original order
+  let originalOrder;
+  if (mongoose.Types.ObjectId.isValid(orderId)) {
+    originalOrder = await Order.findById(orderId)
+      .populate('items.product')
+      .populate('items.vendor', 'isActive');
+  } else {
+    originalOrder = await Order.findOne({ orderNumber: orderId })
+      .populate('items.product')
+      .populate('items.vendor', 'isActive');
+  }
+
+  if (!originalOrder) {
+    throw new Error('Order not found');
+  }
+
+  // Verify the order belongs to the user
+  if (originalOrder.user.toString() !== userId.toString()) {
+    throw new Error('Unauthorized: Order does not belong to this user');
+  }
+
+  if (!originalOrder.items || originalOrder.items.length === 0) {
+    throw new Error('Order has no items to reorder');
+  }
+
+  // Validate products and check availability
+  const validItems = [];
+  const unavailableItems = [];
+
+  for (const item of originalOrder.items) {
+    const product = await Product.findById(item.product);
+    
+    if (!product) {
+      unavailableItems.push({
+        productName: item.productName,
+        reason: 'Product no longer exists',
+      });
+      continue;
+    }
+
+    // Validate product availability
+    const validation = validateProductAvailability(product);
+    if (!validation.available) {
+      unavailableItems.push({
+        productName: item.productName,
+        reason: validation.reason,
+      });
+      continue;
+    }
+
+    // Check inventory
+    let availableInventory = product.inventory;
+    if (product.skus && product.skus.length > 0) {
+      if (item.sku) {
+        const skuItem = product.skus.find(s => s.sku === item.sku);
+        if (!skuItem) {
+          unavailableItems.push({
+            productName: item.productName,
+            reason: 'SKU no longer available',
+          });
+          continue;
+        }
+        availableInventory = skuItem.inventory;
+      } else {
+        unavailableItems.push({
+          productName: item.productName,
+          reason: 'SKU is required for this product',
+        });
+        continue;
+      }
+    }
+
+    if (availableInventory < item.quantity) {
+      unavailableItems.push({
+        productName: item.productName,
+        reason: `Only ${availableInventory} items available in stock`,
+      });
+      continue;
+    }
+
+    // Get current prices
+    const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
+    const salePrice = product.salePrice || product.regularPrice || product.actualPrice;
+    const totalPrice = salePrice * item.quantity;
+    const cashback = product.cashback ? (product.cashback * item.quantity) : (item.cashback || 0);
+
+    // Get product images
+    let thumbnail = undefined;
+    let image = undefined;
+    
+    if (product.images && product.images.length > 0) {
+      const firstImage = product.images[0];
+      image = {
+        url: firstImage.url,
+        publicId: firstImage.publicId || undefined,
+        mediaType: firstImage.mediaType || 'image',
+      };
+      thumbnail = {
+        url: firstImage.url,
+        publicId: firstImage.publicId || undefined,
+      };
+    } else if (product.thumbnail && product.thumbnail.url) {
+      thumbnail = {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId || undefined,
+      };
+      image = {
+        url: product.thumbnail.url,
+        publicId: product.thumbnail.publicId || undefined,
+        mediaType: 'image',
+      };
+    }
+
+    validItems.push({
+      product: item.product,
+      vendor: item.vendor,
+      productName: product.productName,
+      thumbnail: thumbnail,
+      image: image,
+      quantity: item.quantity,
+      unitPrice: unitPrice,
+      salePrice: salePrice,
+      totalPrice: totalPrice,
+      cashback: cashback,
+      sku: item.sku || undefined,
+    });
+  }
+
+  if (validItems.length === 0) {
+    const reasons = unavailableItems.map(item => 
+      `${item.productName || 'Product'}: ${item.reason}`
+    ).join(', ');
+    throw new Error(`Cannot reorder. Some products are not available: ${reasons}`);
+  }
+
+  // Update inventory for valid items
+  for (const item of validItems) {
+    const product = await Product.findById(item.product);
+    
+    if (product.skus && product.skus.length > 0 && item.sku) {
+      const skuItem = product.skus.find(s => s.sku === item.sku);
+      if (skuItem) {
+        skuItem.inventory -= item.quantity;
+      }
+    } else {
+      product.inventory -= item.quantity;
+    }
+    
+    await product.save();
+  }
+
+  // Calculate pricing
+  const subtotal = validItems.reduce((sum, item) => sum + item.totalPrice, 0);
+  const totalCashback = validItems.reduce((sum, item) => sum + (item.cashback || 0), 0);
+  
+  // No discount for reorder (coupon not applied)
+  const discount = 0;
+  
+  // Calculate handling charge based on vendor's handling charge percentage
+  const vendorIds = [...new Set(validItems.map(item => item.vendor.toString()))];
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id handlingChargePercentage');
+  const vendorHandlingChargeMap = new Map();
+  vendors.forEach(vendor => {
+    vendorHandlingChargeMap.set(vendor._id.toString(), vendor.handlingChargePercentage || 0);
+  });
+
+  // Group items by vendor and calculate handling charge
+  const vendorItemsMap = new Map();
+  validItems.forEach(item => {
+    const vendorId = item.vendor.toString();
+    if (!vendorItemsMap.has(vendorId)) {
+      vendorItemsMap.set(vendorId, []);
+    }
+    vendorItemsMap.get(vendorId).push(item);
+  });
+
+  let totalHandlingCharge = 0;
+  vendorItemsMap.forEach((items, vendorId) => {
+    const handlingChargePercentage = vendorHandlingChargeMap.get(vendorId) || 0;
+    if (handlingChargePercentage > 0) {
+      const vendorItemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const vendorHandlingCharge = (vendorItemsSubtotal * handlingChargePercentage) / 100;
+      totalHandlingCharge += vendorHandlingCharge;
+    }
+  });
+
+  // Calculate tax (GST - 5% as per cart calculation)
+  const tax = (subtotal - discount) * 0.05;
+  
+  const total = subtotal - discount + tax + totalHandlingCharge;
+
+  // Generate new order number
+  const orderNumber = await Order.generateOrderNumber();
+
+  // Create new order
+  const newOrder = await Order.create({
+    orderNumber,
+    user: userId,
+    items: validItems,
+    pricing: {
+      subtotal: parseFloat(subtotal.toFixed(2)),
+      discount: parseFloat(discount.toFixed(2)),
+      tax: parseFloat(tax.toFixed(2)),
+      handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
+      total: parseFloat(total.toFixed(2)),
+      totalCashback: parseFloat(totalCashback.toFixed(2)),
+    },
+    shippingAddress: originalOrder.shippingAddress,
+    payment: {
+      method: originalOrder.payment.method,
+      status: originalOrder.payment.method === 'cod' ? 'pending' : 'processing',
+      amount: total,
+    },
+    notes: `Reordered from order ${originalOrder.orderNumber}`,
+    status: 'pending',
+  });
+
+  // Add cashback to user account
+  if (totalCashback > 0) {
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        user.cashback = (user.cashback || 0) + totalCashback;
+        await user.save();
+        logger.info(`Cashback ${totalCashback} added to user ${userId} account for reorder ${orderNumber}`);
+      }
+    } catch (error) {
+      logger.error(`Error adding cashback to user ${userId} account for reorder ${orderNumber}:`, error);
+    }
+  }
+
+  logger.info(`Order reordered: ${orderNumber} from original order ${originalOrder.orderNumber} by User: ${userId}`);
+
+  return await Order.findById(newOrder._id)
+    .populate('user', 'userName contactNumber email')
+    .populate('items.product', 'productName thumbnail')
+    .populate('items.vendor', 'storeName storeId')
+    .populate('rider', 'fullName mobileNumber');
+};
+
+/**
  * Get user orders
  */
 exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {

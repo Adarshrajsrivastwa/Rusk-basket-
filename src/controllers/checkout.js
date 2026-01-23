@@ -509,6 +509,40 @@ exports.addItemsToOrder = async (req, res, next) => {
   }
 };
 
+exports.reorder = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderId } = req.params;
+
+    // Ensure we're reordering for the authenticated user only
+    const userId = req.user._id;
+    logger.info(`Reordering order ${orderId} for user: ${userId}`);
+
+    const order = await checkoutService.reorder(userId, orderId);
+
+    logger.info(`Order reordered: ${order.orderNumber} by User: ${req.user._id}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Order reordered successfully',
+      data: order,
+    });
+  } catch (error) {
+    logger.error('Reorder error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to reorder',
+    });
+  }
+};
+
 exports.getOrderInvoice = async (req, res, next) => {
   try {
     const { orderId } = req.params;
