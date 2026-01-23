@@ -1220,7 +1220,7 @@ exports.notifyRidersForOrder = async (order) => {
 /**
  * Update order status (for vendor)
  */
-exports.updateOrderStatus = async (orderId, vendorId, status) => {
+exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) => {
   const order = await Order.findById(orderId);
 
   if (!order) {
@@ -1244,6 +1244,15 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
 
   // Update order status
   order.status = status;
+
+  // Update deliveryAmount if provided
+  if (deliveryAmount !== undefined) {
+    const deliveryAmountNum = parseFloat(deliveryAmount);
+    if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
+      throw new Error('Delivery amount must be a valid positive number');
+    }
+    order.deliveryAmount = deliveryAmountNum;
+  }
 
   // Set timestamps based on status
   if (status === 'ready') {

@@ -416,9 +416,9 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     const { orderId } = req.params;
-    const { status } = req.body;
+    const { status, deliveryAmount } = req.body;
 
-    const order = await checkoutService.updateOrderStatus(orderId, req.vendor._id, status);
+    const order = await checkoutService.updateOrderStatus(orderId, req.vendor._id, status, deliveryAmount);
 
     logger.info(`Order status updated: ${order.orderNumber} to ${status} by Vendor: ${req.vendor.storeId}`);
 

@@ -87,6 +87,10 @@ router.put(
       .bail()
       .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'])
       .withMessage('Status must be one of: pending, confirmed, processing, ready, out_for_delivery, delivered, cancelled'),
+    body('deliveryAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Delivery amount must be a valid positive number'),
   ],
   updateOrderStatus
 );
