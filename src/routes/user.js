@@ -4,6 +4,7 @@ const { sendOTP, verifyOTP } = require('../controllers/userOTP');
 const { userLogin, userVerifyOTP, userLogout } = require('../controllers/userAuth');
 const { getProfile, updateProfile, getCashback, addAddress, getAddresses, updateAddress, deleteAddress, setDefaultAddress } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
+const { createTicket, getTickets, getTicket, updateTicket, addTicketMessage } = require('../controllers/ticket');
 const { protect } = require('../middleware/userAuth');
 const { uploadProfileImage } = require('../middleware/userUpload');
 
@@ -321,6 +322,130 @@ router.get(
       .withMessage('Tag must be between 1 and 50 characters'),
   ],
   getAllProducts
+);
+
+// Ticket routes (protected)
+router.post(
+  '/tickets',
+  protect,
+  [
+    body('complaint')
+      .trim()
+      .notEmpty()
+      .withMessage('Complaint is required')
+      .isLength({ min: 10, max: 2000 })
+      .withMessage('Complaint must be between 10 and 2000 characters'),
+    body('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  createTicket
+);
+
+router.get(
+  '/tickets',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['active', 'pending', 'resolved', 'closed'])
+      .withMessage('Invalid status. Must be one of: active, pending, resolved, closed'),
+    query('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+  ],
+  getTickets
+);
+
+router.get(
+  '/tickets/:ticketId',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+  ],
+  getTicket
+);
+
+router.patch(
+  '/tickets/:ticketId',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('complaint')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Complaint cannot be empty')
+      .isLength({ min: 10, max: 2000 })
+      .withMessage('Complaint must be between 10 and 2000 characters'),
+    body('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    body('orderId')
+      .optional()
+      .custom((value) => {
+        if (value === null || value === '') {
+          return true; // Allow null or empty string
+        }
+        return /^[0-9a-fA-F]{24}$/.test(value); // MongoDB ObjectId format
+      })
+      .withMessage('Invalid order ID format'),
+    body().custom((value) => {
+      const hasFields = value.complaint !== undefined || 
+                       value.category !== undefined || 
+                       value.orderId !== undefined;
+      if (!hasFields) {
+        throw new Error('At least one field (complaint, category, or orderId) must be provided');
+      }
+      return true;
+    }),
+  ],
+  updateTicket
+);
+
+router.post(
+  '/tickets/:ticketId/messages',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('message')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ min: 1, max: 2000 })
+      .withMessage('Message must be between 1 and 2000 characters'),
+  ],
+  addTicketMessage
 );
 
 module.exports = router;

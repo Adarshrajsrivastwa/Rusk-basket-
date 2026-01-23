@@ -122,6 +122,7 @@ const riderJobApplicationRoutes = require('./routes/riderJobApplication');
 const bannerRoutes = require('./routes/banner');
 const analyticsRoutes = require('./routes/analytics');
 const suggestionRoutes = require('./routes/suggestion');
+const ticketRoutes = require('./routes/ticket');
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -205,6 +206,7 @@ app.use('/api/rider-job-application', riderJobApplicationRoutes);
 app.use('/api/banner', bannerRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/suggestion', suggestionRoutes);
+app.use('/api/ticket', ticketRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
