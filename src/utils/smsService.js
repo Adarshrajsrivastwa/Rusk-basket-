@@ -6,7 +6,7 @@ const sendOTP = async (mobile, otp, useQueue = false) => {
   try {
     const nimbusUserId = process.env.NIMBUS_USER_ID?.trim();
     const nimbusPassword = process.env.NIMBUS_PASSWORD?.trim();
-    const nimbusSenderId = (process.env.NIMBUS_SENDER_ID || 'RUSHBKT')?.trim();
+    const nimbusSenderId = (process.env.NIMBUS_SENDER_ID || 'RUSHBG')?.trim();
     const nimbusEntityId = process.env.NIMBUS_ENTITY_ID?.trim();
     const nimbusTemplateId = process.env.NIMBUS_TEMPLATE_ID?.trim();
     const nimbusApiUrl = (process.env.NIMBUS_API_URL || 'http://nimbusit.biz/api/SmsApi/SendSingleApi')?.trim();
@@ -16,6 +16,11 @@ const sendOTP = async (mobile, otp, useQueue = false) => {
       throw new Error('SMS service not configured');
     }
 
+    if (!nimbusEntityId || !nimbusTemplateId) {
+      logger.error('Nimbus EntityID and TemplateID are required');
+      throw new Error('SMS template configuration missing');
+    }
+
     const hasTemplateId = nimbusTemplateId && !nimbusTemplateId.startsWith('#');
     
     if (!otp || otp.toString().trim() === '') {
@@ -23,10 +28,10 @@ const sendOTP = async (mobile, otp, useQueue = false) => {
     }
     
     const otpString = otp.toString().trim();
-    const messageTemplate = process.env.NIMBUS_MESSAGE_TEMPLATE || 'Your RUSH BASKETS GROSER Login OTP is {#var#}. This is valid for 5 minutes.';
-    const message = messageTemplate.replace(/{#var#}/g, otpString);
+    const messageTemplate = process.env.NIMBUS_MESSAGE_TEMPLATE || 'Your RUSH BASKETS GROSER Login OTP is {OTP}. This is valid for 5 minutes.';
+    const message = messageTemplate.replace(/{OTP}/g, otpString).replace(/{#var#}/g, otpString);
     
-    if (message.includes('{#var#}')) {
+    if (message.includes('{OTP}') || message.includes('{#var#}')) {
       logger.error('OTP replacement failed');
       throw new Error('Failed to replace OTP in message template');
     }
@@ -54,11 +59,12 @@ const sendOTP = async (mobile, otp, useQueue = false) => {
       Msg: message,
     });
 
+    // Always add EntityID and TemplateID if they are configured
     if (nimbusEntityId && !nimbusEntityId.startsWith('#')) {
       params.append('EntityID', nimbusEntityId);
     }
 
-    if (hasTemplateId) {
+    if (nimbusTemplateId && !nimbusTemplateId.startsWith('#')) {
       params.append('TemplateID', nimbusTemplateId);
     }
 

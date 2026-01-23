@@ -140,6 +140,8 @@ const createVendorData = async (vendor, data, files, adminId) => {
     bankName,
     bank_name,
     permissions,
+    serviceRadius,
+    handlingChargePercentage,
   } = data;
 
   const finalBankName = (bankName || bank_name || '').trim();
