@@ -5,7 +5,7 @@ const { vendorLogout } = require('../controllers/vendorAuth');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
-const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
+const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
 const { updateInventory, getInventory, getAllInventory } = require('../controllers/inventory');
 const { toggleProductOffer, getVendorOffers, getProductOffer } = require('../controllers/productOffer');
@@ -235,6 +235,47 @@ router.post(
 );
 
 router.get('/products', protectVendor, getVendorProducts);
+
+// Get vendor's own job posts (vendor ID extracted from token)
+router.get(
+  '/my-job-posts',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search query cannot exceed 200 characters'),
+    query('city')
+      .optional()
+      .trim()
+      .isLength({ max: 100 })
+      .withMessage('City cannot exceed 100 characters'),
+    query('state')
+      .optional()
+      .trim()
+      .isLength({ max: 100 })
+      .withMessage('State cannot exceed 100 characters'),
+    query('pinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('PIN code must be a valid 6-digit number'),
+  ],
+  getMyJobPosts
+);
 
 router.post(
   '/job-posts/create',

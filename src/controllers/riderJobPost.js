@@ -289,6 +289,81 @@ exports.getJobPosts = async (req, res, next) => {
   }
 };
 
+exports.getMyJobPosts = async (req, res, next) => {
+  try {
+    // This endpoint is specifically for vendors to get their own job posts
+    // Vendor ID is extracted from the JWT token via protectVendor middleware
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only vendors can access this endpoint',
+      });
+    }
+
+    const vendorId = req.vendor._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Query only job posts for this vendor
+    const query = {
+      vendor: vendorId,
+    };
+
+    // Optional: filter by active status
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true';
+    }
+
+    // Optional: search by job title
+    if (req.query.search) {
+      query.jobTitle = { $regex: req.query.search.trim(), $options: 'i' };
+    }
+
+    // Optional: filter by location
+    if (req.query.city) {
+      query['location.city'] = { $regex: req.query.city.trim(), $options: 'i' };
+    }
+    
+    if (req.query.state) {
+      query['location.state'] = { $regex: req.query.state.trim(), $options: 'i' };
+    }
+    
+    if (req.query.pinCode) {
+      query['location.pinCode'] = req.query.pinCode.trim();
+    }
+
+    const jobPosts = await RiderJobPost.find(query)
+      .populate('vendor', 'vendorName storeName contactNumber email')
+      .populate({
+        path: 'postedBy',
+        select: 'name email mobile vendorName storeName contactNumber',
+      })
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    const total = await RiderJobPost.countDocuments(query);
+
+    logger.info(`Vendor job posts retrieved: ${vendorId} - Total: ${total}, Page: ${page}`);
+
+    res.status(200).json({
+      success: true,
+      count: jobPosts.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: jobPosts,
+    });
+  } catch (error) {
+    logger.error('Get my job posts error:', error);
+    next(error);
+  }
+};
+
 exports.getJobPost = async (req, res, next) => {
   try {
     const jobPost = await RiderJobPost.findById(req.params.id)
