@@ -94,60 +94,50 @@ router.put(
   [
     body('fullName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Full name cannot be empty'),
+      .trim(),
     body('fathersName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Father\'s name cannot be empty'),
+      .trim(),
     body('mothersName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Mother\'s name cannot be empty'),
+      .trim(),
     body('dateOfBirth')
-      .optional()
+      .optional({ checkFalsy: true })
       .isISO8601()
       .withMessage('Please provide a valid date'),
     body('whatsappNumber')
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit WhatsApp number'),
     body('bloodGroup')
-      .optional()
+      .optional({ checkFalsy: true })
       .isIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
       .withMessage('Invalid blood group'),
     body('city')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('City cannot be empty'),
+      .trim(),
     body('currentAddressLine1')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Current address line 1 cannot be empty'),
+      .trim(),
     body('currentAddressLine2')
       .optional()
       .trim(),
     body('pinCode')
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .matches(/^[0-9]{6}$/)
       .withMessage('Please provide a valid 6-digit PIN code'),
     body('latitude')
-      .optional()
+      .optional({ checkFalsy: true })
       .isFloat()
       .withMessage('Latitude must be a valid number'),
     body('longitude')
-      .optional()
+      .optional({ checkFalsy: true })
       .isFloat()
       .withMessage('Longitude must be a valid number'),
     body('language')
-      .optional()
+      .optional({ checkFalsy: true })
       .custom((value) => {
         try {
           const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -159,26 +149,22 @@ router.put(
       .withMessage('Language must be a valid JSON array'),
     body('emergencyContactPersonName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Emergency contact person name cannot be empty'),
+      .trim(),
     body('emergencyContactPersonRelation')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Emergency contact person relation cannot be empty'),
+      .trim(),
     body('emergencyContactPersonNumber')
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit contact number'),
     body('emergencyContactNumber')
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit contact number'),
     body('workDetails')
-      .optional()
+      .optional({ checkFalsy: true })
       .custom((value) => {
         try {
           const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -190,34 +176,24 @@ router.put(
       .withMessage('Work details must be a valid JSON object'),
     body('aadharId')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Aadhar ID cannot be empty'),
+      .trim(),
     body('accountNumber')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Account number cannot be empty'),
+      .trim(),
     body('ifsc')
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .matches(/^[A-Z]{4}0[A-Z0-9]{6}$/)
       .withMessage('Please provide a valid IFSC code'),
     body('bankName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Bank name cannot be empty'),
+      .trim(),
     body('branchName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Branch name cannot be empty'),
+      .trim(),
     body('accountHolderName')
       .optional()
-      .trim()
-      .notEmpty()
-      .withMessage('Account holder name cannot be empty'),
+      .trim(),
   ],
   updateProfile
 );
