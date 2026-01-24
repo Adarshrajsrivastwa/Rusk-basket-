@@ -1,5 +1,4 @@
 const Ticket = require('../models/Ticket');
-const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { executeQuery } = require('../utils/queryManager');
 const User = require('../models/User');
@@ -80,7 +79,6 @@ exports.createTicket = async (req, res, next) => {
         throw new Error('Failed to generate ticket number');
       }
     } catch (error) {
-      logger.error('Error generating ticket number:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to generate ticket number. Please try again.',
@@ -113,13 +111,6 @@ exports.createTicket = async (req, res, next) => {
     await ticket.populate('createdBy', 'userName contactNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
-    logger.info('Ticket created successfully', {
-      ticketId: ticket._id,
-      userId: userId,
-      category: ticket.category,
-      createdBy: 'User',
-    });
-
     res.status(201).json({
       success: true,
       message: 'Ticket created successfully',
@@ -128,10 +119,6 @@ exports.createTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error creating ticket:', {
-      error: error.message,
-      userId: req.user?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to create ticket',
@@ -184,12 +171,6 @@ exports.getTickets = async (req, res, next) => {
       }
     }
 
-    logger.info('Tickets fetched successfully', {
-      userId: userId,
-      count: result.data.length,
-      total: result.pagination.total,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Tickets fetched successfully',
@@ -199,10 +180,6 @@ exports.getTickets = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error fetching tickets:', {
-      error: error.message,
-      userId: req.user?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',
@@ -245,11 +222,6 @@ exports.getTicket = async (req, res, next) => {
       });
     }
 
-    logger.info('Ticket fetched successfully', {
-      ticketId: ticket._id,
-      userId: userId,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Ticket fetched successfully',
@@ -258,11 +230,6 @@ exports.getTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error fetching ticket:', {
-      error: error.message,
-      ticketId: req.params?.ticketId,
-      userId: req.user?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to fetch ticket',
@@ -320,12 +287,6 @@ exports.updateTicket = async (req, res, next) => {
 
     await ticket.save();
 
-    logger.info('Ticket updated successfully', {
-      ticketId: ticket._id,
-      userId: userId,
-      updatedFields: { complaint: !!complaint, category: !!category, orderId: orderId !== undefined },
-    });
-
     res.status(200).json({
       success: true,
       message: 'Ticket updated successfully',
@@ -334,11 +295,6 @@ exports.updateTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error updating ticket:', {
-      error: error.message,
-      ticketId: req.params?.ticketId,
-      userId: req.user?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to update ticket',
@@ -443,11 +399,6 @@ exports.addTicketMessage = async (req, res, next) => {
     await ticket.populate('createdBy', 'userName contactNumber email vendorName storeName');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
-    logger.info('Message added to ticket', {
-      ticketId: ticket._id,
-      userId: userId,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Message added successfully',
@@ -456,11 +407,6 @@ exports.addTicketMessage = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error adding message to ticket:', {
-      error: error.message,
-      ticketId: req.params?.ticketId,
-      userId: req.user?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to add message',
@@ -527,13 +473,6 @@ exports.updateTicketStatus = async (req, res, next) => {
     await ticket.populate('user', 'userName contactNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
-    logger.info('Ticket status updated by admin', {
-      ticketId: ticket._id,
-      adminId: adminId,
-      oldStatus,
-      newStatus: status,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Ticket status updated successfully',
@@ -542,11 +481,6 @@ exports.updateTicketStatus = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error updating ticket status:', {
-      error: error.message,
-      ticketId: req.params?.ticketId,
-      adminId: req.admin?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to update ticket status',
@@ -606,11 +540,6 @@ exports.addAdminMessage = async (req, res, next) => {
     await ticket.populate('user', 'userName contactNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
-    logger.info('Admin message added to ticket', {
-      ticketId: ticket._id,
-      adminId: adminId,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Message added successfully',
@@ -619,11 +548,6 @@ exports.addAdminMessage = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error adding admin message to ticket:', {
-      error: error.message,
-      ticketId: req.params?.ticketId,
-      adminId: req.admin?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to add message',
@@ -686,13 +610,6 @@ exports.getAllTickets = async (req, res, next) => {
       }
     }
 
-    logger.info('All tickets fetched by admin', {
-      adminId: req.admin._id,
-      count: result.data.length,
-      total: result.pagination.total,
-      filters,
-    });
-
     res.status(200).json({
       success: true,
       message: 'Tickets fetched successfully',
@@ -702,10 +619,6 @@ exports.getAllTickets = async (req, res, next) => {
       },
     });
   } catch (error) {
-    logger.error('Error fetching all tickets:', {
-      error: error.message,
-      adminId: req.admin?._id,
-    });
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',

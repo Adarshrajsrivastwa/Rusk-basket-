@@ -8,7 +8,6 @@ const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const { notificationQueue } = require('../utils/queue');
 const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
-const logger = require('../utils/logger');
 
 /**
  * Update vendor revenue and product sales tracking
@@ -41,7 +40,6 @@ const updateVendorRevenue = async (order, itemsToTrack = null) => {
     for (const [vendorIdStr, vendorItems] of vendorItemsMap.entries()) {
       const vendor = await Vendor.findById(vendorIdStr);
       if (!vendor) {
-        logger.warn(`Vendor ${vendorIdStr} not found when updating revenue for order ${order.orderNumber}`);
         continue;
       }
       
@@ -73,11 +71,8 @@ const updateVendorRevenue = async (order, itemsToTrack = null) => {
       vendor.revenue.set(monthKey, currentMonthRevenue + vendorRevenue);
       
       await vendor.save();
-      
-      logger.info(`Updated revenue for vendor ${vendorIdStr}: +${vendorRevenue} for month ${monthKey} (Order: ${order.orderNumber})`);
     }
   } catch (error) {
-    logger.error(`Error updating vendor revenue for order ${order.orderNumber}:`, error);
     // Don't throw error - revenue tracking failure shouldn't break order creation
   }
 };
@@ -148,12 +143,6 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
   // Validate product availability
   const validation = validateProductAvailability(product);
   if (!validation.available) {
-    logger.warn(`Product ${productId} not available: ${validation.reason}`, {
-      productId,
-      approvalStatus: product?.approvalStatus,
-      isActive: product?.isActive,
-      vendorActive: product?.vendor?.isActive,
-    });
     throw new Error(`${validation.reason}. This product is not available for purchase`);
   }
 
@@ -241,7 +230,6 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -251,21 +239,11 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
     throw new Error('Item not found in your cart');
   }
 
-  // Log item details for debugging
-  logger.info(`Updating cart item ${itemId}`, {
-    itemId,
-    productId: item.product,
-    currentQuantity: item.quantity,
-    newQuantity: quantity,
-    sku: item.sku,
-  });
-
   if (quantity <= 0) {
     cart.items.pull(itemId);
   } else {
     // Check if product ID exists
     if (!item.product) {
-      logger.error(`Cart item ${itemId} has no product reference`);
       cart.items.pull(itemId);
       await cart.save();
       throw new Error('Product reference is missing from cart item. Item has been removed from cart');
@@ -278,7 +256,6 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
       .populate('vendor', 'storeName storeId isActive');
     
     if (!product) {
-      logger.error(`Product ${productId} not found for cart item ${itemId}`);
       cart.items.pull(itemId);
       await cart.save();
       throw new Error('Product not found. Item has been removed from cart');
@@ -287,14 +264,6 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
     // Validate product availability
     const validation = validateProductAvailability(product);
     if (!validation.available) {
-      logger.warn(`Product ${productId} not available: ${validation.reason}`, {
-        productId: item.product,
-        itemId: itemId,
-        approvalStatus: product?.approvalStatus,
-        isActive: product?.isActive,
-        vendorActive: product?.vendor?.isActive,
-      });
-      
       // Remove unavailable item from cart
       cart.items.pull(itemId);
       await cart.save();
@@ -308,14 +277,12 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
       if (item.sku) {
         const skuItem = product.skus.find(s => s.sku === item.sku);
         if (!skuItem) {
-          logger.warn(`Invalid SKU ${item.sku} for product ${item.product} in cart item ${itemId}`);
           cart.items.pull(itemId);
           await cart.save();
           throw new Error(`Invalid SKU for this product. Item has been removed from cart`);
         }
         availableInventory = skuItem.inventory;
       } else {
-        logger.warn(`SKU required for product ${item.product} but not provided in cart item ${itemId}`);
         cart.items.pull(itemId);
         await cart.save();
         throw new Error('SKU is required for this product. Item has been removed from cart');
@@ -366,7 +333,6 @@ exports.removeFromCart = async (userId, itemId) => {
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -395,7 +361,6 @@ exports.clearCart = async (userId) => {
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -419,7 +384,6 @@ exports.applyCoupon = async (userId, couponCode) => {
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -488,7 +452,6 @@ exports.removeCoupon = async (userId) => {
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -504,7 +467,6 @@ exports.getCartWithTotals = async (userId) => {
 
   // Verify cart ownership if cart exists
   if (cart && cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -782,7 +744,6 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
 
   // Verify the cart belongs to the user (additional security check)
   if (cart.user.toString() !== userId.toString()) {
-    logger.error(`Cart ownership mismatch: cart user ${cart.user} vs requested user ${userId}`);
     throw new Error('Unauthorized: Cart does not belong to this user');
   }
 
@@ -915,7 +876,6 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
 
   // Add cashback to user account
   const totalCashback = totals.pricing?.totalCashback || 0;
-  logger.info(`Processing cashback for order ${orderNumber}: totalCashback = ${totalCashback}`);
   
   if (totalCashback > 0) {
     try {
@@ -928,20 +888,10 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         
         // Verify cashback was saved
         const updatedUser = await User.findById(userId).select('cashback');
-        if (updatedUser && updatedUser.cashback === newCashback) {
-          logger.info(`✓ Cashback ${totalCashback} successfully added to user ${userId} account for order ${orderNumber}. Previous: ${previousCashback}, New: ${updatedUser.cashback}`);
-        } else {
-          logger.error(`✗ Cashback save verification failed for user ${userId} order ${orderNumber}. Expected: ${newCashback}, Got: ${updatedUser?.cashback}`);
-        }
-      } else {
-        logger.error(`User ${userId} not found when trying to add cashback for order ${orderNumber}`);
       }
     } catch (error) {
-      logger.error(`Error adding cashback to user ${userId} account for order ${orderNumber}:`, error);
       // Don't throw error, just log it - order should still be created
     }
-  } else {
-    logger.info(`No cashback to add for order ${orderNumber} (totalCashback: ${totalCashback})`);
   }
 
   // Clear cart
@@ -1190,14 +1140,10 @@ exports.reorder = async (userId, orderId) => {
       if (user) {
         user.cashback = (user.cashback || 0) + totalCashback;
         await user.save();
-        logger.info(`Cashback ${totalCashback} added to user ${userId} account for reorder ${orderNumber}`);
       }
     } catch (error) {
-      logger.error(`Error adding cashback to user ${userId} account for reorder ${orderNumber}:`, error);
     }
   }
-
-  logger.info(`Order reordered: ${orderNumber} from original order ${originalOrder.orderNumber} by User: ${userId}`);
 
   // Update vendor revenue tracking
   await updateVendorRevenue(newOrder);
@@ -1390,7 +1336,6 @@ exports.notifyRidersForOrder = async (order) => {
     }).filter(Boolean))];
 
     if (vendorIds.length === 0) {
-      logger.warn(`No vendors found for order ${order.orderNumber}`);
       return;
     }
 
@@ -1404,7 +1349,6 @@ exports.notifyRidersForOrder = async (order) => {
     const activeRiders = ridersForVendors.map(r => r._id.toString());
 
     if (activeRiders.length === 0) {
-      logger.info(`No active riders found for vendors in order ${order.orderNumber}`);
       return;
     }
 
@@ -1477,7 +1421,6 @@ exports.notifyRidersForOrder = async (order) => {
     // Send WebSocket notifications to riders
     try {
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
-      logger.info(`Sent assignment requests via WebSocket to ${sentCount} connected riders for order ${order.orderNumber}`);
       
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
@@ -1506,7 +1449,6 @@ exports.notifyRidersForOrder = async (order) => {
         }
       }
     } catch (socketError) {
-      logger.error(`Error sending WebSocket notifications: ${socketError.message}`);
       // Fallback to notification queue if WebSocket fails
       if (notificationQueue) {
         for (const riderId of activeRiders) {
@@ -1535,9 +1477,7 @@ exports.notifyRidersForOrder = async (order) => {
       }
     }
 
-    logger.info(`Sent assignment requests to ${activeRiders.length} riders for order ${order.orderNumber}`);
   } catch (error) {
-    logger.error(`Error notifying riders for order ${order.orderNumber}:`, error);
   }
 };
 
@@ -1970,10 +1910,8 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
         const newCashbackTotal = previousCashback + newCashback;
         user.cashback = newCashbackTotal;
         await user.save();
-        logger.info(`Cashback ${newCashback} added to user ${order.user} account for order ${order.orderNumber}`);
       }
     } catch (error) {
-      logger.error(`Error adding cashback to user ${order.user} account:`, error);
     }
   }
 

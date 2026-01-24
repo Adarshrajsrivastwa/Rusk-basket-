@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const compression = require('compression');
-const logger = require('./utils/logger');
 const { initializeQueues } = require('./utils/queue');
 const { disableExpiredOffers, processDailyOffers } = require('./utils/offerExpiryService');
 
@@ -42,15 +41,6 @@ app.use((req, res, next) => {
         } catch (e) {
           req.rawBody = data;
           req.body = {};
-          logger.error('JSON parsing error in custom middleware:', {
-            error: e.message,
-            position: e.message.match(/position (\d+)/)?.[1],
-            body: data.substring(0, 200),
-            url: req.url,
-            method: req.method,
-            service: 'rush-basket-backend',
-            timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
-          });
           
           // Check for common JSON errors and provide helpful messages
           let errorMessage = 'Invalid JSON format in request body';
@@ -92,12 +82,6 @@ app.use(express.json({
     try {
       JSON.parse(buf.toString());
     } catch (e) {
-      logger.error('Invalid JSON in request body:', {
-        error: e.message,
-        body: buf.toString().substring(0, 200), // First 200 chars
-        url: req.url,
-        method: req.method
-      });
     }
   }
 }));
@@ -159,12 +143,6 @@ app.use(cors(corsOptions));
 app.use((req, res, next) => {
   const originalJson = res.json;
   res.json = function(data) {
-    if (req.path.includes('login') || req.path.includes('verify') || req.path.includes('test-cookie')) {
-      logger.info(`Response for ${req.path}:`, {
-        hasCookieHeader: !!res.getHeader('Set-Cookie'),
-        cookieHeader: res.getHeader('Set-Cookie'),
-      });
-    }
     return originalJson.call(this, data);
   };
   next();
@@ -173,12 +151,6 @@ app.use((req, res, next) => {
 // Error handler for JSON parsing errors (must be before routes)
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    logger.error('JSON parsing error:', {
-      error: err.message,
-      url: req.url,
-      method: req.method,
-      contentType: req.headers['content-type']
-    });
     return res.status(400).json({
       success: false,
       error: 'Invalid JSON format in request body',
@@ -226,8 +198,6 @@ app.get('/api/test-cookie', (req, res) => {
 
 mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/rushbasket')
 .then(async () => {
-  logger.info('MongoDB connected successfully');
-  
   // Fix index issues - drop problematic unique indexes if they exist
   try {
     const db = mongoose.connection.db;
@@ -239,36 +209,21 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
     // Drop email_1 index if it exists and is unique
     const emailIndex = indexes.find(idx => idx.name === 'email_1');
     if (emailIndex && emailIndex.unique) {
-      logger.info('Removing unique constraint from email index...');
       try {
         await usersCollection.dropIndex('email_1');
-        logger.info('Successfully removed unique email index');
       } catch (dropError) {
-        if (dropError.code !== 27) {
-          logger.warn('Error dropping email index:', dropError.message);
-        }
       }
     }
     
     // Drop phone_1 index if it exists and is unique
     const phoneIndex = indexes.find(idx => idx.name === 'phone_1');
     if (phoneIndex && phoneIndex.unique) {
-      logger.info('Removing unique constraint from phone index...');
       try {
         await usersCollection.dropIndex('phone_1');
-        logger.info('Successfully removed unique phone index');
       } catch (dropError) {
-        if (dropError.code !== 27) {
-          logger.warn('Error dropping phone index:', dropError.message);
-        }
       }
     }
   } catch (indexError) {
-    if (indexError.code === 27 || indexError.codeName === 'IndexNotFound') {
-      logger.info('Indexes do not exist or already removed');
-    } else {
-      logger.warn('Error checking/fixing indexes:', indexError.message);
-    }
   }
   
   initializeQueues();
@@ -280,24 +235,12 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
   try {
     const { initializeSocket } = require('./utils/socket');
     const socketResult = initializeSocket(server);
-    if (socketResult) {
-      logger.info('WebSocket server initialized for real-time rider notifications');
-    } else {
-      logger.warn('WebSocket server not initialized. Socket.io may not be installed.');
-    }
   } catch (socketError) {
-    logger.warn('Failed to initialize WebSocket server:', socketError.message);
-    logger.warn('Server will continue without WebSocket functionality. Install socket.io to enable real-time notifications.');
   }
   
   server.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-    
     // Run on startup
     disableExpiredOffers().then(result => {
-      if (result.success && result.disabledCount > 0) {
-        logger.info(`Disabled ${result.disabledCount} expired offers on startup`);
-      }
     });
     
     // Schedule daily offer processing to run daily at 5 AM IST
@@ -314,30 +257,17 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
       const nextRun = now < today5AM ? today5AM : tomorrow;
       const msUntilNextRun = nextRun.getTime() - now.getTime();
       
-      logger.info(`Daily offer check scheduled for: ${nextRun.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}`);
-      logger.info(`Next check in: ${Math.round(msUntilNextRun / 1000 / 60)} minutes`);
-      
       setTimeout(() => {
         // Process daily offers (disable expired and enable new ones)
         processDailyOffers().then(result => {
           if (result.success) {
-            if (result.disabledCount > 0 || result.enabledCount > 0) {
-              logger.info(`Daily offer processing at 5 AM: Disabled ${result.disabledCount} expired, Enabled ${result.enabledCount} new daily offers`);
-            } else {
-              logger.info('Daily offer check completed at 5 AM - no changes needed');
-            }
           }
         }).catch(error => {
-          logger.error('Error in daily offer processing service:', error);
         });
         
         // Also run general expired offers check
         disableExpiredOffers().then(result => {
-          if (result.success && result.disabledCount > 0) {
-            logger.info(`Disabled ${result.disabledCount} expired offers at 5 AM daily check`);
-          }
         }).catch(error => {
-          logger.error('Error in offer expiry service:', error);
         });
         
         // Schedule next day
@@ -347,21 +277,17 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
     
     // Start scheduling
     scheduleDailyOfferCheck();
-    logger.info('Daily offer processing service scheduled to run every day at 5 AM (IST)');
   });
 })
 .catch((error) => {
-  logger.error('MongoDB connection error:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (err) => {
-  logger.error('Unhandled Rejection:', err);
   process.exit(1);
 });
 
 process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception:', err);
   process.exit(1);
 });
 

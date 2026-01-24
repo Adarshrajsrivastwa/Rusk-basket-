@@ -1,7 +1,6 @@
 const RiderJobPost = require('../models/RiderJobPost');
 const Vendor = require('../models/Vendor');
 const mongoose = require('mongoose');
-const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
 
@@ -145,19 +144,12 @@ exports.createJobPost = async (req, res, next) => {
         select: 'name email mobile vendorName storeName contactNumber',
       });
 
-    const createdBy = isAdmin 
-      ? `Admin: ${req.admin.email || req.admin.name || req.admin._id}`
-      : `Vendor: ${req.vendor.email || req.vendor.contactNumber}`;
-    
-    logger.info(`Rider job post created: ${jobTitle} by ${createdBy} for Vendor: ${vendorId}`);
-
     res.status(201).json({
       success: true,
       message: 'Job post created successfully',
       data: populatedJobPost,
     });
   } catch (error) {
-    logger.error('Create rider job post error:', error);
     next(error);
   }
 };
@@ -260,8 +252,6 @@ exports.getJobPosts = async (req, res, next) => {
         query['$or'] = searchConditions;
       }
     }
-    
-    logger.info('Job posts query:', JSON.stringify(query, null, 2));
 
     const jobPosts = await RiderJobPost.find(query)
       .populate('vendor', 'vendorName storeName contactNumber email')
@@ -284,7 +274,6 @@ exports.getJobPosts = async (req, res, next) => {
       data: jobPosts,
     });
   } catch (error) {
-    logger.error('Get job posts error:', error);
     next(error);
   }
 };
@@ -345,8 +334,6 @@ exports.getMyJobPosts = async (req, res, next) => {
 
     const total = await RiderJobPost.countDocuments(query);
 
-    logger.info(`Vendor job posts retrieved: ${vendorId} - Total: ${total}, Page: ${page}`);
-
     res.status(200).json({
       success: true,
       count: jobPosts.length,
@@ -359,7 +346,6 @@ exports.getMyJobPosts = async (req, res, next) => {
       data: jobPosts,
     });
   } catch (error) {
-    logger.error('Get my job posts error:', error);
     next(error);
   }
 };
@@ -389,7 +375,6 @@ exports.getJobPost = async (req, res, next) => {
       data: jobPost,
     });
   } catch (error) {
-    logger.error('Get job post error:', error);
     next(error);
   }
 };
@@ -488,15 +473,12 @@ exports.updateJobPost = async (req, res, next) => {
       .populate('vendor', 'vendorName storeName contactNumber email')
       .populate('postedBy', 'vendorName storeName contactNumber email');
 
-    logger.info(`Job post updated: ${jobPost._id} by Vendor: ${req.vendor.email}`);
-
     res.status(200).json({
       success: true,
       message: 'Job post updated successfully',
       data: populatedJobPost,
     });
   } catch (error) {
-    logger.error('Update job post error:', error);
     next(error);
   }
 };
@@ -528,14 +510,11 @@ exports.deleteJobPost = async (req, res, next) => {
 
     await RiderJobPost.findByIdAndDelete(req.params.id);
 
-    logger.info(`Job post deleted: ${jobPost._id} by Vendor: ${req.vendor.email}`);
-
     res.status(200).json({
       success: true,
       message: 'Job post deleted successfully',
     });
   } catch (error) {
-    logger.error('Delete job post error:', error);
     next(error);
   }
 };
@@ -568,15 +547,12 @@ exports.toggleJobPostStatus = async (req, res, next) => {
     jobPost.isActive = !jobPost.isActive;
     await jobPost.save();
 
-    logger.info(`Job post status toggled: ${jobPost._id} to ${jobPost.isActive} by Vendor: ${req.vendor.email || req.vendor.contactNumber}`);
-
     res.status(200).json({
       success: true,
       message: `Job post ${jobPost.isActive ? 'activated' : 'deactivated'} successfully`,
       data: jobPost,
     });
   } catch (error) {
-    logger.error('Toggle job post status error:', error);
     next(error);
   }
 };

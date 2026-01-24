@@ -2,7 +2,6 @@ const Vendor = require('../models/Vendor');
 const Order = require('../models/Order');
 const Rider = require('../models/Rider');
 const mongoose = require('mongoose');
-const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { createVendorData, updateVendorPermissions, updateVendorData } = require('../services/vendorService');
 const { deleteFromCloudinary } = require('../utils/cloudinary');
@@ -77,8 +76,6 @@ exports.createVendor = async (req, res, next) => {
     vendor.markModified('bankDetails');
     await vendor.save();
 
-    logger.info(`Vendor created: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(201).json({
@@ -87,8 +84,6 @@ exports.createVendor = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Create vendor error:', error);
-    
     // Handle MongoDB duplicate key error for storeId
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern || {})[0];
@@ -99,8 +94,6 @@ exports.createVendor = async (req, res, next) => {
           vendor.storeId = newStoreId;
           await vendor.save();
           
-          logger.info(`Vendor created with retry: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
-          
           const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
           
           return res.status(201).json({
@@ -109,7 +102,6 @@ exports.createVendor = async (req, res, next) => {
             data: populatedVendor,
           });
         } catch (retryError) {
-          logger.error('Retry vendor creation error:', retryError);
           return res.status(500).json({
             success: false,
             error: 'Failed to create vendor. Please try again.',
@@ -175,8 +167,6 @@ exports.updateVendorPermissions = async (req, res, next) => {
 
     await vendor.save();
 
-    logger.info(`Vendor permissions updated: ${vendor.storeId} by Admin: ${req.admin.email}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(200).json({
@@ -185,7 +175,6 @@ exports.updateVendorPermissions = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Update vendor permissions error:', error);
     next(error);
   }
 };
@@ -216,7 +205,6 @@ exports.getVendors = async (req, res, next) => {
       data: vendors,
     });
   } catch (error) {
-    logger.error('Get vendors error:', error);
     next(error);
   }
 };
@@ -237,7 +225,6 @@ exports.getVendor = async (req, res, next) => {
       data: vendor,
     });
   } catch (error) {
-    logger.error('Get vendor error:', error);
     next(error);
   }
 };
@@ -258,7 +245,6 @@ exports.suspendVendor = async (req, res, next) => {
     await vendor.save();
 
     const action = vendor.isActive ? 'activated' : 'suspended';
-    logger.info(`Vendor ${action}: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
@@ -268,7 +254,6 @@ exports.suspendVendor = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Suspend vendor error:', error);
     next(error);
   }
 };
@@ -347,8 +332,6 @@ exports.updateVendorDocuments = async (req, res, next) => {
 
     await vendor.save();
 
-    logger.info(`Vendor documents updated: ${vendor.storeId} (ID: ${vendor._id}) by Admin: ${req.admin.email || req.admin._id}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(200).json({
@@ -357,7 +340,6 @@ exports.updateVendorDocuments = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Update vendor documents error:', error);
     next(error);
   }
 };
@@ -404,8 +386,6 @@ exports.updateVendorRadius = async (req, res, next) => {
       ? `Admin: ${req.admin.email || req.admin._id}` 
       : `Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`;
 
-    logger.info(`Vendor service radius updated: ${vendor.storeId} to ${serviceRadius} km by ${updatedBy}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(200).json({
@@ -414,7 +394,6 @@ exports.updateVendorRadius = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Update vendor radius error:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
@@ -467,8 +446,6 @@ exports.updateVendorHandlingCharge = async (req, res, next) => {
       ? `Admin: ${req.admin.email || req.admin._id}` 
       : `Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`;
 
-    logger.info(`Vendor handling charge percentage updated: ${vendor.storeId} to ${handlingChargePercentage}% by ${updatedBy}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(200).json({
@@ -477,7 +454,6 @@ exports.updateVendorHandlingCharge = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Update vendor handling charge error:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
@@ -527,14 +503,11 @@ exports.deleteVendor = async (req, res, next) => {
     const vendorId = vendor._id;
     await Vendor.findByIdAndDelete(vendor._id);
 
-    logger.info(`Vendor deleted: ${storeId} (ID: ${vendorId}) by Admin: ${req.admin.email || req.admin._id}`);
-
     res.status(200).json({
       success: true,
       message: 'Vendor deleted successfully',
     });
   } catch (error) {
-    logger.error('Delete vendor error:', error);
     next(error);
   }
 };
@@ -584,8 +557,6 @@ exports.getVendorOrders = async (req, res, next) => {
 
     const total = await Order.countDocuments(query);
 
-    logger.info(`Vendor orders retrieved: ${vendorId} - Total: ${total}`);
-
     res.status(200).json({
       success: true,
       count: filteredOrders.length,
@@ -598,7 +569,6 @@ exports.getVendorOrders = async (req, res, next) => {
       data: filteredOrders,
     });
   } catch (error) {
-    logger.error('Get vendor orders error:', error);
     next(error);
   }
 };
@@ -662,14 +632,11 @@ exports.getVendorOrderById = async (req, res, next) => {
       vendorSubtotal,
     };
 
-    logger.info(`Vendor order retrieved: ${orderId} by Vendor: ${req.vendor.storeId || req.vendor._id}`);
-
     res.status(200).json({
       success: true,
       data: filteredOrder,
     });
   } catch (error) {
-    logger.error('Get vendor order by ID error:', error);
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
@@ -772,14 +739,9 @@ exports.updateOrderStatus = async (req, res, next) => {
           await checkoutService.notifyRidersForOrder(orderForNotification);
         }
       } catch (notifyError) {
-        logger.error(`Error notifying riders after status update: ${notifyError.message}`);
         // Don't fail the request if notification fails
       }
     }
-
-    logger.info(
-      `Order status updated: ${order.orderNumber} from ${previousStatus} to ${status} by Vendor: ${req.vendor.storeId || req.vendor._id}`
-    );
 
     // Notify rider about order status update with amount and location
     if (order.rider && ['out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
@@ -813,7 +775,6 @@ exports.updateOrderStatus = async (req, res, next) => {
         
         notifyRiderOrderUpdate(order.rider, orderUpdateData);
       } catch (notifyError) {
-        logger.error(`Error notifying rider about order status update: ${notifyError.message}`);
       }
     }
 
@@ -829,7 +790,6 @@ exports.updateOrderStatus = async (req, res, next) => {
       data: populatedOrder,
     });
   } catch (error) {
-    logger.error('Update order status error:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
@@ -910,13 +870,6 @@ exports.assignRiderToOrder = async (req, res, next) => {
     });
 
     if (!hasVendorItems) {
-      logger.warn(`Vendor ${req.vendor._id} attempted to assign rider to order ${orderId} but validation failed`, {
-        orderItems: order.items.map(item => ({
-          vendor: item.vendor?.toString() || item.vendor,
-          productName: item.productName,
-        })),
-        vendorId: req.vendor._id.toString(),
-      });
       return res.status(403).json({
         success: false,
         error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
@@ -924,13 +877,6 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     if (!hasVendorItems) {
-      logger.warn(`Vendor ${req.vendor._id} attempted to assign rider to order ${orderId} but order does not belong to them`, {
-        orderItems: order.items.map(item => ({
-          vendor: item.vendor?.toString() || item.vendor,
-          productName: item.productName,
-        })),
-        vendorId: req.vendor._id.toString(),
-      });
       return res.status(403).json({
         success: false,
         error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
@@ -1003,17 +949,12 @@ exports.assignRiderToOrder = async (req, res, next) => {
       .populate('rider', 'fullName mobileNumber')
       .populate('assignedBy', 'vendorName storeName contactNumber');
 
-    logger.info(
-      `Rider ${rider.mobileNumber} assigned to order ${order.orderNumber} by Vendor: ${req.vendor.storeId || req.vendor._id}`
-    );
-
     res.status(200).json({
       success: true,
       message: 'Rider assigned to order successfully',
       data: populatedOrder,
     });
   } catch (error) {
-    logger.error('Assign rider to order error:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
@@ -1041,7 +982,6 @@ exports.getVendorProfile = async (req, res, next) => {
       data: vendor,
     });
   } catch (error) {
-    logger.error('Get vendor profile error:', error);
     next(error);
   }
 };
@@ -1151,8 +1091,6 @@ exports.updateVendorProfile = async (req, res, next) => {
 
     await vendor.save();
 
-    logger.info(`Vendor profile updated: ${vendor.storeId} (ID: ${vendor._id}) by Vendor: ${vendor.vendorName || vendor.contactNumber}`);
-
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
 
     res.status(200).json({
@@ -1161,7 +1099,6 @@ exports.updateVendorProfile = async (req, res, next) => {
       data: populatedVendor,
     });
   } catch (error) {
-    logger.error('Update vendor profile error:', error);
     if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
       return res.status(400).json({
         success: false,
