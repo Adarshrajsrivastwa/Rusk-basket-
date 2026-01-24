@@ -4,7 +4,7 @@ const Rider = require('../models/Rider');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { createVendorData, updateVendorPermissions } = require('../services/vendorService');
+const { createVendorData, updateVendorPermissions, updateVendorData } = require('../services/vendorService');
 const { deleteFromCloudinary } = require('../utils/cloudinary');
 
 exports.createVendor = async (req, res, next) => {
@@ -1014,6 +1014,160 @@ exports.assignRiderToOrder = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Assign rider to order error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+exports.getVendorProfile = async (req, res, next) => {
+  try {
+    // Get vendor from authenticated request
+    const vendor = await Vendor.findById(req.vendor._id).populate('createdBy', 'name email');
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: vendor,
+    });
+  } catch (error) {
+    logger.error('Get vendor profile error:', error);
+    next(error);
+  }
+};
+
+exports.updateVendorProfile = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Get vendor from authenticated request
+    const vendor = req.vendor;
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    if (!vendor.storeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor registration not completed',
+      });
+    }
+
+    // Prevent contactNumber from being updated
+    if (req.body.contactNumber !== undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Contact number cannot be updated through this endpoint',
+      });
+    }
+
+    // Prevent permissions from being updated by vendor
+    if (req.body.permissions !== undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Permissions cannot be updated through this endpoint',
+      });
+    }
+
+    // Prevent document files from being updated
+    const documentFields = [
+      'panCardFront', 'panCardBack', 
+      'aadharCardFront', 'aadharCardBack', 
+      'drivingLicense', 'cancelCheque'
+    ];
+    
+    const hasDocumentFiles = documentFields.some(field => {
+      if (!req.files) return false;
+      // Check various possible field name variations
+      return req.files[field] || 
+             req.files[`${field} `] || 
+             req.files[` ${field}`] ||
+             req.files[`${field}[]`] ||
+             req.files[`${field}[] `] ||
+             req.files[` ${field}[]`];
+    });
+
+    if (hasDocumentFiles) {
+      return res.status(400).json({
+        success: false,
+        error: 'Documents cannot be updated through this endpoint. Please contact admin for document updates.',
+      });
+    }
+
+    // Filter out document files from req.files before passing to updateVendorData
+    // Only allow storeImage to be updated
+    const filteredFiles = {};
+    if (req.files) {
+      // Only allow storeImage
+      const storeImageVariations = [
+        'storeImage', 'storeImage ', ' storeImage',
+        'storeImage[]', 'storeImage[] ', ' storeImage[]'
+      ];
+      
+      for (const variation of storeImageVariations) {
+        if (req.files[variation]) {
+          filteredFiles.storeImage = req.files[variation];
+          break;
+        }
+      }
+    }
+
+    // Check if email is being updated and if it already exists
+    if (req.body.email && req.body.email !== vendor.email) {
+      const existingEmail = await Vendor.findOne({ 
+        email: req.body.email, 
+        _id: { $ne: vendor._id } 
+      });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email already exists',
+        });
+      }
+    }
+
+    // Use updateVendorData service to update vendor (with filtered files - only storeImage allowed)
+    await updateVendorData(vendor, req.body, Object.keys(filteredFiles).length > 0 ? filteredFiles : null);
+
+    await vendor.save();
+
+    logger.info(`Vendor profile updated: ${vendor.storeId} (ID: ${vendor._id}) by Vendor: ${vendor.vendorName || vendor.contactNumber}`);
+
+    const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor profile updated successfully',
+      data: populatedVendor,
+    });
+  } catch (error) {
+    logger.error('Update vendor profile error:', error);
+    if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,

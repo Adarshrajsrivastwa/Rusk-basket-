@@ -207,6 +207,48 @@ const VendorSchema = new mongoose.Schema({
     min: [0, 'Handling charge percentage must be greater than or equal to 0'],
     max: [100, 'Handling charge percentage cannot exceed 100'],
   },
+  revenue: {
+    type: Map,
+    of: Number,
+    default: {},
+  },
+  productSales: [{
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+    },
+    productName: {
+      type: String,
+      required: true,
+    },
+    month: {
+      type: String,
+      required: true,
+      match: [/^\d{4}-\d{2}$/, 'Month must be in YYYY-MM format'],
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: [0, 'Quantity must be greater than or equal to 0'],
+    },
+    revenue: {
+      type: Number,
+      required: true,
+      min: [0, 'Revenue must be greater than or equal to 0'],
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+    },
+    orderNumber: {
+      type: String,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',

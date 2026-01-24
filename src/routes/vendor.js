@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus } = require('../controllers/riderJobPost');
@@ -440,6 +440,103 @@ router.put(
     }),
   ],
   updateInventory
+);
+
+// Profile routes (protected - vendor can get and update their own profile)
+// Must be placed before /:id route to ensure proper matching
+router.get('/profile', protectVendor, getVendorProfile);
+
+router.put(
+  '/profile',
+  protectVendor,
+  uploadFields,
+  [
+    body('vendorName')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Vendor name cannot be empty'),
+    body('altContactNumber')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{10}$/)
+      .withMessage('Please provide a valid 10-digit contact number'),
+    body('email')
+      .optional()
+      .trim()
+      .isEmail()
+      .withMessage('Please provide a valid email'),
+    body('gender')
+      .optional()
+      .isIn(['male', 'female', 'other'])
+      .withMessage('Gender must be male, female, or other'),
+    body('dateOfBirth')
+      .optional()
+      .isISO8601()
+      .withMessage('Please provide a valid date'),
+    body('storeName')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Store name cannot be empty'),
+    body('storeAddressLine1')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Store address line 1 cannot be empty'),
+    body('storeAddressLine2')
+      .optional()
+      .trim(),
+    body('pinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('Please provide a valid 6-digit PIN code'),
+    body('latitude')
+      .optional()
+      .isFloat()
+      .withMessage('Latitude must be a valid number'),
+    body('longitude')
+      .optional()
+      .isFloat()
+      .withMessage('Longitude must be a valid number'),
+    body('ifsc')
+      .optional()
+      .trim()
+      .matches(/^[A-Z]{4}0[A-Z0-9]{6}$/)
+      .withMessage('Please provide a valid IFSC code'),
+    body('accountNumber')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Account number cannot be empty'),
+    body('bankName')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Bank name cannot be empty'),
+    body('bank_name')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Bank name cannot be empty'),
+    body('serviceRadius')
+      .optional()
+      .isFloat({ min: 0.1 })
+      .withMessage('Service radius must be a number greater than or equal to 0.1 km'),
+    body('handlingChargePercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Handling charge percentage must be between 0 and 100'),
+    body('contactNumber')
+      .custom((value) => {
+        if (value !== undefined) {
+          throw new Error('Contact number cannot be updated through this endpoint');
+        }
+        return true;
+      }),
+  ],
+  updateVendorProfile
 );
 
 router.get('/:id', protect, getVendor);

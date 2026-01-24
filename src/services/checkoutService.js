@@ -11,6 +11,78 @@ const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
 const logger = require('../utils/logger');
 
 /**
+ * Update vendor revenue and product sales tracking
+ * @param {Object} order - Order object
+ * @param {Array} itemsToTrack - Optional: specific items to track (if not provided, tracks all items)
+ */
+const updateVendorRevenue = async (order, itemsToTrack = null) => {
+  try {
+    const orderDate = order.createdAt || new Date();
+    const monthKey = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    // Use provided items or all order items
+    const items = itemsToTrack || order.items;
+    
+    // Group items by vendor
+    const vendorItemsMap = new Map();
+    
+    for (const item of items) {
+      const vendorId = item.vendor?._id || item.vendor;
+      if (!vendorId) continue;
+      
+      const vendorIdStr = vendorId.toString();
+      if (!vendorItemsMap.has(vendorIdStr)) {
+        vendorItemsMap.set(vendorIdStr, []);
+      }
+      vendorItemsMap.get(vendorIdStr).push(item);
+    }
+    
+    // Update revenue for each vendor
+    for (const [vendorIdStr, vendorItems] of vendorItemsMap.entries()) {
+      const vendor = await Vendor.findById(vendorIdStr);
+      if (!vendor) {
+        logger.warn(`Vendor ${vendorIdStr} not found when updating revenue for order ${order.orderNumber}`);
+        continue;
+      }
+      
+      // Calculate total revenue for this vendor's items
+      let vendorRevenue = 0;
+      for (const item of vendorItems) {
+        vendorRevenue += item.totalPrice || 0;
+        
+        // Add product sales entry
+        const productSalesEntry = {
+          product: item.product?._id || item.product,
+          productName: item.productName || 'Unknown Product',
+          month: monthKey,
+          quantity: item.quantity || 0,
+          revenue: item.totalPrice || 0,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          createdAt: orderDate,
+        };
+        
+        vendor.productSales.push(productSalesEntry);
+      }
+      
+      // Update month-wise revenue
+      if (!vendor.revenue) {
+        vendor.revenue = new Map();
+      }
+      const currentMonthRevenue = vendor.revenue.get(monthKey) || 0;
+      vendor.revenue.set(monthKey, currentMonthRevenue + vendorRevenue);
+      
+      await vendor.save();
+      
+      logger.info(`Updated revenue for vendor ${vendorIdStr}: +${vendorRevenue} for month ${monthKey} (Order: ${order.orderNumber})`);
+    }
+  } catch (error) {
+    logger.error(`Error updating vendor revenue for order ${order.orderNumber}:`, error);
+    // Don't throw error - revenue tracking failure shouldn't break order creation
+  }
+};
+
+/**
  * Validate if product is available for purchase
  * Returns { available: boolean, reason: string }
  */
@@ -877,6 +949,9 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   cart.coupon = undefined;
   await cart.save();
 
+  // Update vendor revenue tracking
+  await updateVendorRevenue(order);
+
   return await Order.findById(order._id)
     .populate('user', 'userName contactNumber email')
     .populate('items.product', 'productName thumbnail')
@@ -1123,6 +1198,9 @@ exports.reorder = async (userId, orderId) => {
   }
 
   logger.info(`Order reordered: ${orderNumber} from original order ${originalOrder.orderNumber} by User: ${userId}`);
+
+  // Update vendor revenue tracking
+  await updateVendorRevenue(newOrder);
 
   return await Order.findById(newOrder._id)
     .populate('user', 'userName contactNumber email')
@@ -1601,6 +1679,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
   let newSubtotal = 0;
   let newCashback = 0;
   const productImagesMap = new Map();
+  const itemsForRevenueTracking = []; // Track items for revenue update
 
   for (const itemData of items) {
     const { productId, quantity, sku } = itemData;
@@ -1705,8 +1784,21 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       existingItem.cashback = newItemCashback;
 
       // Calculate the difference in subtotal and cashback
-      newSubtotal += (newTotalPrice - oldTotalPrice);
+      const revenueDifference = newTotalPrice - oldTotalPrice;
+      newSubtotal += revenueDifference;
       newCashback += (newItemCashback - oldCashback);
+      
+      // Track revenue for the incremental quantity added
+      if (revenueDifference > 0) {
+        itemsForRevenueTracking.push({
+          product: productId,
+          vendor: vendorId,
+          productName: product.productName,
+          quantity: quantity, // Only the newly added quantity
+          totalPrice: revenueDifference, // Revenue difference
+          sku: sku || undefined,
+        });
+      }
     } else {
       // Create new order item
       const totalPrice = unitPrice * quantity;
@@ -1770,6 +1862,16 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       }
 
       newOrderItems.push(orderItem);
+      
+      // Track revenue for new item
+      itemsForRevenueTracking.push({
+        product: productId,
+        vendor: vendorId,
+        productName: product.productName,
+        quantity: quantity,
+        totalPrice: totalPrice,
+        sku: sku || undefined,
+      });
     }
 
     // Update inventory
@@ -1873,6 +1975,21 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     } catch (error) {
       logger.error(`Error adding cashback to user ${order.user} account:`, error);
     }
+  }
+
+  // Update vendor revenue tracking for newly added/updated items
+  if (itemsForRevenueTracking.length > 0) {
+    // Convert to format expected by updateVendorRevenue
+    const itemsToTrack = itemsForRevenueTracking.map(item => ({
+      product: item.product,
+      vendor: item.vendor,
+      productName: item.productName,
+      quantity: item.quantity,
+      totalPrice: item.totalPrice,
+      sku: item.sku,
+    }));
+    
+    await updateVendorRevenue(order, itemsToTrack);
   }
 
   return await Order.findById(order._id)
