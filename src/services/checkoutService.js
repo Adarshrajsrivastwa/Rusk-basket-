@@ -1229,25 +1229,57 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
 
   const orders = await Order.find(query)
     .populate('user', 'userName contactNumber email')
-    .populate('items.product', 'productName thumbnail description')
-    .populate('items.vendor', 'storeName storeId')
+    .populate({
+      path: 'items.product',
+      select: 'productName thumbnail description category subCategory salePrice',
+      populate: [
+        { path: 'category', select: 'name' },
+        { path: 'subCategory', select: 'name' }
+      ]
+    })
+    .populate('items.vendor', 'storeName storeId vendorName')
     .populate('coupon.couponId', 'couponName code')
     .populate('rider', 'fullName mobileNumber')
     .sort({ createdAt: -1 })
     .skip(skip)
-    .limit(limit);
+    .limit(limit)
+    .lean();
 
   const total = await Order.countDocuments(query);
 
-  // Filter items to only show items from this vendor
+  // Helper function to format date to DD/MM/YYYY
+  const formatDate = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Filter items to only show items from this vendor and add required fields
   const ordersWithVendorItems = orders.map(order => {
-    const orderObj = order.toObject();
-    orderObj.items = orderObj.items.filter(item => 
-      item.vendor && item.vendor._id.toString() === vendorId.toString()
-    );
+    const orderObj = { ...order };
+    orderObj.items = orderObj.items
+      .filter(item => 
+        item.vendor && item.vendor._id.toString() === vendorId.toString()
+      )
+      .map(item => {
+        const product = item.product || {};
+        return {
+          ...item,
+          productId: product._id || item.product || null,
+          date: formatDate(order.createdAt),
+          vendor: item.vendor?.vendorName || item.vendor?.storeName || null,
+          category: product.category?.name || null,
+          subCategory: product.subCategory?.name || null,
+          sellPrice: product.salePrice || item.price || null,
+          status: order.status || 'pending',
+        };
+      });
     
     // Recalculate pricing for vendor's items only
-    const vendorItemsSubtotal = orderObj.items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const vendorItemsSubtotal = orderObj.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     const vendorItemsCashback = orderObj.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
     
     orderObj.vendorPricing = {

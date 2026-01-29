@@ -341,12 +341,43 @@ exports.getSubCategoriesByCategory = async (req, res, next) => {
 
     const subCategories = await SubCategory.find(query)
       .populate('category', 'name')
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean();
+
+    // Get total product count for each subcategory and add additional fields
+    const subCategoriesWithDetails = await Promise.all(
+      subCategories.map(async (subCategory) => {
+        try {
+          const totalProducts = await Product.countDocuments({ 
+            subCategory: subCategory._id 
+          });
+          
+          return {
+            ...subCategory,
+            subCategoryName: subCategory.name || '',
+            products: totalProducts || 0,
+            totalProducts: totalProducts || 0,
+            categoryName: subCategory.category?.name || null,
+            status: subCategory.isActive ? 'active' : 'inactive',
+          };
+        } catch (err) {
+          logger.error(`Error counting products for subcategory ${subCategory._id}:`, err);
+          return {
+            ...subCategory,
+            subCategoryName: subCategory.name || '',
+            products: 0,
+            totalProducts: 0,
+            categoryName: subCategory.category?.name || null,
+            status: subCategory.isActive ? 'active' : 'inactive',
+          };
+        }
+      })
+    );
 
     res.status(200).json({
       success: true,
-      count: subCategories.length,
-      data: subCategories,
+      count: subCategoriesWithDetails.length,
+      data: subCategoriesWithDetails,
     });
   } catch (error) {
     logger.error('Get subcategories by category error:', error);

@@ -130,13 +130,35 @@ exports.getVendorProducts = async (req, res, next) => {
 
     // Get products with pagination
     const products = await Product.find(query)
-      .populate('category', 'categoryName')
-      .populate('subCategory', 'subCategoryName')
+      .populate('category', 'name')
+      .populate('subCategory', 'name')
+      .populate('vendor', 'vendorName')
       .populate('approvedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Helper function to format date to DD/MM/YYYY
+    const formatDate = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    // Transform products to include additional fields
+    const productsWithNames = products.map(product => ({
+      ...product,
+      categoryName: product.category?.name || null,
+      subCategoryName: product.subCategory?.name || null,
+      vendorName: product.vendor?.vendorName || null,
+      date: formatDate(product.createdAt),
+      sellPrice: product.salePrice || null,
+      status: product.approvalStatus || 'pending',
+    }));
 
     // Get total count for pagination
     const total = await Product.countDocuments(query);
@@ -145,14 +167,14 @@ exports.getVendorProducts = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: products.length,
+      count: productsWithNames.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: products,
+      data: productsWithNames,
     });
   } catch (error) {
     logger.error('Get vendor products error:', error);
@@ -519,16 +541,37 @@ exports.getPendingProducts = async (req, res, next) => {
     // Get products with pagination, sorted by creation date (newest first)
     const products = await Product.find(query)
       .populate('vendor', 'vendorName storeName contactNumber email')
-      .populate('category', 'name categoryName')
-      .populate('subCategory', 'name subCategoryName')
+      .populate('category', 'name')
+      .populate('subCategory', 'name')
       .populate('createdBy', 'vendorName storeName contactNumber')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
+    // Helper function to format date to DD/MM/YYYY
+    const formatDate = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
     // Apply offer discounts to products (overrides salePrice if active offer exists)
     const productsWithOffers = await applyOfferToProducts(products);
+
+    // Transform products to include additional fields
+    const productsWithNames = productsWithOffers.map(product => ({
+      ...product,
+      categoryName: product.category?.name || null,
+      subCategoryName: product.subCategory?.name || null,
+      vendorName: product.vendor?.vendorName || null,
+      date: formatDate(product.createdAt),
+      sellPrice: product.salePrice || null,
+      status: product.approvalStatus || 'pending',
+    }));
 
     // Get total count for pagination
     const total = await Product.countDocuments(query);
@@ -537,14 +580,14 @@ exports.getPendingProducts = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: productsWithOffers.length,
+      count: productsWithNames.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: productsWithOffers,
+      data: productsWithNames,
     });
   } catch (error) {
     logger.error('Get pending products error:', error);

@@ -1,4 +1,5 @@
 const Category = require('../models/Category');
+const Product = require('../models/Product');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
@@ -76,20 +77,32 @@ exports.getCategories = async (req, res, next) => {
       .populate('createdBy', 'name email')
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Get total product count for each category
+    const categoriesWithProductCount = await Promise.all(
+      categories.map(async (category) => {
+        const totalProducts = await Product.countDocuments({ category: category._id });
+        return {
+          ...category,
+          totalProducts,
+        };
+      })
+    );
 
     const total = await Category.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      count: categories.length,
+      count: categoriesWithProductCount.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: categories,
+      data: categoriesWithProductCount,
     });
   } catch (error) {
     logger.error('Get categories error:', error);
