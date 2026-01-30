@@ -1,5 +1,8 @@
 const Category = require('../models/Category');
 const Product = require('../models/Product');
+const SubCategory = require('../models/SubCategory');
+const Order = require('../models/Order');
+const mongoose = require('mongoose');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
@@ -112,7 +115,18 @@ exports.getCategories = async (req, res, next) => {
 
 exports.getCategory = async (req, res, next) => {
   try {
-    const category = await Category.findById(req.params.id).populate('createdBy', 'name email');
+    const categoryId = req.params.id;
+
+    // Validate MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid category ID',
+      });
+    }
+
+    // Get category with populated createdBy
+    const category = await Category.findById(categoryId).populate('createdBy', 'name email').lean();
 
     if (!category) {
       return res.status(404).json({
@@ -121,10 +135,131 @@ exports.getCategory = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({
+    // Get summary statistics
+    const [totalProducts, subCategoriesCount, subCategories] = await Promise.all([
+      Product.countDocuments({ 
+        category: categoryId,
+        approvalStatus: 'approved',
+        isActive: true 
+      }),
+      SubCategory.countDocuments({ 
+        category: categoryId,
+        isActive: true 
+      }),
+      SubCategory.find({ 
+        category: categoryId,
+        isActive: true 
+      })
+        .select('name _id')
+        .sort({ createdAt: 1 })
+        .lean()
+    ]);
+
+    // Get top selling products by aggregating from orders
+    const topSellingProducts = await Order.aggregate([
+      {
+        $unwind: '$items'
+      },
+      {
+        $match: {
+          'items.product': { $exists: true },
+          status: { $in: ['delivered', 'confirmed', 'processing', 'ready', 'out_for_delivery'] }
+        }
+      },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'productDetails'
+        }
+      },
+      {
+        $unwind: '$productDetails'
+      },
+      {
+        $match: {
+          'productDetails.category': new mongoose.Types.ObjectId(categoryId),
+          'productDetails.approvalStatus': 'approved',
+          'productDetails.isActive': true
+        }
+      },
+      {
+        $group: {
+          _id: '$items.product',
+          productName: { $first: '$productDetails.productName' },
+          totalSales: { $sum: '$items.quantity' },
+          stock: { $first: '$productDetails.inventory' }
+        }
+      },
+      {
+        $sort: { totalSales: -1 }
+      },
+      {
+        $limit: 10
+      },
+      {
+        $project: {
+          _id: 1,
+          productName: 1,
+          sales: '$totalSales',
+          stock: 1
+        }
+      }
+    ]);
+
+    // Format top selling products with rank
+    const formattedTopProducts = topSellingProducts.map((product, index) => ({
+      rank: index + 1,
+      productId: product._id,
+      productName: product.productName,
+      sales: product.sales,
+      stock: product.stock
+    }));
+
+    // Format sub categories with numbers
+    const formattedSubCategories = subCategories.map((subCat, index) => ({
+      _id: subCat._id,
+      name: subCat.name,
+      number: index + 1
+    }));
+
+    // Format dates
+    const formatDate = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    // Build response
+    const response = {
       success: true,
-      data: category,
-    });
+      data: {
+        category: {
+          _id: category._id,
+          name: category.name,
+          description: category.description,
+          image: category.image,
+          isActive: category.isActive,
+          createdBy: category.createdBy,
+          createdAt: category.createdAt,
+          updatedAt: category.updatedAt
+        },
+        summary: {
+          totalProducts,
+          subCategoriesCount,
+          created: formatDate(category.createdAt),
+          lastUpdated: formatDate(category.updatedAt)
+        },
+        topSellingProducts: formattedTopProducts,
+        subCategories: formattedSubCategories
+      }
+    };
+
+    res.status(200).json(response);
   } catch (error) {
     logger.error('Get category error:', error);
     next(error);
