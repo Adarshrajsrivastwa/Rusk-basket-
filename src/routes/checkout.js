@@ -21,6 +21,7 @@ const {
 } = require('../controllers/checkout');
 const { protect } = require('../middleware/userAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
+const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 
 const router = express.Router();
 
@@ -46,7 +47,7 @@ router.get(
 
 router.get(
   '/vendor/order/:orderId',
-  protectVendor,
+  protectVendorOrAdmin,
   [
     param('orderId')
       .notEmpty()

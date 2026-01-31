@@ -386,12 +386,30 @@ exports.getVendorOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
 
-    const order = await checkoutService.getVendorOrderById(orderId, req.vendor._id);
+    let order;
 
-    if (!order) {
-      return res.status(404).json({
+    // If admin, get full order without vendor restriction
+    if (req.admin) {
+      order = await checkoutService.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found',
+        });
+      }
+    } else if (req.vendor) {
+      // If vendor, get order with vendor restriction
+      order = await checkoutService.getVendorOrderById(orderId, req.vendor._id);
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found or does not belong to this vendor',
+        });
+      }
+    } else {
+      return res.status(403).json({
         success: false,
-        error: 'Order not found or does not belong to this vendor',
+        error: 'Access denied. Vendor or Admin privileges required.',
       });
     }
 
@@ -540,6 +558,58 @@ exports.reorder = async (req, res, next) => {
       success: false,
       error: error.message || 'Failed to reorder',
     });
+  }
+};
+
+exports.getAllOrders = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    const filters = {};
+    
+    if (req.query.status) {
+      filters.status = req.query.status;
+    }
+    
+    if (req.query.user) {
+      filters.user = req.query.user;
+    }
+    
+    if (req.query.vendor) {
+      filters.vendor = req.query.vendor;
+    }
+    
+    if (req.query.paymentStatus) {
+      filters.paymentStatus = req.query.paymentStatus;
+    }
+    
+    if (req.query.paymentMethod) {
+      filters.paymentMethod = req.query.paymentMethod;
+    }
+    
+    if (req.query.startDate) {
+      filters.startDate = req.query.startDate;
+    }
+    
+    if (req.query.endDate) {
+      filters.endDate = req.query.endDate;
+    }
+    
+    if (req.query.search) {
+      filters.search = req.query.search;
+    }
+
+    const result = await checkoutService.getAllOrders(page, limit, filters);
+
+    res.status(200).json({
+      success: true,
+      count: result.orders.length,
+      ...result,
+    });
+  } catch (error) {
+    logger.error('Get all orders error:', error);
+    next(error);
   }
 };
 

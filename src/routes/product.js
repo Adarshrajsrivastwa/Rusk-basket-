@@ -3,7 +3,7 @@ const { body, query } = require('express-validator');
 const router = express.Router();
 
 // Controllers
-const { getAllProducts, getNearbyProducts, getPendingProducts, getProductById, scanQRCode } = require('../controllers/productGet');
+const { getAllProducts, getAllProductsList, getNearbyProducts, getPendingProducts, getProductById, scanQRCode } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
@@ -116,6 +116,48 @@ router.get(
 );
 
 // Admin Routes
+// Get all products list - simplified view (Admin only)
+router.get(
+  '/admin/list',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('vendor')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor must be a valid MongoDB ObjectId'),
+    query('category')
+      .optional()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    query('subCategory')
+      .optional()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    query('approvalStatus')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Approval status must be pending, approved, or rejected'),
+    query('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+  ],
+  getAllProductsList
+);
+
 // Get pending products (Admin only)
 router.get(
   '/pending',

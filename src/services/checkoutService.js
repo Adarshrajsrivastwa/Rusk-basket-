@@ -1190,6 +1190,8 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
 
 /**
  * Get order by ID or order number
+ * If userId is null, returns full order (for admin)
+ * If userId is provided, filters by user (for user)
  */
 exports.getOrderById = async (orderId, userId = null) => {
   const mongoose = require('mongoose');
@@ -1207,13 +1209,18 @@ exports.getOrderById = async (orderId, userId = null) => {
   }
 
   const order = await Order.findOne(query)
-    .populate('user', 'userName contactNumber email')
+    .populate('user', 'userName contactNumber email address')
     .populate('items.product', 'productName thumbnail description')
-    .populate('items.vendor', 'storeName storeId storeAddress')
+    .populate('items.vendor', 'vendorName storeName storeId storeAddress')
     .populate('coupon.couponId', 'couponName code offerType')
-    .populate('rider', 'fullName mobileNumber');
+    .populate('rider', 'fullName mobileNumber')
+    .populate('assignedBy', 'vendorName storeName');
 
-  return order;
+  if (!order) {
+    return null;
+  }
+
+  return order.toObject ? order.toObject() : order;
 };
 
 /**
@@ -1293,6 +1300,109 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
 
   return {
     orders: ordersWithVendorItems,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    },
+  };
+};
+
+/**
+ * Get all orders for admin
+ */
+exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
+  const skip = (page - 1) * limit;
+  const query = {};
+
+  // Apply filters
+  if (filters.status) {
+    query.status = filters.status;
+  }
+
+  if (filters.user) {
+    query.user = filters.user;
+  }
+
+  if (filters.vendor) {
+    query['items.vendor'] = filters.vendor;
+  }
+
+  if (filters.paymentStatus) {
+    query['payment.status'] = filters.paymentStatus;
+  }
+
+  if (filters.paymentMethod) {
+    query['payment.method'] = filters.paymentMethod;
+  }
+
+  // Date range filters
+  if (filters.startDate || filters.endDate) {
+    query.createdAt = {};
+    if (filters.startDate) {
+      query.createdAt.$gte = new Date(filters.startDate);
+    }
+    if (filters.endDate) {
+      query.createdAt.$lte = new Date(filters.endDate);
+    }
+  }
+
+  // Search by order number
+  if (filters.search) {
+    query.orderNumber = { $regex: filters.search, $options: 'i' };
+  }
+
+  const orders = await Order.find(query)
+    .populate('user', 'userName contactNumber email')
+    .populate('items.product', 'productName thumbnail')
+    .populate('items.vendor', 'vendorName storeName storeId')
+    .populate('coupon.couponId', 'couponName code')
+    .populate('rider', 'fullName mobileNumber')
+    .populate('assignedBy', 'vendorName storeName')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  const total = await Order.countDocuments(query);
+
+  // Helper function to format date to DD/MM/YYYY
+  const formatDate = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Format orders for admin list view - simplified with only required fields
+  const formattedOrders = orders.map(order => {
+    // Get unique vendors from order items
+    const vendors = [...new Set(order.items.map(item => {
+      const vendor = item.vendor;
+      if (vendor && vendor._id) {
+        return vendor.vendorName || vendor.storeName || 'N/A';
+      }
+      return null;
+    }).filter(Boolean))];
+
+    return {
+      _id: order._id,
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      date: formatDate(order.createdAt),
+      vendor: vendors.length > 0 ? vendors.join(', ') : 'N/A',
+      userName: order.user ? (order.user.userName || 'N/A') : 'N/A',
+      cartValue: order.pricing ? order.pricing.total : 0,
+      paymentStatus: order.payment ? order.payment.status : 'pending',
+      status: order.status || 'pending',
+    };
+  });
+
+  return {
+    orders: formattedOrders,
     pagination: {
       page,
       limit,

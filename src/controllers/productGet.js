@@ -189,6 +189,111 @@ exports.getVendorProducts = async (req, res, next) => {
 };
 
 /**
+ * Get all products for admin - simplified list view
+ * Returns products with only essential fields: Product ID, Date, Vendor, Category, Sub Category, Sale Price, Status
+ * Admin authentication required
+ */
+exports.getAllProductsList = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Build query - get all products, no status filter
+    const query = {};
+
+    // Optional: filter by vendor if provided
+    if (req.query.vendor) {
+      query.vendor = req.query.vendor;
+    }
+
+    // Optional: filter by category if provided
+    if (req.query.category) {
+      query.category = req.query.category;
+    }
+
+    // Optional: filter by subCategory if provided
+    if (req.query.subCategory) {
+      query.subCategory = req.query.subCategory;
+    }
+
+    // Optional: filter by approvalStatus if provided
+    if (req.query.approvalStatus) {
+      query.approvalStatus = req.query.approvalStatus;
+    }
+
+    // Optional: filter by isActive if provided
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true' || req.query.isActive === true;
+    }
+
+    // Optional: search by product name
+    if (req.query.search) {
+      query.$text = { $search: req.query.search };
+    }
+
+    // Get products with pagination
+    const products = await Product.find(query)
+      .populate('vendor', 'vendorName')
+      .populate('category', 'name')
+      .populate('subCategory', 'name')
+      .select('_id createdAt vendor category subCategory salePrice approvalStatus')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Helper function to format date to DD/MM/YYYY
+    const formatDate = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    // Transform products to include only required fields
+    const productsList = products.map(product => ({
+      _id: product._id,
+      productId: product._id,
+      date: formatDate(product.createdAt),
+      vendor: product.vendor?.vendorName || null,
+      category: product.category?.name || null,
+      subCategory: product.subCategory?.name || null,
+      salePrice: product.salePrice || null,
+      status: product.approvalStatus || 'pending',
+    }));
+
+    // Get total count for pagination
+    const total = await Product.countDocuments(query);
+
+    logger.info(`All products list retrieved by Admin: ${req.admin.email || req.admin._id} - Total: ${total}, Page: ${page}`);
+
+    res.status(200).json({
+      success: true,
+      count: productsList.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: productsList,
+    });
+  } catch (error) {
+    logger.error('Get all products list error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+      });
+    }
+    next(error);
+  }
+};
+
+/**
  * Get all products for admin
  * Returns all products regardless of approvalStatus or isActive status
  * Admin authentication required

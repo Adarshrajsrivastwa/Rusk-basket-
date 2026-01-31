@@ -90,6 +90,7 @@ app.use(cookieParser());
 
 const cors = require('cors');
 const superadminRoutes = require('./routes/superadmin');
+const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
 const vendorRoutes = require('./routes/vendor');
 const userRoutes = require('./routes/user');
@@ -163,6 +164,7 @@ app.use((err, req, res, next) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/superadmin', superadminRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/vendor', vendorRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/rider', riderRoutes);
