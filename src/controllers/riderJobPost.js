@@ -171,6 +171,7 @@ exports.getJobPosts = async (req, res, next) => {
 
     let query = {};
 
+    // If vendor is authenticated, only show their job posts
     if (isVendor) {
       query.vendor = req.vendor._id;
     } else if (isAdmin && vendor) {

@@ -122,11 +122,8 @@ router.post(
 
 router.get(
   '/',
+  protectVendor,
   [
-    query('vendor')
-      .optional()
-      .isMongoId()
-      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
     query('page')
       .optional()
       .isInt({ min: 1 })
