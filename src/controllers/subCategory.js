@@ -176,7 +176,7 @@ exports.updateSubCategory = async (req, res, next) => {
       });
     }
 
-    const { name, description, category } = req.body;
+    const { name, description, category, isActive } = req.body;
 
     // Store the old category ID before any updates
     const oldCategoryId = subCategory.category;
@@ -220,6 +220,7 @@ exports.updateSubCategory = async (req, res, next) => {
     if (name) subCategory.name = name;
     if (description !== undefined) subCategory.description = description;
     if (category) subCategory.category = category;
+    if (isActive !== undefined) subCategory.isActive = isActive === true || isActive === 'true';
 
     if (req.file) {
       if (subCategory.image && subCategory.image.publicId) {

@@ -94,6 +94,10 @@ router.put(
       .optional()
       .isMongoId()
       .withMessage('Invalid category ID'),
+    body('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean value'),
   ],
   updateSubCategory
 );
