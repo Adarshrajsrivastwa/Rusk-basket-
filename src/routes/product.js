@@ -3,7 +3,7 @@ const { body, query } = require('express-validator');
 const router = express.Router();
 
 // Controllers
-const { getAllProducts, getAllProductsList, getNearbyProducts, getPendingProducts, getProductById, scanQRCode } = require('../controllers/productGet');
+const { getAllProducts, getAllProductsList, getNearbyProducts, getPendingProducts, getProductById, scanQRCode, searchProductsByNameAndLocation } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
@@ -15,6 +15,46 @@ const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { uploadMultiple } = require('../middleware/productUpload');
 
 // Public Routes
+// Search products by name and location (Public - no authentication required)
+// This endpoint searches for products whose name contains the search term and filters by nearby location
+router.get(
+  '/search',
+  [
+    query('latitude')
+      .notEmpty()
+      .withMessage('Latitude is required')
+      .bail()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    query('longitude')
+      .notEmpty()
+      .withMessage('Longitude is required')
+      .bail()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    query('search')
+      .notEmpty()
+      .withMessage('Search term is required')
+      .bail()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('radius')
+      .optional()
+      .isFloat({ min: 0.1, max: 100 })
+      .withMessage('Radius must be between 0.1 and 100 kilometers'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  searchProductsByNameAndLocation
+);
+
 // Get approved products with optional location filtering (Public - no authentication required)
 router.get(
   '/',

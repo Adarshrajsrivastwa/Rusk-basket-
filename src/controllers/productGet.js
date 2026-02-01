@@ -603,6 +603,184 @@ exports.getNearbyProducts = async (req, res, next) => {
 };
 
 /**
+ * Search products by name and location
+ * Searches for products whose name contains the search term (case-insensitive)
+ * Filters by nearby location based on latitude/longitude
+ * Returns only approved and active products
+ * Public endpoint - no authentication required
+ */
+exports.searchProductsByNameAndLocation = async (req, res, next) => {
+  try {
+    const { latitude, longitude, search, radius = 10, page = 1, limit = 20 } = req.query;
+
+    // Validate required parameters
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        error: 'Latitude and longitude are required',
+      });
+    }
+
+    if (!search || search.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Search term is required',
+      });
+    }
+
+    const userLat = parseFloat(latitude);
+    const userLon = parseFloat(longitude);
+    const searchRadius = parseFloat(radius) || 10; // Default 10km radius
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Validate coordinates
+    if (isNaN(userLat) || userLat < -90 || userLat > 90) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid latitude. Must be between -90 and 90',
+      });
+    }
+
+    if (isNaN(userLon) || userLon < -180 || userLon > 180) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid longitude. Must be between -180 and 180',
+      });
+    }
+
+    // Build query - only approved and active products
+    // Search for products whose name contains the search term (case-insensitive)
+    const query = {
+      approvalStatus: 'approved',
+      isActive: true,
+      productName: { $regex: search.trim(), $options: 'i' }, // Case-insensitive regex search
+    };
+
+    // Get all products matching the search term
+    const products = await Product.find(query)
+      .populate('category', 'name categoryName')
+      .populate('subCategory', 'name subCategoryName')
+      .populate('vendor', 'vendorName storeName contactNumber serviceRadius storeAddress')
+      .populate('createdBy', 'vendorName')
+      .lean();
+
+    // Calculate distance for each product and filter by location
+    const productsWithDistance = products
+      .map(product => {
+        // Check if vendor exists and has storeAddress with coordinates
+        if (!product.vendor || !product.vendor.storeAddress) {
+          return null;
+        }
+
+        const vendorLat = product.vendor.storeAddress.latitude;
+        const vendorLon = product.vendor.storeAddress.longitude;
+        const vendorServiceRadius = product.vendor.serviceRadius || 0;
+
+        if (!vendorLat || !vendorLon) {
+          return null;
+        }
+
+        // Calculate distance from user location to vendor store location
+        const vendorStoreDistance = calculateDistance(
+          userLat,
+          userLon,
+          vendorLat,
+          vendorLon
+        );
+
+        // Calculate distance from user location to product location (if product has coordinates)
+        let productDistance = null;
+        if (product.latitude && product.longitude) {
+          productDistance = calculateDistance(
+            userLat,
+            userLon,
+            product.latitude,
+            product.longitude
+          );
+        }
+
+        // Product should be shown if EITHER:
+        // 1. Product location is within user's query radius, OR
+        // 2. User is within vendor's serviceRadius (even if product is not in user's query radius)
+        let shouldShow = false;
+        let displayDistance = null;
+
+        // Check if product location is within user's query radius
+        if (productDistance !== null && productDistance <= searchRadius) {
+          shouldShow = true;
+          displayDistance = productDistance;
+        }
+        // Check if user is within vendor's serviceRadius
+        else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
+          shouldShow = true;
+          // Use vendor store distance for sorting if product distance is not available
+          displayDistance = productDistance !== null ? productDistance : vendorStoreDistance;
+        }
+        // If no service radius, use product distance or vendor distance within search radius
+        else if (productDistance !== null && productDistance <= searchRadius) {
+          shouldShow = true;
+          displayDistance = productDistance;
+        }
+        else if (vendorStoreDistance <= searchRadius) {
+          shouldShow = true;
+          displayDistance = vendorStoreDistance;
+        }
+
+        if (!shouldShow) {
+          return null;
+        }
+
+        return {
+          ...product,
+          distance: parseFloat(displayDistance.toFixed(2)), // Distance in km, rounded to 2 decimals
+          discountPercentage: calculateDiscountPercentage(product.regularPrice, product.salePrice),
+        };
+      })
+      .filter(product => product !== null)
+      .sort((a, b) => a.distance - b.distance); // Sort by distance (nearest first)
+
+    const total = productsWithDistance.length;
+
+    // Apply pagination
+    const paginatedProducts = productsWithDistance.slice(skip, skip + limitNum);
+
+    // Apply offer discounts to products (overrides salePrice if active offer exists)
+    const productsWithOffers = await applyOfferToProducts(paginatedProducts);
+
+    logger.info(`Product search: "${search}", Lat: ${userLat}, Lon: ${userLon}, Radius: ${searchRadius}km, Found: ${total}, Page: ${pageNum}`);
+
+    res.status(200).json({
+      success: true,
+      count: productsWithOffers.length,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+      },
+      search: search.trim(),
+      location: {
+        latitude: userLat,
+        longitude: userLon,
+        radius: searchRadius,
+      },
+      data: productsWithOffers,
+    });
+  } catch (error) {
+    logger.error('Search products by name and location error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+      });
+    }
+    next(error);
+  }
+};
+
+/**
  * Get pending products for admin
  * Returns only products with approvalStatus: 'pending'
  * Admin authentication required
