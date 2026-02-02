@@ -108,6 +108,7 @@ exports.addProduct = async (req, res, next) => {
       description: description || undefined,
       skuHsn: skuHsn || undefined,
       inventory: totalInventory,
+      initialInventory: totalInventory, // Track initial inventory for stock percentage calculation
       actualPrice: parseFloat(actualPrice),
       regularPrice: parsedRegularPrice,
       salePrice: parsedSalePrice,
@@ -121,6 +122,25 @@ exports.addProduct = async (req, res, next) => {
       approvalStatus: 'pending',
     });
 
+    // Get total products count for this vendor
+    const totalProducts = await Product.countDocuments({
+      vendor: req.vendor._id,
+      isActive: true,
+    });
+
+    // Calculate stock status
+    // Out of stock: inventory = 0
+    // Low stock: inventory > 0 and less than 20% of initial inventory
+    // At creation, initialInventory = inventory, so we check if inventory is very low
+    let stockStatus = 'in_stock';
+    if (totalInventory === 0) {
+      stockStatus = 'out_of_stock';
+    } else if (totalInventory > 0 && totalInventory < 10) {
+      // If inventory is very low at creation (< 10 units), consider it low stock
+      // This will be properly calculated when stock is updated using initialInventory percentage
+      stockStatus = 'low_stock';
+    }
+
     const populatedProduct = await Product.findById(product._id)
       .populate('category', 'name')
       .populate('subCategory', 'name')
@@ -128,10 +148,11 @@ exports.addProduct = async (req, res, next) => {
       .populate('createdBy', 'vendorName')
       .lean();
 
-    // Add discount percentage to product
+    // Add discount percentage and stock status to product
     const productWithDiscount = {
       ...populatedProduct,
       discountPercentage: calculateDiscountPercentage(populatedProduct.regularPrice, populatedProduct.salePrice),
+      stockStatus: stockStatus,
     };
 
     logger.info(`Product created: ${product.productName} by Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`);
@@ -140,6 +161,7 @@ exports.addProduct = async (req, res, next) => {
       success: true,
       message: 'Product created successfully. Waiting for admin approval.',
       data: productWithDiscount,
+      totalProductsAdded: totalProducts,
     });
   } catch (error) {
     logger.error('Add product error:', error);

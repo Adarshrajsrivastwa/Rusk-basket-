@@ -1,13 +1,19 @@
 const express = require('express');
-const { query } = require('express-validator');
+const { query, body, param } = require('express-validator');
 const {
   getVendorDashboard,
   getVendorSales,
   getVendorProductPerformance,
+  getVendorOverview,
   getAdminDashboard,
   getAdminSales,
   getAdminVendorAnalytics,
   getAdminProductAnalytics,
+  getAdminDashboardOverview,
+  updateStock,
+  getProductInventory,
+  getAllInventory,
+  getVendorProductsList,
 } = require('../controllers/analytics');
 const { protect } = require('../middleware/adminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -56,6 +62,13 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
   ],
   getVendorProductPerformance
+);
+
+// Vendor Overview Dashboard - Comprehensive metrics matching the dashboard design
+router.get(
+  '/vendor/overview',
+  protectVendor,
+  getVendorOverview
 );
 
 router.get(
@@ -120,6 +133,165 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
   ],
   getAdminProductAnalytics
+);
+
+// Comprehensive Admin Dashboard Overview - All metrics in one endpoint (Admin Only)
+router.get(
+  '/admin/dashboard/overview',
+  protect,
+  getAdminDashboardOverview
+);
+
+// Update inventory - Vendor can update their own products only
+router.put(
+  '/vendor/product/:productId/inventory',
+  protectVendor,
+  [
+    param('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+    body('addedProduct')
+      .notEmpty()
+      .withMessage('Added product quantity is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Added product quantity must be a non-negative number'),
+  ],
+  updateStock
+);
+
+// Update stock - Alternative endpoint name (same functionality as inventory)
+router.put(
+  '/vendor/product/:productId/stock',
+  protectVendor,
+  [
+    param('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+    body('addedProduct')
+      .notEmpty()
+      .withMessage('Added product quantity is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Added product quantity must be a non-negative number'),
+  ],
+  updateStock
+);
+
+// Get inventory for a specific product - Vendor can view their own, Admin can view any
+router.get(
+  '/vendor/product/:productId/inventory',
+  protectVendor,
+  [
+    param('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+  ],
+  getProductInventory
+);
+
+// Get inventory for a specific product - Admin can view any
+router.get(
+  '/admin/product/:productId/inventory',
+  protect,
+  [
+    param('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+  ],
+  getProductInventory
+);
+
+// Get all inventory - Vendor can view their own products, Admin can view all
+router.get(
+  '/vendor/inventory',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('stockStatus')
+      .optional()
+      .isIn(['out_of_stock', 'low_stock', 'in_stock'])
+      .withMessage('Stock status must be one of: out_of_stock, low_stock, in_stock'),
+  ],
+  getAllInventory
+);
+
+// Get all inventory - Admin can view all products
+router.get(
+  '/admin/inventory',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('stockStatus')
+      .optional()
+      .isIn(['out_of_stock', 'low_stock', 'in_stock'])
+      .withMessage('Stock status must be one of: out_of_stock, low_stock, in_stock'),
+  ],
+  getAllInventory
+);
+
+// Get vendor products list - Table format with all product details
+router.get(
+  '/vendor/products/list',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('stockStatus')
+      .optional()
+      .isIn(['out_of_stock', 'low_stock', 'in_stock'])
+      .withMessage('Stock status must be one of: out_of_stock, low_stock, in_stock'),
+    query('approvalStatus')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Approval status must be one of: pending, approved, rejected'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('sortBy')
+      .optional()
+      .isIn(['createdAt', 'productName', 'inventory', 'salePrice', 'regularPrice'])
+      .withMessage('Sort by must be one of: createdAt, productName, inventory, salePrice, regularPrice'),
+    query('sortOrder')
+      .optional()
+      .isIn(['asc', 'desc'])
+      .withMessage('Sort order must be one of: asc, desc'),
+  ],
+  getVendorProductsList
 );
 
 module.exports = router;

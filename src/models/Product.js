@@ -79,6 +79,11 @@ const ProductSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Inventory cannot be negative'],
   },
+  initialInventory: {
+    type: Number,
+    default: 0,
+    min: [0, 'Initial inventory cannot be negative'],
+  },
   skuHsn: {
     type: String,
     trim: true,

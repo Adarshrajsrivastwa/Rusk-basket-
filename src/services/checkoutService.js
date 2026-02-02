@@ -8,6 +8,7 @@ const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const { notificationQueue } = require('../utils/queue');
 const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
+const logger = require('../utils/logger');
 
 /**
  * Update vendor revenue and product sales tracking
@@ -901,6 +902,35 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
 
   // Update vendor revenue tracking
   await updateVendorRevenue(order);
+
+  /**
+   * Automatically generate invoices for each vendor when order is placed by user
+   * This ensures that invoices are created immediately upon order placement
+   * Each vendor in the order gets a separate invoice
+   */
+  try {
+    const { createInvoice } = require('../controllers/invoice');
+    
+    // Get unique vendors from order items
+    const uniqueVendors = [...new Set(order.items.map(item => {
+      const vendor = item.vendor?._id || item.vendor;
+      return vendor.toString();
+    }))];
+    
+    // Create invoice for each vendor
+    for (const vendorId of uniqueVendors) {
+      try {
+        await createInvoice(order._id, vendorId);
+        logger.info(`Invoice automatically generated for vendor ${vendorId} on order ${order.orderNumber}`);
+      } catch (invoiceError) {
+        // Log error but don't fail the order creation
+        logger.error(`Failed to generate invoice for vendor ${vendorId}:`, invoiceError);
+      }
+    }
+  } catch (error) {
+    // Log error but don't fail the order creation
+    logger.error('Error generating invoices for order:', error);
+  }
 
   return await Order.findById(order._id)
     .populate('user', 'userName contactNumber email')
