@@ -3,6 +3,7 @@ const { validationResult } = require('express-validator');
 const { executeQuery } = require('../utils/queryManager');
 const User = require('../models/User');
 const Vendor = require('../models/Vendor');
+const Rider = require('../models/Rider');
 const Admin = require('../models/Admin');
 
 // Helper function to populate messages with sender info
@@ -13,6 +14,7 @@ const populateMessages = async (messages) => {
   const senderIds = {
     users: [],
     vendors: [],
+    riders: [],
     admins: []
   };
 
@@ -23,6 +25,8 @@ const populateMessages = async (messages) => {
         senderIds.users.push(senderId);
       } else if (msg.senderModel === 'Vendor') {
         senderIds.vendors.push(senderId);
+      } else if (msg.senderModel === 'Rider') {
+        senderIds.riders.push(senderId);
       } else if (msg.senderModel === 'Admin') {
         senderIds.admins.push(senderId);
       }
@@ -30,15 +34,17 @@ const populateMessages = async (messages) => {
   });
 
   // Fetch all senders in parallel
-  const [users, vendors, admins] = await Promise.all([
+  const [users, vendors, riders, admins] = await Promise.all([
     senderIds.users.length > 0 ? User.find({ _id: { $in: senderIds.users } }).select('userName contactNumber email').lean() : [],
     senderIds.vendors.length > 0 ? Vendor.find({ _id: { $in: senderIds.vendors } }).select('vendorName storeName contactNumber email').lean() : [],
+    senderIds.riders.length > 0 ? Rider.find({ _id: { $in: senderIds.riders } }).select('fullName mobileNumber email').lean() : [],
     senderIds.admins.length > 0 ? Admin.find({ _id: { $in: senderIds.admins } }).select('name email').lean() : []
   ]);
 
   // Create maps for quick lookup
   const userMap = new Map(users.map(u => [u._id.toString(), u]));
   const vendorMap = new Map(vendors.map(v => [v._id.toString(), v]));
+  const riderMap = new Map(riders.map(r => [r._id.toString(), r]));
   const adminMap = new Map(admins.map(a => [a._id.toString(), a]));
 
   // Assign sender data to messages
@@ -49,6 +55,8 @@ const populateMessages = async (messages) => {
         msg.sender = userMap.get(senderId);
       } else if (msg.senderModel === 'Vendor' && vendorMap.has(senderId)) {
         msg.sender = vendorMap.get(senderId);
+      } else if (msg.senderModel === 'Rider' && riderMap.has(senderId)) {
+        msg.sender = riderMap.get(senderId);
       } else if (msg.senderModel === 'Admin' && adminMap.has(senderId)) {
         msg.sender = adminMap.get(senderId);
       }
@@ -469,8 +477,10 @@ exports.updateTicketStatus = async (req, res, next) => {
     await populateMessages(ticket.messages);
 
     // Also populate other fields
-    await ticket.populate('createdBy', 'userName contactNumber email vendorName storeName');
+    await ticket.populate('createdBy', 'userName contactNumber email vendorName storeName fullName mobileNumber');
     await ticket.populate('user', 'userName contactNumber email');
+    await ticket.populate('vendor', 'vendorName storeName contactNumber email');
+    await ticket.populate('rider', 'fullName mobileNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
     res.status(200).json({
@@ -536,8 +546,10 @@ exports.addAdminMessage = async (req, res, next) => {
     await populateMessages(ticket.messages);
 
     // Also populate other fields
-    await ticket.populate('createdBy', 'userName contactNumber email vendorName storeName');
+    await ticket.populate('createdBy', 'userName contactNumber email vendorName storeName fullName mobileNumber');
     await ticket.populate('user', 'userName contactNumber email');
+    await ticket.populate('vendor', 'vendorName storeName contactNumber email');
+    await ticket.populate('rider', 'fullName mobileNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
     res.status(200).json({
@@ -570,10 +582,8 @@ exports.getAllTickets = async (req, res, next) => {
 
     const { page = 1, limit = 10, status, category, search } = req.query;
 
-    // Build filters - only show tickets created by Users
-    const filters = {
-      createdByModel: 'User'
-    };
+    // Build filters - show tickets created by Users and Vendors
+    const filters = {};
     if (status) {
       filters.status = status;
     }
@@ -594,8 +604,10 @@ exports.getAllTickets = async (req, res, next) => {
       pagination: { page: parseInt(page), limit: parseInt(limit) },
       populate: [
         { path: 'user', select: 'userName contactNumber email' },
+        { path: 'vendor', select: 'vendorName storeName contactNumber email' },
+        { path: 'rider', select: 'fullName mobileNumber email' },
         { path: 'orderId', select: 'orderNumber totalAmount status' },
-        { path: 'createdBy', select: 'userName contactNumber email vendorName storeName' },
+        { path: 'createdBy', select: 'userName contactNumber email vendorName storeName fullName mobileNumber' },
         { path: 'resolvedBy', select: 'name email' },
         { path: 'statusChangedBy', select: 'name email' },
       ],
@@ -622,6 +634,520 @@ exports.getAllTickets = async (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',
+      message: error.message,
+    });
+  }
+};
+
+// ============ VENDOR TICKET FUNCTIONS ============
+
+// Create a new ticket (vendor)
+exports.createVendorTicket = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { category, complaint, orderId } = req.body;
+    const vendorId = req.vendor._id;
+
+    // Generate unique ticket number
+    let ticketNumber;
+    try {
+      ticketNumber = await Ticket.generateTicketNumber();
+      if (!ticketNumber) {
+        throw new Error('Failed to generate ticket number');
+      }
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate ticket number. Please try again.',
+        message: error.message,
+      });
+    }
+
+    // Create ticket with creator info
+    const ticket = await Ticket.create({
+      ticketNumber,
+      vendor: vendorId,
+      createdBy: vendorId,
+      createdByModel: 'Vendor',
+      category: category || 'general_queries',
+      complaint,
+      status: 'active',
+      orderId: orderId || null,
+      messages: [{
+        sender: vendorId,
+        senderModel: 'Vendor',
+        message: complaint,
+        createdAt: new Date(),
+      }],
+    });
+
+    // Populate messages with sender info
+    await populateMessages(ticket.messages);
+
+    // Populate other fields
+    await ticket.populate('createdBy', 'vendorName storeName contactNumber email');
+    await ticket.populate('vendor', 'vendorName storeName contactNumber email');
+    await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    res.status(201).json({
+      success: true,
+      message: 'Ticket created successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create ticket',
+      message: error.message,
+    });
+  }
+};
+
+// Get all tickets for the logged-in vendor
+exports.getVendorTickets = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const vendorId = req.vendor._id;
+    const { page = 1, limit = 10, status, category } = req.query;
+
+    // Build filters
+    const filters = { vendor: vendorId };
+    if (status) {
+      filters.status = status;
+    }
+    if (category) {
+      filters.category = category;
+    }
+
+    // Execute query with pagination
+    const result = await executeQuery(Ticket, {
+      filters,
+      sort: { createdAt: -1 },
+      pagination: { page: parseInt(page), limit: parseInt(limit) },
+      populate: [
+        { path: 'orderId', select: 'orderNumber totalAmount status' },
+        { path: 'createdBy', select: 'vendorName storeName contactNumber email' },
+        { path: 'vendor', select: 'vendorName storeName contactNumber email' },
+      ],
+    });
+
+    // Manually populate messages with sender info for each ticket
+    if (result.data && result.data.length > 0) {
+      for (let ticket of result.data) {
+        if (ticket.messages && ticket.messages.length > 0) {
+          await populateMessages(ticket.messages);
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Tickets fetched successfully',
+      data: {
+        tickets: result.data,
+        pagination: result.pagination,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch tickets',
+      message: error.message,
+    });
+  }
+};
+
+// Get a single ticket by ID (vendor)
+exports.getVendorTicket = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { ticketId } = req.params;
+    const vendorId = req.vendor._id;
+
+    const ticket = await Ticket.findOne({
+      _id: ticketId,
+      vendor: vendorId,
+    })
+      .populate('orderId', 'orderNumber totalAmount status createdAt')
+      .populate('createdBy', 'vendorName storeName contactNumber email')
+      .populate('vendor', 'vendorName storeName contactNumber email');
+
+    // Manually populate messages with sender info
+    if (ticket && ticket.messages && ticket.messages.length > 0) {
+      await populateMessages(ticket.messages);
+    }
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Ticket fetched successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch ticket',
+      message: error.message,
+    });
+  }
+};
+
+// Add message to ticket (vendor)
+exports.addVendorTicketMessage = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { ticketId } = req.params;
+    const { message } = req.body;
+    const vendorId = req.vendor._id;
+
+    const ticket = await Ticket.findOne({
+      _id: ticketId,
+      vendor: vendorId,
+    });
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found',
+      });
+    }
+
+    // Check if ticket can receive messages (not closed)
+    if (ticket.status === 'closed') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot add messages to closed tickets',
+      });
+    }
+
+    // Add message
+    ticket.messages.push({
+      sender: vendorId,
+      senderModel: 'Vendor',
+      message,
+      createdAt: new Date(),
+    });
+
+    await ticket.save();
+
+    // Populate messages with sender info
+    await populateMessages(ticket.messages);
+
+    // Also populate other fields
+    await ticket.populate('createdBy', 'vendorName storeName contactNumber email');
+    await ticket.populate('vendor', 'vendorName storeName contactNumber email');
+    await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    res.status(200).json({
+      success: true,
+      message: 'Message added successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add message',
+      message: error.message,
+    });
+  }
+};
+
+// ============ RIDER TICKET FUNCTIONS ============
+
+// Create a new ticket (rider)
+exports.createRiderTicket = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { category, complaint, orderId } = req.body;
+    const riderId = req.rider._id;
+
+    // Generate unique ticket number
+    let ticketNumber;
+    try {
+      ticketNumber = await Ticket.generateTicketNumber();
+      if (!ticketNumber) {
+        throw new Error('Failed to generate ticket number');
+      }
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate ticket number. Please try again.',
+        message: error.message,
+      });
+    }
+
+    // Create ticket with creator info
+    const ticket = await Ticket.create({
+      ticketNumber,
+      rider: riderId,
+      createdBy: riderId,
+      createdByModel: 'Rider',
+      category: category || 'general_queries',
+      complaint,
+      status: 'active',
+      orderId: orderId || null,
+      messages: [{
+        sender: riderId,
+        senderModel: 'Rider',
+        message: complaint,
+        createdAt: new Date(),
+      }],
+    });
+
+    // Populate messages with sender info
+    await populateMessages(ticket.messages);
+
+    // Populate other fields
+    await ticket.populate('createdBy', 'fullName mobileNumber email');
+    await ticket.populate('rider', 'fullName mobileNumber email');
+    await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    res.status(201).json({
+      success: true,
+      message: 'Ticket created successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create ticket',
+      message: error.message,
+    });
+  }
+};
+
+// Get all tickets for the logged-in rider
+exports.getRiderTickets = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { page = 1, limit = 10, status, category } = req.query;
+
+    // Build filters
+    const filters = { rider: riderId };
+    if (status) {
+      filters.status = status;
+    }
+    if (category) {
+      filters.category = category;
+    }
+
+    // Execute query with pagination
+    const result = await executeQuery(Ticket, {
+      filters,
+      sort: { createdAt: -1 },
+      pagination: { page: parseInt(page), limit: parseInt(limit) },
+      populate: [
+        { path: 'orderId', select: 'orderNumber totalAmount status' },
+        { path: 'createdBy', select: 'fullName mobileNumber email' },
+        { path: 'rider', select: 'fullName mobileNumber email' },
+      ],
+    });
+
+    // Manually populate messages with sender info for each ticket
+    if (result.data && result.data.length > 0) {
+      for (let ticket of result.data) {
+        if (ticket.messages && ticket.messages.length > 0) {
+          await populateMessages(ticket.messages);
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Tickets fetched successfully',
+      data: {
+        tickets: result.data,
+        pagination: result.pagination,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch tickets',
+      message: error.message,
+    });
+  }
+};
+
+// Get a single ticket by ID (rider)
+exports.getRiderTicket = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { ticketId } = req.params;
+    const riderId = req.rider._id;
+
+    const ticket = await Ticket.findOne({
+      _id: ticketId,
+      rider: riderId,
+    })
+      .populate('orderId', 'orderNumber totalAmount status createdAt')
+      .populate('createdBy', 'fullName mobileNumber email')
+      .populate('rider', 'fullName mobileNumber email');
+
+    // Manually populate messages with sender info
+    if (ticket && ticket.messages && ticket.messages.length > 0) {
+      await populateMessages(ticket.messages);
+    }
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Ticket fetched successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch ticket',
+      message: error.message,
+    });
+  }
+};
+
+// Add message to ticket (rider)
+exports.addRiderTicketMessage = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { ticketId } = req.params;
+    const { message } = req.body;
+    const riderId = req.rider._id;
+
+    const ticket = await Ticket.findOne({
+      _id: ticketId,
+      rider: riderId,
+    });
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found',
+      });
+    }
+
+    // Check if ticket can receive messages (not closed)
+    if (ticket.status === 'closed') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot add messages to closed tickets',
+      });
+    }
+
+    // Add message
+    ticket.messages.push({
+      sender: riderId,
+      senderModel: 'Rider',
+      message,
+      createdAt: new Date(),
+    });
+
+    await ticket.save();
+
+    // Populate messages with sender info
+    await populateMessages(ticket.messages);
+
+    // Also populate other fields
+    await ticket.populate('createdBy', 'fullName mobileNumber email');
+    await ticket.populate('rider', 'fullName mobileNumber email');
+    await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    res.status(200).json({
+      success: true,
+      message: 'Message added successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add message',
       message: error.message,
     });
   }

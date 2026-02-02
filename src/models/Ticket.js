@@ -10,7 +10,25 @@ const TicketSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User is required'],
+    required: function() {
+      return this.createdByModel === 'User';
+    },
+    index: true,
+  },
+  vendor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vendor',
+    required: function() {
+      return this.createdByModel === 'Vendor';
+    },
+    index: true,
+  },
+  rider: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Rider',
+    required: function() {
+      return this.createdByModel === 'Rider';
+    },
     index: true,
   },
   createdBy: {
@@ -21,7 +39,7 @@ const TicketSchema = new mongoose.Schema({
   createdByModel: {
     type: String,
     required: [true, 'Created by model is required'],
-    enum: ['User', 'Vendor'],
+    enum: ['User', 'Vendor', 'Rider'],
   },
   category: {
     type: String,
@@ -77,7 +95,7 @@ const TicketSchema = new mongoose.Schema({
     senderModel: {
       type: String,
       required: true,
-      enum: ['User', 'Vendor', 'Admin'],
+      enum: ['User', 'Vendor', 'Rider', 'Admin'],
     },
     message: {
       type: String,
@@ -103,11 +121,26 @@ const TicketSchema = new mongoose.Schema({
 
 // Index for efficient queries
 TicketSchema.index({ user: 1, createdAt: -1 });
+TicketSchema.index({ vendor: 1, createdAt: -1 });
+TicketSchema.index({ rider: 1, createdAt: -1 });
 TicketSchema.index({ status: 1, createdAt: -1 });
+TicketSchema.index({ createdByModel: 1, createdAt: -1 });
 
 // Update updatedAt before saving
 TicketSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
+  
+  // Validate that user, vendor, or rider is present based on createdByModel
+  if (this.createdByModel === 'User' && !this.user) {
+    return next(new Error('User is required when createdByModel is User'));
+  }
+  if (this.createdByModel === 'Vendor' && !this.vendor) {
+    return next(new Error('Vendor is required when createdByModel is Vendor'));
+  }
+  if (this.createdByModel === 'Rider' && !this.rider) {
+    return next(new Error('Rider is required when createdByModel is Rider'));
+  }
+  
   next();
 });
 

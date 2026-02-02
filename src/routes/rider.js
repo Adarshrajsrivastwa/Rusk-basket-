@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, query } = require('express-validator');
+const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders } = require('../controllers/rider');
@@ -7,6 +7,7 @@ const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket')
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
+const { createRiderTicket, getRiderTickets, getRiderTicket, addRiderTicketMessage } = require('../controllers/ticket');
 
 const 
 
@@ -299,6 +300,87 @@ router.get('/websocket/status', protect, (req, res) => {
 
 // Logout route (protected)
 router.post('/logout', protect, riderLogout);
+
+// Ticket routes (protected - rider can create and manage their tickets)
+router.post(
+  '/tickets',
+  protect,
+  [
+    body('complaint')
+      .trim()
+      .notEmpty()
+      .withMessage('Complaint is required')
+      .isLength({ min: 10, max: 2000 })
+      .withMessage('Complaint must be between 10 and 2000 characters'),
+    body('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  createRiderTicket
+);
+
+router.get(
+  '/tickets',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['active', 'pending', 'resolved', 'closed'])
+      .withMessage('Invalid status. Must be one of: active, pending, resolved, closed'),
+    query('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+  ],
+  getRiderTickets
+);
+
+router.get(
+  '/tickets/:ticketId',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+  ],
+  getRiderTicket
+);
+
+router.post(
+  '/tickets/:ticketId/messages',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('message')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ min: 1, max: 2000 })
+      .withMessage('Message must be between 1 and 2000 characters'),
+  ],
+  addRiderTicketMessage
+);
 
 module.exports = router;
 

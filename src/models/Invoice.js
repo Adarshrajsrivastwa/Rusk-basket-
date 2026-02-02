@@ -36,6 +36,10 @@ const InvoiceSchema = new mongoose.Schema({
     default: Date.now,
     index: true,
   },
+  dueDate: {
+    type: Date,
+    required: true,
+  },
   amount: {
     type: Number,
     required: true,
@@ -69,6 +73,10 @@ const InvoiceSchema = new mongoose.Schema({
       type: String,
       required: true,
     },
+    description: {
+      type: String,
+      trim: true,
+    },
     quantity: {
       type: Number,
       required: true,
@@ -84,7 +92,62 @@ const InvoiceSchema = new mongoose.Schema({
       required: true,
       min: [0, 'Total price must be greater than or equal to 0'],
     },
+    sku: {
+      type: String,
+      trim: true,
+    },
+    hssn: {
+      type: String,
+      trim: true,
+    },
   }],
+  pricing: {
+    subtotal: {
+      type: Number,
+      required: true,
+      min: [0, 'Subtotal must be greater than or equal to 0'],
+    },
+    discount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Discount must be greater than or equal to 0'],
+    },
+    itemCost: {
+      type: Number,
+      required: true,
+      min: [0, 'Item cost must be greater than or equal to 0'],
+    },
+    cgst: {
+      type: Number,
+      default: 0,
+      min: [0, 'CGST must be greater than or equal to 0'],
+    },
+    sgst: {
+      type: Number,
+      default: 0,
+      min: [0, 'SGST must be greater than or equal to 0'],
+    },
+    totalGst: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total GST must be greater than or equal to 0'],
+    },
+    handlingCharge: {
+      type: Number,
+      default: 0,
+      min: [0, 'Handling charge must be greater than or equal to 0'],
+    },
+    totalAmount: {
+      type: Number,
+      required: true,
+      min: [0, 'Total amount must be greater than or equal to 0'],
+    },
+    totalCashback: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total cashback must be greater than or equal to 0'],
+    },
+  },
   createdAt: {
     type: Date,
     default: Date.now,
