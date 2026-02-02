@@ -491,6 +491,7 @@ exports.getCartWithTotals = async (userId) => {
 
   let subtotal = 0;
   let totalCashback = 0;
+  let totalTax = 0;
   const itemsWithDetails = [];
   const unavailableItems = [];
 
@@ -603,9 +604,12 @@ exports.getCartWithTotals = async (userId) => {
     
     const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
+    // Calculate tax amount from percentage: (itemTotal * tax%) / 100
+    const itemTax = (itemTotal * (product.tax || 0)) / 100;
 
     subtotal += itemTotal;
     totalCashback += itemCashback;
+    totalTax += itemTax;
 
     const vendorId = product.vendor && typeof product.vendor === 'object' && product.vendor._id
       ? product.vendor._id
@@ -649,6 +653,7 @@ exports.getCartWithTotals = async (userId) => {
       price: unitPrice,
       totalPrice: itemTotal,
       cashback: itemCashback,
+      tax: itemTax,
       sku: item.sku,
     });
   }
@@ -687,7 +692,8 @@ exports.getCartWithTotals = async (userId) => {
     }
   });
 
-  const tax = (subtotal - discount) * 0.05;
+  // Tax is calculated from individual product taxes (sum of all item taxes)
+  const tax = totalTax;
   const total = subtotal - discount + tax + totalHandlingCharge;
 
   if (unavailableItems.length > 0) {

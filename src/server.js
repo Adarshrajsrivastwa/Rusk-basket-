@@ -172,7 +172,7 @@ app.use('/api/rider', riderRoutes);
 app.use('/api/category', categoryRoutes);
 app.use('/api/subcategory', subCategoryRoutes);
 app.use('/api/product', productRoutes);
-app.use('/api/products', productRoutes); // Alias for /api/product
+app.use('/api/products', productRoutes); 
 app.use('/api/coupon', couponRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/wishlist', wishlistRoutes);

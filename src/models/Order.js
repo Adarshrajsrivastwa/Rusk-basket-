@@ -73,6 +73,11 @@ const OrderSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Cashback must be greater than or equal to 0'],
     },
+    tax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Tax must be greater than or equal to 0'],
+    },
     sku: {
       type: String,
       trim: true,

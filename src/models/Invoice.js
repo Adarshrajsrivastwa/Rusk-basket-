@@ -117,6 +117,11 @@ const InvoiceSchema = new mongoose.Schema({
       required: true,
       min: [0, 'Item cost must be greater than or equal to 0'],
     },
+    tax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Tax must be greater than or equal to 0'],
+    },
     cgst: {
       type: Number,
       default: 0,

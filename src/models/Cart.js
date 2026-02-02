@@ -91,6 +91,7 @@ CartSchema.methods.calculateTotals = async function () {
 
   let subtotal = 0;
   let totalCashback = 0;
+  let totalTax = 0;
   const itemsWithDetails = [];
   const unavailableItems = [];
 
@@ -170,9 +171,12 @@ CartSchema.methods.calculateTotals = async function () {
     const unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
     const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
+    // Calculate tax amount from percentage: (itemTotal * tax%) / 100
+    const itemTax = (itemTotal * (product.tax || 0)) / 100;
 
     subtotal += itemTotal;
     totalCashback += itemCashback;
+    totalTax += itemTax;
 
     const vendorId = product.vendor && typeof product.vendor === 'object' && product.vendor._id
       ? product.vendor._id
@@ -215,6 +219,7 @@ CartSchema.methods.calculateTotals = async function () {
       price: unitPrice,
       totalPrice: itemTotal,
       cashback: itemCashback,
+      tax: itemTax,
       sku: item.sku,
     });
   }
@@ -271,8 +276,8 @@ CartSchema.methods.calculateTotals = async function () {
     }
   });
 
-  // Calculate tax (GST - 5% for example, can be customized)
-  const tax = (subtotal - discount) * 0.05;
+  // Tax is calculated from individual product taxes (sum of all item taxes)
+  const tax = totalTax;
 
   const total = subtotal - discount + tax + totalHandlingCharge;
 

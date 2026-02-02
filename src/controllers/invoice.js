@@ -45,16 +45,18 @@ exports.createInvoice = async (orderId, vendorId) => {
     // Extract all pricing information directly from order
     const orderPricing = order.pricing || {};
     
-    // Calculate vendor subtotal from items
+    // Calculate vendor subtotal and tax from items
+    // Note: item.tax is already calculated as amount (not percentage) in order
     const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    const vendorTax = vendorItems.reduce((sum, item) => sum + (item.tax || 0), 0);
     
     // Use pricing fields directly from order (no vendor-specific percentage calculation)
     const discount = orderPricing.discount || 0;
     const handlingCharge = orderPricing.handlingCharge || 0;
     const cashback = orderPricing.totalCashback || 0;
     
-    // Calculate total amount: subtotal + handlingCharge - discount
-    const vendorTotal = vendorSubtotal + handlingCharge - discount;
+    // Calculate total amount: subtotal + handlingCharge + tax - discount
+    const vendorTotal = vendorSubtotal + handlingCharge + vendorTax - discount;
     
     // Set due date (30 days from invoice date)
     const invoiceDate = order.createdAt;
@@ -119,9 +121,11 @@ exports.createInvoice = async (orderId, vendorId) => {
         discount: Math.round(discount * 100) / 100,
         // Item Cost: Same as subtotal (total cost of items)
         itemCost: Math.round(vendorSubtotal * 100) / 100,
+        // Tax: Sum of tax from all vendor items
+        tax: Math.round(vendorTax * 100) / 100,
         // Handling Charge: Direct from order pricing
         handlingCharge: Math.round(handlingCharge * 100) / 100,
-        // Total Amount: Final amount after all calculations (subtotal + handlingCharge - discount)
+        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax - discount)
         totalAmount: Math.round(vendorTotal * 100) / 100,
         // Total Cashback: Direct from order pricing
         totalCashback: Math.round(cashback * 100) / 100,
@@ -132,7 +136,7 @@ exports.createInvoice = async (orderId, vendorId) => {
 
     // Log invoice creation with pricing details
     logger.info(`Invoice created: ${invoiceNumber} for Order: ${order.orderNumber}, Vendor: ${vendorId}`);
-    logger.info(`Invoice pricing extracted from order - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
+    logger.info(`Invoice pricing extracted from order - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
 
     return invoice;
   } catch (error) {
@@ -621,16 +625,17 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
       // Extract all pricing information directly from order
       const orderPricing = order.pricing || {};
       
-      // Calculate vendor subtotal from items
+      // Calculate vendor subtotal and tax from items
       const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+      const vendorTax = vendorItems.reduce((sum, item) => sum + (item.tax || 0), 0);
       
       // Use pricing fields directly from order (no vendor-specific percentage calculation)
       const discount = orderPricing.discount || 0;
       const handlingCharge = orderPricing.handlingCharge || 0;
       const cashback = orderPricing.totalCashback || 0;
       
-      // Calculate total amount: subtotal + handlingCharge - discount
-      const vendorTotal = vendorSubtotal + handlingCharge - discount;
+      // Calculate total amount: subtotal + handlingCharge + tax - discount
+      const vendorTotal = vendorSubtotal + handlingCharge + vendorTax - discount;
 
       // Update invoice pricing with all fields directly from order
       invoice.pricing = {
@@ -640,9 +645,11 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
         discount: Math.round(discount * 100) / 100,
         // Item Cost: Same as subtotal (total cost of items)
         itemCost: Math.round(vendorSubtotal * 100) / 100,
+        // Tax: Sum of tax from all vendor items
+        tax: Math.round(vendorTax * 100) / 100,
         // Handling Charge: Direct from order pricing
         handlingCharge: Math.round(handlingCharge * 100) / 100,
-        // Total Amount: Final amount after all calculations (subtotal + handlingCharge - discount)
+        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax - discount)
         totalAmount: Math.round(vendorTotal * 100) / 100,
         // Total Cashback: Direct from order pricing
         totalCashback: Math.round(cashback * 100) / 100,
@@ -662,7 +669,7 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
       updatedInvoices.push(populatedInvoice);
 
       logger.info(`Invoice updated from order: ${invoice.invoiceNumber} for Order: ${order.orderNumber}, Vendor: ${invoice.vendor}`);
-      logger.info(`Updated pricing - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
+      logger.info(`Updated pricing - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
     }
 
     res.status(200).json({

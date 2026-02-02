@@ -42,6 +42,7 @@ exports.addProduct = async (req, res, next) => {
       regularPrice,
       salePrice,
       cashback,
+      tax,
       tags,
     } = req.body;
 
@@ -114,6 +115,7 @@ exports.addProduct = async (req, res, next) => {
       salePrice: parsedSalePrice,
       discountPercentage: calculatedDiscount,
       cashback: cashback ? parseFloat(cashback) : 0,
+      tax: tax ? parseFloat(tax) : 0, // Tax is stored as percentage (0-100)
       tags: parsedTags,
       vendor: req.vendor._id,
       latitude: vendorLatitude || undefined,

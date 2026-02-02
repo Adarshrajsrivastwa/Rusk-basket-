@@ -352,6 +352,10 @@ const createProductValidation = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Cashback must be a number greater than or equal to 0'),
+  body('tax')
+    .notEmpty()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage('Tax must be a percentage between 0 and 100'),
   body('tags')
     .optional()
     .trim()
@@ -449,6 +453,10 @@ router.put(
       .optional()
       .isFloat({ min: 0 })
       .withMessage('Cashback must be a number greater than or equal to 0'),
+    body('tax')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Tax must be a number greater than or equal to 0'),
     body('handlingCharge')
       .optional()
       .isFloat({ min: 0 })
@@ -567,6 +575,10 @@ router.put(
       .optional()
       .isFloat({ min: 0 })
       .withMessage('Cashback must be a number greater than or equal to 0'),
+    body('tax')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Tax must be a number greater than or equal to 0'),
     body('handlingCharge')
       .optional()
       .isFloat({ min: 0 })

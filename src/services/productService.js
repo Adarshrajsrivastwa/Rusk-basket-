@@ -105,6 +105,7 @@ const updateProductFields = (product, body) => {
     regularPrice,
     salePrice,
     cashback,
+    tax,
     latitude,
     longitude,
   } = body;
@@ -122,6 +123,7 @@ const updateProductFields = (product, body) => {
   if (regularPrice !== undefined) product.regularPrice = parseFloat(regularPrice);
   if (salePrice !== undefined) product.salePrice = salePrice ? parseFloat(salePrice) : null;
   if (cashback !== undefined) product.cashback = parseFloat(cashback);
+  if (tax !== undefined) product.tax = parseFloat(tax); // Tax is stored as percentage (0-100)
   if (latitude !== undefined) product.latitude = latitude ? parseFloat(latitude) : undefined;
   if (longitude !== undefined) product.longitude = longitude ? parseFloat(longitude) : undefined;
 };

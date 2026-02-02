@@ -109,6 +109,12 @@ const ProductSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Cashback must be greater than or equal to 0'],
   },
+  tax: {
+    type: Number,
+    default: 0,
+    min: [0, 'Tax percentage must be greater than or equal to 0'],
+    max: [100, 'Tax percentage cannot exceed 100'],
+  },
   discountPercentage: {
     type: Number,
     default: 0,
