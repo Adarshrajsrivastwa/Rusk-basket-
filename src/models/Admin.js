@@ -33,6 +33,193 @@ const AdminSchema = new mongoose.Schema({
     default: true,
   },
   lastLogin: Date,
+  // Company Logo & Branding
+  companyLogo: {
+    type: String,
+    trim: true,
+  },
+  // Basic Information
+  companyName: {
+    type: String,
+    trim: true,
+  },
+  legalName: {
+    type: String,
+    trim: true,
+  },
+  // Contact Details
+  website: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Only validate if value is provided
+        if (!v || v.length === 0) return true;
+        return /^https?:\/\/.+/.test(v);
+      },
+      message: 'Please provide a valid website URL',
+    },
+  },
+  alternatePhone: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Only validate if value is provided
+        if (!v || v.length === 0) return true;
+        return /^[0-9]{10}$/.test(v);
+      },
+      message: 'Please add a valid 10-digit phone number',
+    },
+  },
+  contactPerson: {
+    type: String,
+    trim: true,
+  },
+  designation: {
+    type: String,
+    trim: true,
+  },
+  // Banking Information
+  bankName: {
+    type: String,
+    trim: true,
+  },
+  branchName: {
+    type: String,
+    trim: true,
+  },
+  accountNumber: {
+    type: String,
+    trim: true,
+  },
+  ifscCode: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Only validate if value is provided
+        if (!v || v.length === 0) return true;
+        return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v);
+      },
+      message: 'Please provide a valid IFSC code',
+    },
+  },
+  // Legal & Registration Details
+  foundedYear: {
+    type: Number,
+    min: [1800, 'Founded year must be after 1800'],
+    max: [new Date().getFullYear(), 'Founded year cannot be in the future'],
+  },
+  registrationNumber: {
+    type: String,
+    trim: true,
+  },
+  gstNumber: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Only validate if value is provided
+        if (!v || v.length === 0) return true;
+        return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v);
+      },
+      message: 'Please provide a valid GST number',
+    },
+  },
+  panNumber: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Only validate if value is provided
+        if (!v || v.length === 0) return true;
+        return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(v);
+      },
+      message: 'Please provide a valid PAN number',
+    },
+  },
+  // Vision & Mission
+  vision: {
+    type: String,
+    trim: true,
+  },
+  mission: {
+    type: String,
+    trim: true,
+  },
+  // Office Address
+  officeAddress: {
+    streetAddress: {
+      type: String,
+      trim: true,
+    },
+    city: {
+      type: String,
+      trim: true,
+    },
+    state: {
+      type: String,
+      trim: true,
+    },
+    pincode: {
+      type: String,
+      trim: true,
+      validate: {
+        validator: function(v) {
+          // Only validate if value is provided
+          if (!v || v.length === 0) return true;
+          return /^[0-9]{6}$/.test(v);
+        },
+        message: 'Please provide a valid 6-digit pincode',
+      },
+    },
+    country: {
+      type: String,
+      trim: true,
+      default: 'India',
+    },
+    latitude: {
+      type: Number,
+      min: -90,
+      max: 90,
+    },
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180,
+    },
+  },
+  // Verification Status
+  verificationStatus: {
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    phoneVerified: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  // Key Metrics (can be calculated or stored)
+  keyMetrics: {
+    yearsInBusiness: {
+      type: Number,
+      default: 0,
+    },
+    totalEmployees: {
+      type: Number,
+      default: 0,
+    },
+    activeClients: {
+      type: Number,
+      default: 0,
+    },
+    totalLeads: {
+      type: Number,
+      default: 0,
+    },
+  },
   createdAt: {
     type: Date,
     default: Date.now,

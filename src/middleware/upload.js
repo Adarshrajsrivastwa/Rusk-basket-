@@ -48,6 +48,12 @@ const uploadFields = upload.fields([
   { name: 'cancelCheque', maxCount: 1 },
   { name: 'cancelCheque ', maxCount: 1 },
   { name: ' cancelCheque', maxCount: 1 },
+  { name: 'companyLogo', maxCount: 1 },
+  { name: 'companyLogo ', maxCount: 1 },
+  { name: ' companyLogo', maxCount: 1 },
+  { name: 'companyLogo[]', maxCount: 1 },
+  { name: 'companyLogo[] ', maxCount: 1 },
+  { name: ' companyLogo[]', maxCount: 1 },
 ]);
 
 const uploadFieldsWithErrorHandling = (req, res, next) => {
@@ -55,7 +61,7 @@ const uploadFieldsWithErrorHandling = (req, res, next) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          const allowedFields = ['storeImage', 'storeImage ', ' storeImage', 'storeImage[]', 'storeImage[] ', ' storeImage[]', 'panCardFront', 'panCardBack', 'aadharCardFront', 'aadharCardBack', 'drivingLicense', 'cancelCheque'];
+          const allowedFields = ['storeImage', 'storeImage ', ' storeImage', 'storeImage[]', 'storeImage[] ', ' storeImage[]', 'panCardFront', 'panCardBack', 'aadharCardFront', 'aadharCardBack', 'drivingLicense', 'cancelCheque', 'companyLogo', 'companyLogo ', ' companyLogo', 'companyLogo[]', 'companyLogo[] ', ' companyLogo[]'];
           return res.status(400).json({
             success: false,
             error: `Unexpected field: "${err.field}". Allowed fields are: ${allowedFields.join(', ')}. Please ensure field names match exactly (no extra spaces).`,
