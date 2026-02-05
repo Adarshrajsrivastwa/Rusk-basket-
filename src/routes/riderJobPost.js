@@ -122,7 +122,6 @@ router.post(
 
 router.get(
   '/',
-  protectVendor,
   [
     query('page')
       .optional()
@@ -136,6 +135,26 @@ router.get(
       .optional()
       .isBoolean()
       .withMessage('isActive must be a boolean'),
+    query('city')
+      .optional()
+      .trim()
+      .isLength({ max: 100 })
+      .withMessage('City cannot exceed 100 characters'),
+    query('state')
+      .optional()
+      .trim()
+      .isLength({ max: 100 })
+      .withMessage('State cannot exceed 100 characters'),
+    query('pinCode')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{6}$/)
+      .withMessage('PIN code must be a valid 6-digit number'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search query cannot exceed 200 characters'),
   ],
   getJobPosts
 );
