@@ -1,6 +1,9 @@
 const Vendor = require('../models/Vendor');
 const Order = require('../models/Order');
 const Rider = require('../models/Rider');
+const Product = require('../models/Product');
+const Invoice = require('../models/Invoice');
+const Ticket = require('../models/Ticket');
 const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
 const { createVendorData, updateVendorPermissions, updateVendorData } = require('../services/vendorService');
@@ -1111,6 +1114,286 @@ exports.updateVendorProfile = async (req, res, next) => {
         error: error.message,
       });
     }
+    next(error);
+  }
+};
+
+/**
+ * Get vendor dashboard data for admin (vendor-wise)
+ * Returns comprehensive vendor information including store details, orders, metrics, riders, and invoices
+ */
+exports.getVendorDashboardForAdmin = async (req, res, next) => {
+  try {
+    const vendorId = req.params.id;
+    
+    if (!vendorId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor ID is required',
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
+
+    // Get vendor details
+    const vendor = await Vendor.findById(vendorObjectId).populate('createdBy', 'name email');
+    
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    // Get all orders for this vendor
+    const allOrders = await Order.find({ 'items.vendor': vendorObjectId });
+    
+    // Calculate order status distribution
+    const statusCounts = {
+      completed: 0,
+      in_progress: 0,
+      pending: 0,
+      cancelled: 0,
+    };
+    
+    allOrders.forEach(order => {
+      const status = order.status;
+      if (status === 'delivered') {
+        statusCounts.completed++;
+      } else if (['processing', 'ready', 'out_for_delivery', 'confirmed'].includes(status)) {
+        statusCounts.in_progress++;
+      } else if (status === 'pending') {
+        statusCounts.pending++;
+      } else if (['cancelled', 'refunded'].includes(status)) {
+        statusCounts.cancelled++;
+      }
+    });
+
+    const totalOrders = allOrders.length;
+    const orderStatusDistribution = totalOrders > 0 ? {
+      completed: {
+        count: statusCounts.completed,
+        percentage: Math.round((statusCounts.completed / totalOrders) * 100),
+      },
+      in_progress: {
+        count: statusCounts.in_progress,
+        percentage: Math.round((statusCounts.in_progress / totalOrders) * 100),
+      },
+      pending: {
+        count: statusCounts.pending,
+        percentage: Math.round((statusCounts.pending / totalOrders) * 100),
+      },
+      cancelled: {
+        count: statusCounts.cancelled,
+        percentage: Math.round((statusCounts.cancelled / totalOrders) * 100),
+      },
+      total: totalOrders,
+    } : {
+      completed: { count: 0, percentage: 0 },
+      in_progress: { count: 0, percentage: 0 },
+      pending: { count: 0, percentage: 0 },
+      cancelled: { count: 0, percentage: 0 },
+      total: 0,
+    };
+
+    // Get products statistics
+    const totalProducts = await Product.countDocuments({ vendor: vendorObjectId });
+    const publishedProducts = await Product.countDocuments({ 
+      vendor: vendorObjectId, 
+      approvalStatus: 'approved',
+      isActive: true 
+    });
+    const productsInReview = await Product.countDocuments({ 
+      vendor: vendorObjectId, 
+      approvalStatus: 'pending' 
+    });
+
+    // Get category and subcategory usage
+    const categoryUsage = await Product.distinct('category', { vendor: vendorObjectId });
+    const subCategoryUsage = await Product.distinct('subCategory', { vendor: vendorObjectId });
+
+    // Get order statistics
+    const totalDeliveredOrders = await Order.countDocuments({ 
+      'items.vendor': vendorObjectId,
+      status: 'delivered'
+    });
+    const totalCancelledOrders = await Order.countDocuments({ 
+      'items.vendor': vendorObjectId,
+      status: { $in: ['cancelled', 'refunded'] }
+    });
+
+    // Calculate total revenue
+    const revenueData = await Order.aggregate([
+      { $match: { 'items.vendor': vendorObjectId, status: { $nin: ['cancelled', 'refunded'] } } },
+      { $unwind: '$items' },
+      { $match: { 'items.vendor': vendorObjectId } },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$items.totalPrice' },
+        },
+      },
+    ]);
+    const totalRevenue = revenueData[0]?.totalRevenue || 0;
+
+    // Get inventory count
+    const inventoryData = await Product.aggregate([
+      { $match: { vendor: vendorObjectId, isActive: true } },
+      {
+        $group: {
+          _id: null,
+          totalInventory: { $sum: '$inventory' },
+        },
+      },
+    ]);
+    const totalInventory = inventoryData[0]?.totalInventory || 0;
+
+    // Get ratings (if available - placeholder for now)
+    const ratings = 0; // This would need a ratings model
+
+    // Get ticket count
+    const ticketCount = await Ticket.countDocuments({ vendor: vendorObjectId });
+
+    // Get riders assigned to this vendor
+    const riders = await Rider.find({ vendor: vendorObjectId })
+      .select('fullName mobileNumber approvalStatus isActive createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    const deliveryPartners = riders.map(rider => {
+      let status = 'In Active';
+      let statusColor = 'red';
+      
+      if (rider.approvalStatus === 'approved' && rider.isActive) {
+        status = 'Online';
+        statusColor = 'blue';
+      } else if (rider.approvalStatus === 'approved' && !rider.isActive) {
+        status = 'In Active';
+        statusColor = 'red';
+      } else if (rider.approvalStatus === 'pending') {
+        status = 'Pending';
+        statusColor = 'yellow';
+      }
+
+      return {
+        id: rider._id,
+        name: rider.fullName || 'Unknown',
+        mobileNumber: rider.mobileNumber,
+        status: status,
+        statusColor: statusColor,
+        joinedDate: rider.createdAt,
+      };
+    });
+
+    // Get recent invoices
+    const recentInvoices = await Invoice.find({ vendor: vendorObjectId })
+      .populate('user', 'fullName')
+      .populate('order', 'orderNumber')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const invoices = recentInvoices.map(invoice => ({
+      id: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderNumber: invoice.orderNumber,
+      customerName: invoice.user?.fullName || 'Unknown',
+      amount: invoice.amount,
+      status: invoice.status,
+      date: invoice.date,
+    }));
+
+    // Get recent orders (for order list)
+    const recentOrders = await Order.find({ 'items.vendor': vendorObjectId })
+      .populate('user', 'fullName')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const orderList = recentOrders.map(order => ({
+      id: order._id,
+      orderNumber: order.orderNumber,
+      customerName: order.user?.fullName || 'Unknown',
+      status: order.status,
+      total: order.pricing?.total || 0,
+      createdAt: order.createdAt,
+    }));
+
+    // Format date of birth
+    const formatDate = (date) => {
+      if (!date) return null;
+      const d = new Date(date);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    };
+
+    // Build response
+    const dashboardData = {
+      storeInfo: {
+        storeId: vendor.storeId,
+        storeName: vendor.storeName,
+        storeImage: vendor.storeImage || [],
+        performance: 99, // Placeholder - can be calculated based on orders/ratings
+      },
+      storeDetails: {
+        latitude: vendor.storeAddress?.latitude || null,
+        longitude: vendor.storeAddress?.longitude || null,
+        authorizedPerson: vendor.vendorName || 'N/A',
+        contact: vendor.contactNumber || 'N/A',
+        altContact: vendor.altContactNumber || 'N/A',
+        email: vendor.email || 'N/A',
+        dateOfBirth: vendor.dateOfBirth ? formatDate(vendor.dateOfBirth) : 'N/A',
+        gender: vendor.gender ? vendor.gender.charAt(0).toUpperCase() + vendor.gender.slice(1) : 'N/A',
+      },
+      storeAddress: {
+        addressLine1: vendor.storeAddress?.line1 || '',
+        addressLine2: vendor.storeAddress?.line2 || '',
+        city: vendor.storeAddress?.city || '',
+        state: vendor.storeAddress?.state || '',
+        pinCode: vendor.storeAddress?.pinCode || '',
+      },
+      orderOverview: {
+        totalAttendance: totalOrders,
+        statusDistribution: {
+          completed: orderStatusDistribution.completed.percentage,
+          in_progress: orderStatusDistribution.in_progress.percentage,
+          pending: orderStatusDistribution.pending.percentage,
+          cancelled: orderStatusDistribution.cancelled.percentage,
+        },
+        orderList: orderList,
+      },
+      metrics: {
+        categoryUse: categoryUsage.length,
+        subCategoryUse: subCategoryUsage.length,
+        productPublished: publishedProducts,
+        productInReview: productsInReview,
+        totalOrder: totalOrders,
+        totalDeliveredOrder: totalDeliveredOrders,
+        totalCanceledOrder: totalCancelledOrders,
+        totalRiders: riders.length,
+        ratings: ratings,
+        inventory: totalInventory,
+        amount: totalRevenue,
+        ticket: ticketCount,
+      },
+      deliveryPartners: deliveryPartners,
+      invoices: invoices,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: dashboardData,
+    });
+  } catch (error) {
     next(error);
   }
 };

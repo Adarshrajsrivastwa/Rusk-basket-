@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
@@ -579,6 +579,21 @@ router.put(
       }),
   ],
   updateVendorProfile
+);
+
+// Admin route to get vendor dashboard data
+router.get(
+  '/:id/dashboard',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  getVendorDashboardForAdmin
 );
 
 router.get('/:id', protect, getVendor);
