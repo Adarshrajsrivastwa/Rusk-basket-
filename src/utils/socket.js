@@ -214,14 +214,12 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
 
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
 
-      // Console log: Notification sent successfully with user details
-      const userInfo = orderData.user ? `${orderData.user.userName} (${orderData.user.contactNumber})` : 'N/A';
-      console.log(`✅ Notification sent to Rider ID: ${riderId} | Socket ID: ${socketId} | Order: ${orderData.orderNumber} | User: ${userInfo}`);
-      logger.info(`Order assignment request sent to rider ${riderId} via WebSocket with user details: ${userInfo}`);
+      // Console log: Notification sent
+      const userInfo = orderData.user ? orderData.user.userName : 'N/A';
+      console.log(`📤 Notification: Order ${orderData.orderNumber} to Rider ${riderId} | User: ${userInfo}`);
+      logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
     } else {
-      // Console log: Rider not connected
-      console.log(`❌ Rider ID: ${riderId} is NOT connected - Notification NOT sent | Order: ${orderData.orderNumber}`);
       logger.warn(`Rider ${riderId} is not connected. Order assignment request will not be delivered.`);
       return false;
     }
@@ -236,18 +234,15 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
  */
 const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
   if (!socketIOAvailable || !io) {
-    console.log(`⚠️  Socket.io not available. Skipping WebSocket notifications for ${riderIds.length} riders`);
     logger.debug(`Socket.io not available. Skipping WebSocket notifications for ${riderIds.length} riders`);
     return 0;
   }
   
-  console.log(`📡 Attempting to send notifications to ${riderIds.length} riders...`);
   const results = await Promise.all(
     riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
   );
   
   const successCount = results.filter(Boolean).length;
-  console.log(`📊 Notification Summary: ${successCount} successful, ${riderIds.length - successCount} failed`);
   return successCount;
 };
 

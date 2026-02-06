@@ -1526,27 +1526,6 @@ exports.notifyRidersForOrder = async (order) => {
 
     const activeRiders = ridersForVendors.map(r => r._id.toString());
 
-    // Console log: List of riders who will receive notification
-    console.log('========================================');
-    console.log('📦 ORDER NOTIFICATION - RIDERS LIST');
-    console.log('========================================');
-    console.log(`Order Number: ${order.orderNumber}`);
-    console.log(`Order ID: ${order._id}`);
-    console.log(`Vendor IDs: ${vendorIds.join(', ')}`);
-    console.log(`Total Riders Found: ${ridersForVendors.length}`);
-    console.log('----------------------------------------');
-    if (ridersForVendors.length > 0) {
-      console.log('Riders who will receive notification:');
-      ridersForVendors.forEach((rider, index) => {
-        console.log(`  ${index + 1}. Rider ID: ${rider._id}`);
-        console.log(`     Name: ${rider.fullName || 'N/A'}`);
-        console.log(`     Mobile: ${rider.mobileNumber || 'N/A'}`);
-      });
-    } else {
-      console.log('⚠️  No active riders found for this order');
-    }
-    console.log('========================================');
-
     if (activeRiders.length === 0) {
       return;
     }
@@ -1571,7 +1550,6 @@ exports.notifyRidersForOrder = async (order) => {
       
       if (userDetails) {
         // Format user details for notification (without userId)
-        const userIdForLog = userDetails._id; // Keep for logging only
         userDetails = {
           userName: userDetails.userName || 'N/A',
           contactNumber: userDetails.contactNumber || 'N/A',
@@ -1587,24 +1565,7 @@ exports.notifyRidersForOrder = async (order) => {
           } : null,
           addresses: userDetails.addresses || [],
         };
-        
-        // Console log: User details fetched
-        console.log('----------------------------------------');
-        console.log('👤 USER DETAILS FOR NOTIFICATION');
-        console.log('----------------------------------------');
-        console.log(`User ID: ${userIdForLog} (not included in notification)`);
-        console.log(`User Name: ${userDetails.userName}`);
-        console.log(`Contact Number: ${userDetails.contactNumber}`);
-        console.log(`Email: ${userDetails.email}`);
-        if (userDetails.address) {
-          console.log(`Address: ${userDetails.address.line1}, ${userDetails.address.city}, ${userDetails.address.state} - ${userDetails.address.pinCode}`);
-        }
-        console.log('----------------------------------------');
-      } else {
-        console.log('⚠️  User details not found for order user ID:', userId);
       }
-    } else {
-      console.log('⚠️  No user associated with this order');
     }
 
     // Prepare order data for WebSocket with amount and location
@@ -1664,22 +1625,8 @@ exports.notifyRidersForOrder = async (order) => {
 
     // Send WebSocket notifications to riders
     try {
-      console.log('----------------------------------------');
-      console.log('📤 SENDING NOTIFICATIONS TO RIDERS');
-      console.log('----------------------------------------');
-      console.log(`Total Riders: ${activeRiders.length}`);
-      console.log(`Order Number: ${orderData.orderNumber}`);
-      console.log(`Order Amount: ₹${orderData.amount || 0}`);
-      console.log(`Delivery Amount: ₹${orderData.deliveryAmount || 0}`);
-      if (userDetails) {
-        console.log(`User: ${userDetails.userName} (${userDetails.contactNumber})`);
-      }
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
-      console.log(`✅ Notifications sent successfully: ${sentCount}/${activeRiders.length}`);
-      if (userDetails) {
-        console.log(`✅ User details included in notification: ${userDetails.userName}`);
-      }
-      console.log('----------------------------------------');
+      console.log(`📤 Notification sent: Order ${orderData.orderNumber} to ${sentCount}/${activeRiders.length} riders | User: ${userDetails ? userDetails.userName : 'N/A'}`);
       
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
