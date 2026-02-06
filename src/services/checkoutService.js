@@ -1549,20 +1549,12 @@ exports.notifyRidersForOrder = async (order) => {
       userDetails = await User.findById(userId).select('userName contactNumber email address addresses');
       
       if (userDetails) {
-        // Format user details for notification (without userId)
+        // Use exact database field names
         userDetails = {
-          userName: userDetails.userName || 'N/A',
-          contactNumber: userDetails.contactNumber || 'N/A', // User mobile number
-          email: userDetails.email || 'N/A',
-          address: userDetails.address ? {
-            line1: userDetails.address.line1 || '',
-            line2: userDetails.address.line2 || '',
-            pinCode: userDetails.address.pinCode || '',
-            city: userDetails.address.city || '',
-            state: userDetails.address.state || '',
-            latitude: userDetails.address.latitude || null,
-            longitude: userDetails.address.longitude || null,
-          } : null,
+          userName: userDetails.userName || null,
+          contactNumber: userDetails.contactNumber || null,
+          email: userDetails.email || null,
+          address: userDetails.address || null,
           addresses: userDetails.addresses || [],
         };
       }
@@ -1576,83 +1568,35 @@ exports.notifyRidersForOrder = async (order) => {
       for (const vendor of vendors) {
         if (vendor.storeAddress) {
           vendorAddresses.push({
-            vendorId: vendor._id,
-            vendorName: vendor.vendorName || vendor.storeName || 'N/A',
-            contactNumber: vendor.contactNumber || 'N/A',
-            address: {
-              line1: vendor.storeAddress.line1 || '',
-              line2: vendor.storeAddress.line2 || '',
-              pinCode: vendor.storeAddress.pinCode || '',
-              city: vendor.storeAddress.city || '',
-              state: vendor.storeAddress.state || '',
+            _id: vendor._id,
+            vendorName: vendor.vendorName || null,
+            storeName: vendor.storeName || null,
+            contactNumber: vendor.contactNumber || null,
+            storeAddress: {
+              line1: vendor.storeAddress.line1 || null,
+              line2: vendor.storeAddress.line2 || null,
+              pinCode: vendor.storeAddress.pinCode || null,
+              city: vendor.storeAddress.city || null,
+              state: vendor.storeAddress.state || null,
               latitude: vendor.storeAddress.latitude || null,
               longitude: vendor.storeAddress.longitude || null,
-              fullAddress: [
-                vendor.storeAddress.line1,
-                vendor.storeAddress.line2,
-                vendor.storeAddress.city,
-                vendor.storeAddress.state,
-                vendor.storeAddress.pinCode
-              ].filter(Boolean).join(', ')
             }
           });
         }
       }
     }
 
-    // Prepare order data for WebSocket with amount and location
+    // Prepare order data for WebSocket using exact database field names
     const orderData = {
-      orderId: order._id,
+      _id: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
       items: order.items,
-      shippingAddress: {
-        line1: order.shippingAddress?.line1 || '',
-        line2: order.shippingAddress?.line2 || '',
-        pinCode: order.shippingAddress?.pinCode || '',
-        city: order.shippingAddress?.city || '',
-        state: order.shippingAddress?.state || '',
-        country: order.shippingAddress?.country || '',
-        latitude: order.shippingAddress?.latitude || null,
-        longitude: order.shippingAddress?.longitude || null,
-        fullAddress: [
-          order.shippingAddress?.line1,
-          order.shippingAddress?.line2,
-          order.shippingAddress?.city,
-          order.shippingAddress?.state,
-          order.shippingAddress?.pinCode,
-          order.shippingAddress?.country
-        ].filter(Boolean).join(', ')
-      },
-      pricing: {
-        subtotal: order.pricing?.subtotal || 0,
-        discount: order.pricing?.discount || 0,
-        tax: order.pricing?.tax || 0,
-        handlingCharge: order.pricing?.handlingCharge || 0,
-        total: order.pricing?.total || 0,
-        totalCashback: order.pricing?.totalCashback || 0,
-        deliveryAmount: order.deliveryAmount || 0, // Delivery amount for rider
-      },
-      amount: order.pricing?.total || 0, // Total order amount
-      deliveryAmount: order.deliveryAmount || 0, // Delivery amount for rider
-      location: {
-        address: [
-          order.shippingAddress?.line1,
-          order.shippingAddress?.line2,
-          order.shippingAddress?.city,
-          order.shippingAddress?.state,
-          order.shippingAddress?.pinCode
-        ].filter(Boolean).join(', '),
-        city: order.shippingAddress?.city || '',
-        state: order.shippingAddress?.state || '',
-        pinCode: order.shippingAddress?.pinCode || '',
-        coordinates: {
-          latitude: order.shippingAddress?.latitude || null,
-          longitude: order.shippingAddress?.longitude || null,
-        }
-      },
-      user: userDetails, // User details including mobile number (contactNumber)
-      vendorAddresses: vendorAddresses, // Vendor addresses
+      shippingAddress: order.shippingAddress || null,
+      pricing: order.pricing || null,
+      deliveryAmount: order.deliveryAmount || null,
+      user: userDetails,
+      vendorAddresses: vendorAddresses,
       createdAt: order.createdAt,
     };
 
@@ -1663,34 +1607,45 @@ exports.notifyRidersForOrder = async (order) => {
       console.log('📤 NOTIFICATION DETAILS');
       console.log('========================================');
       console.log('Order Information:');
-      console.log(`  Order ID: ${orderData.orderId}`);
+      console.log(`  Order ID: ${orderData._id}`);
       console.log(`  Order Number: ${orderData.orderNumber}`);
       console.log(`  Status: ${orderData.status}`);
-      console.log(`  Amount: ₹${orderData.amount || 0}`);
+      if (orderData.pricing) {
+        console.log(`  Amount: ₹${orderData.pricing.total || 0}`);
+      }
       console.log(`  Delivery Amount: ₹${orderData.deliveryAmount || 0}`);
       console.log('');
       console.log('Shipping Address:');
       if (orderData.shippingAddress) {
-        console.log(`  Line 1: ${orderData.shippingAddress.line1 || 'N/A'}`);
-        console.log(`  Line 2: ${orderData.shippingAddress.line2 || 'N/A'}`);
-        console.log(`  City: ${orderData.shippingAddress.city || 'N/A'}`);
-        console.log(`  State: ${orderData.shippingAddress.state || 'N/A'}`);
-        console.log(`  PIN Code: ${orderData.shippingAddress.pinCode || 'N/A'}`);
-        console.log(`  Country: ${orderData.shippingAddress.country || 'N/A'}`);
-        console.log(`  Full Address: ${orderData.shippingAddress.fullAddress || 'N/A'}`);
-        console.log(`  Latitude: ${orderData.shippingAddress.latitude || 'N/A'}`);
-        console.log(`  Longitude: ${orderData.shippingAddress.longitude || 'N/A'}`);
+        console.log(`  line1: ${orderData.shippingAddress.line1 || 'N/A'}`);
+        console.log(`  line2: ${orderData.shippingAddress.line2 || 'N/A'}`);
+        console.log(`  city: ${orderData.shippingAddress.city || 'N/A'}`);
+        console.log(`  state: ${orderData.shippingAddress.state || 'N/A'}`);
+        console.log(`  pinCode: ${orderData.shippingAddress.pinCode || 'N/A'}`);
+        console.log(`  country: ${orderData.shippingAddress.country || 'N/A'}`);
+        console.log(`  latitude: ${orderData.shippingAddress.latitude || 'N/A'}`);
+        console.log(`  longitude: ${orderData.shippingAddress.longitude || 'N/A'}`);
       } else {
         console.log('  N/A');
       }
       console.log('');
       console.log('User Details:');
       if (orderData.user) {
-        console.log(`  User Name: ${orderData.user.userName || 'N/A'}`);
-        console.log(`  Mobile Number: ${orderData.user.contactNumber || 'N/A'}`);
-        console.log(`  Email: ${orderData.user.email || 'N/A'}`);
+        console.log(`  userName: ${orderData.user.userName || 'N/A'}`);
+        console.log(`  contactNumber: ${orderData.user.contactNumber || 'N/A'}`);
+        console.log(`  email: ${orderData.user.email || 'N/A'}`);
         if (orderData.user.address) {
-          console.log(`  Address: ${orderData.user.address.line1 || ''}, ${orderData.user.address.city || ''}, ${orderData.user.address.state || ''} - ${orderData.user.address.pinCode || ''}`);
+          console.log(`  address:`);
+          console.log(`    line1: ${orderData.user.address.line1 || 'N/A'}`);
+          console.log(`    line2: ${orderData.user.address.line2 || 'N/A'}`);
+          console.log(`    city: ${orderData.user.address.city || 'N/A'}`);
+          console.log(`    state: ${orderData.user.address.state || 'N/A'}`);
+          console.log(`    pinCode: ${orderData.user.address.pinCode || 'N/A'}`);
+          console.log(`    latitude: ${orderData.user.address.latitude || 'N/A'}`);
+          console.log(`    longitude: ${orderData.user.address.longitude || 'N/A'}`);
+        }
+        if (orderData.user.addresses && orderData.user.addresses.length > 0) {
+          console.log(`  addresses: ${orderData.user.addresses.length} address(es)`);
         }
       } else {
         console.log('  N/A');
@@ -1700,16 +1655,19 @@ exports.notifyRidersForOrder = async (order) => {
       if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
         orderData.vendorAddresses.forEach((vendor, index) => {
           console.log(`  Vendor ${index + 1}:`);
-          console.log(`    Vendor Name: ${vendor.vendorName || 'N/A'}`);
-          console.log(`    Contact Number: ${vendor.contactNumber || 'N/A'}`);
-          if (vendor.address) {
-            console.log(`    Address: ${vendor.address.line1 || ''}, ${vendor.address.line2 || ''}`);
-            console.log(`    City: ${vendor.address.city || 'N/A'}`);
-            console.log(`    State: ${vendor.address.state || 'N/A'}`);
-            console.log(`    PIN Code: ${vendor.address.pinCode || 'N/A'}`);
-            console.log(`    Full Address: ${vendor.address.fullAddress || 'N/A'}`);
-            console.log(`    Latitude: ${vendor.address.latitude || 'N/A'}`);
-            console.log(`    Longitude: ${vendor.address.longitude || 'N/A'}`);
+          console.log(`    _id: ${vendor._id || 'N/A'}`);
+          console.log(`    vendorName: ${vendor.vendorName || 'N/A'}`);
+          console.log(`    storeName: ${vendor.storeName || 'N/A'}`);
+          console.log(`    contactNumber: ${vendor.contactNumber || 'N/A'}`);
+          if (vendor.storeAddress) {
+            console.log(`    storeAddress:`);
+            console.log(`      line1: ${vendor.storeAddress.line1 || 'N/A'}`);
+            console.log(`      line2: ${vendor.storeAddress.line2 || 'N/A'}`);
+            console.log(`      city: ${vendor.storeAddress.city || 'N/A'}`);
+            console.log(`      state: ${vendor.storeAddress.state || 'N/A'}`);
+            console.log(`      pinCode: ${vendor.storeAddress.pinCode || 'N/A'}`);
+            console.log(`      latitude: ${vendor.storeAddress.latitude || 'N/A'}`);
+            console.log(`      longitude: ${vendor.storeAddress.longitude || 'N/A'}`);
           }
         });
       } else {
@@ -1724,18 +1682,6 @@ exports.notifyRidersForOrder = async (order) => {
         console.log(`  Handling Charge: ₹${orderData.pricing.handlingCharge || 0}`);
         console.log(`  Total: ₹${orderData.pricing.total || 0}`);
         console.log(`  Total Cashback: ₹${orderData.pricing.totalCashback || 0}`);
-      }
-      console.log('');
-      console.log('Location Details:');
-      if (orderData.location) {
-        console.log(`  Address: ${orderData.location.address || 'N/A'}`);
-        console.log(`  City: ${orderData.location.city || 'N/A'}`);
-        console.log(`  State: ${orderData.location.state || 'N/A'}`);
-        console.log(`  PIN Code: ${orderData.location.pinCode || 'N/A'}`);
-        if (orderData.location.coordinates) {
-          console.log(`  Latitude: ${orderData.location.coordinates.latitude || 'N/A'}`);
-          console.log(`  Longitude: ${orderData.location.coordinates.longitude || 'N/A'}`);
-        }
       }
       console.log('');
       console.log(`Total Riders: ${activeRiders.length}`);
@@ -1754,17 +1700,17 @@ exports.notifyRidersForOrder = async (order) => {
               title: 'New Order Assignment Available',
               message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
               data: {
-                orderId: order._id,
-                orderNumber: order.orderNumber,
-                type: 'rider',
-                // Include amount and location
-                amount: orderData.amount || 0,
-                deliveryAmount: orderData.deliveryAmount || 0,
+                _id: orderData._id,
+                orderNumber: orderData.orderNumber,
+                status: orderData.status,
+                items: orderData.items,
+                shippingAddress: orderData.shippingAddress,
                 pricing: orderData.pricing,
-                location: orderData.location,
-                shippingAddress: orderData.shippingAddress, // Shipping address
-                user: orderData.user || null, // User details including mobile number (contactNumber)
-                vendorAddresses: orderData.vendorAddresses || [], // Vendor addresses
+                deliveryAmount: orderData.deliveryAmount,
+                user: orderData.user || null,
+                vendorAddresses: orderData.vendorAddresses || [],
+                createdAt: orderData.createdAt,
+                type: 'rider',
                 order: orderData,
               },
             });
@@ -1783,17 +1729,17 @@ exports.notifyRidersForOrder = async (order) => {
               title: 'New Order Assignment Available',
               message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
               data: {
-                orderId: order._id,
-                orderNumber: order.orderNumber,
-                type: 'rider',
-                // Include amount and location
-                amount: orderData.amount || 0,
-                deliveryAmount: orderData.deliveryAmount || 0,
+                _id: orderData._id,
+                orderNumber: orderData.orderNumber,
+                status: orderData.status,
+                items: orderData.items,
+                shippingAddress: orderData.shippingAddress,
                 pricing: orderData.pricing,
-                location: orderData.location,
-                shippingAddress: orderData.shippingAddress, // Shipping address
-                user: orderData.user || null, // User details including mobile number (contactNumber)
-                vendorAddresses: orderData.vendorAddresses || [], // Vendor addresses
+                deliveryAmount: orderData.deliveryAmount,
+                user: orderData.user || null,
+                vendorAddresses: orderData.vendorAddresses || [],
+                createdAt: orderData.createdAt,
+                type: 'rider',
                 order: orderData,
               },
             });

@@ -192,23 +192,18 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
       const notificationPayload = {
         type: 'order_assignment_request',
         title: 'New Order Assignment Available',
-        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || orderData.pricing?.total || 0}. Would you like to accept?`,
+        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}. Would you like to accept?`,
         data: {
-          orderId: orderData.orderId,
+          _id: orderData._id,
           orderNumber: orderData.orderNumber,
-          order: orderData,
-          // Amount information
-          amount: orderData.amount || orderData.pricing?.total || 0,
-          deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || 0,
+          status: orderData.status,
+          items: orderData.items,
+          shippingAddress: orderData.shippingAddress,
           pricing: orderData.pricing,
-          // Location information
-          location: orderData.location,
-          shippingAddress: orderData.shippingAddress, // Shipping address
-          // User information (includes mobile number as contactNumber)
+          deliveryAmount: orderData.deliveryAmount,
           user: orderData.user || null,
-          // Vendor addresses
           vendorAddresses: orderData.vendorAddresses || [],
-          // Full order data
+          createdAt: orderData.createdAt,
           order: orderData,
         },
         timestamp: new Date().toISOString(),
