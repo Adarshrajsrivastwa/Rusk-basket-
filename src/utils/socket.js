@@ -203,9 +203,11 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           pricing: orderData.pricing,
           // Location information
           location: orderData.location,
-          shippingAddress: orderData.shippingAddress,
-          // User information
+          shippingAddress: orderData.shippingAddress, // Shipping address
+          // User information (includes mobile number as contactNumber)
           user: orderData.user || null,
+          // Vendor addresses
+          vendorAddresses: orderData.vendorAddresses || [],
           // Full order data
           order: orderData,
         },
@@ -213,10 +215,6 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
       };
 
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
-
-      // Console log: Notification sent
-      const userInfo = orderData.user ? orderData.user.userName : 'N/A';
-      console.log(`📤 Notification: Order ${orderData.orderNumber} to Rider ${riderId} | User: ${userInfo}`);
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
     } else {
