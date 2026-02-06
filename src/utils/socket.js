@@ -1,6 +1,7 @@
 const logger = require('./logger');
 const jwt = require('jsonwebtoken');
 const Rider = require('../models/Rider');
+const User = require('../models/User');
 
 let io = null;
 let socketIOAvailable = false;
@@ -277,6 +278,204 @@ const isRiderConnected = (riderId) => {
   return connectedRiders.has(riderId.toString());
 };
 
+/**
+ * Send notification to a user (only if user is active)
+ */
+const sendUserNotification = async (userId, notificationData) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug(`Socket.io not available. Skipping WebSocket notification for user ${userId}`);
+    return false;
+  }
+  
+  try {
+    // Check if user is active before sending notification
+    if (userId) {
+      const user = await User.findById(userId).select('isActive');
+      
+      if (!user) {
+        logger.warn(`User ${userId} not found. Skipping notification.`);
+        return false;
+      }
+      
+      if (!user.isActive) {
+        logger.info(`User ${userId} is not active. Skipping notification.`);
+        return false;
+      }
+    }
+    
+    const ioInstance = getIO();
+    const socketId = connectedUsers.get(userId.toString());
+
+    if (socketId) {
+      ioInstance.to(`user:${userId}`).emit('notification', {
+        type: 'notification',
+        ...notificationData,
+        timestamp: new Date().toISOString(),
+      });
+      logger.info(`Notification sent to user ${userId} via WebSocket`);
+      return true;
+    } else {
+      logger.warn(`User ${userId} is not connected. Notification will not be delivered.`);
+      return false;
+    }
+  } catch (error) {
+    logger.error(`Error sending notification to user ${userId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Send notification to a vendor
+ */
+const sendVendorNotification = (vendorId, notificationData) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug(`Socket.io not available. Skipping WebSocket notification for vendor ${vendorId}`);
+    return false;
+  }
+  
+  try {
+    const ioInstance = getIO();
+    const socketId = connectedVendors.get(vendorId.toString());
+
+    if (socketId) {
+      ioInstance.to(`vendor:${vendorId}`).emit('notification', {
+        type: 'notification',
+        ...notificationData,
+        timestamp: new Date().toISOString(),
+      });
+      logger.info(`Notification sent to vendor ${vendorId} via WebSocket`);
+      return true;
+    } else {
+      logger.warn(`Vendor ${vendorId} is not connected. Notification will not be delivered.`);
+      return false;
+    }
+  } catch (error) {
+    logger.error(`Error sending notification to vendor ${vendorId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Send notification to an admin
+ */
+const sendAdminNotification = (adminId, notificationData) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug(`Socket.io not available. Skipping WebSocket notification for admin ${adminId}`);
+    return false;
+  }
+  
+  try {
+    const ioInstance = getIO();
+    const socketId = connectedAdmins.get(adminId.toString());
+
+    if (socketId) {
+      ioInstance.to(`admin:${adminId}`).emit('notification', {
+        type: 'notification',
+        ...notificationData,
+        timestamp: new Date().toISOString(),
+      });
+      logger.info(`Notification sent to admin ${adminId} via WebSocket`);
+      return true;
+    } else {
+      logger.warn(`Admin ${adminId} is not connected. Notification will not be delivered.`);
+      return false;
+    }
+  } catch (error) {
+    logger.error(`Error sending notification to admin ${adminId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Send order update to user
+ */
+const notifyUserOrderUpdate = (userId, orderData) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug(`Socket.io not available. Skipping WebSocket notification for user ${userId}`);
+    return;
+  }
+  
+  try {
+    const ioInstance = getIO();
+    
+    const updatePayload = {
+      type: 'order_update',
+      orderId: orderData.orderId,
+      orderNumber: orderData.orderNumber,
+      status: orderData.status,
+      data: orderData,
+      timestamp: new Date().toISOString(),
+    };
+    
+    ioInstance.to(`user:${userId}`).emit('order_update', updatePayload);
+    logger.info(`Order update sent to user ${userId} via WebSocket`);
+  } catch (error) {
+    logger.error(`Error sending order update to user ${userId}:`, error);
+  }
+};
+
+/**
+ * Send order update to vendor
+ */
+const notifyVendorOrderUpdate = (vendorId, orderData) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug(`Socket.io not available. Skipping WebSocket notification for vendor ${vendorId}`);
+    return;
+  }
+  
+  try {
+    const ioInstance = getIO();
+    
+    const updatePayload = {
+      type: 'order_update',
+      orderId: orderData.orderId,
+      orderNumber: orderData.orderNumber,
+      status: orderData.status,
+      data: orderData,
+      timestamp: new Date().toISOString(),
+    };
+    
+    ioInstance.to(`vendor:${vendorId}`).emit('order_update', updatePayload);
+    logger.info(`Order update sent to vendor ${vendorId} via WebSocket`);
+  } catch (error) {
+    logger.error(`Error sending order update to vendor ${vendorId}:`, error);
+  }
+};
+
+/**
+ * Broadcast to all connected users
+ */
+const broadcastToAll = (eventName, data) => {
+  if (!socketIOAvailable || !io) {
+    logger.debug('Socket.io not available. Skipping broadcast.');
+    return;
+  }
+  
+  try {
+    const ioInstance = getIO();
+    ioInstance.emit(eventName, {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    logger.info(`Broadcast sent to all users: ${eventName}`);
+  } catch (error) {
+    logger.error(`Error broadcasting to all users:`, error);
+  }
+};
+
+/**
+ * Get connection counts
+ */
+const getConnectionCounts = () => {
+  return {
+    riders: connectedRiders.size,
+    users: connectedUsers.size,
+    vendors: connectedVendors.size,
+    admins: connectedAdmins.size,
+    total: connectedRiders.size + connectedUsers.size + connectedVendors.size + connectedAdmins.size,
+  };
+};
+
 module.exports = {
   initializeSocket,
   getIO,
@@ -285,4 +484,11 @@ module.exports = {
   notifyRiderOrderUpdate,
   getConnectedRidersCount,
   isRiderConnected,
+  sendUserNotification,
+  sendVendorNotification,
+  sendAdminNotification,
+  notifyUserOrderUpdate,
+  notifyVendorOrderUpdate,
+  broadcastToAll,
+  getConnectionCounts,
 };
