@@ -1570,9 +1570,9 @@ exports.notifyRidersForOrder = async (order) => {
       userDetails = await User.findById(userId).select('userName contactNumber email address addresses');
       
       if (userDetails) {
-        // Format user details for notification
+        // Format user details for notification (without userId)
+        const userIdForLog = userDetails._id; // Keep for logging only
         userDetails = {
-          userId: userDetails._id,
           userName: userDetails.userName || 'N/A',
           contactNumber: userDetails.contactNumber || 'N/A',
           email: userDetails.email || 'N/A',
@@ -1587,7 +1587,24 @@ exports.notifyRidersForOrder = async (order) => {
           } : null,
           addresses: userDetails.addresses || [],
         };
+        
+        // Console log: User details fetched
+        console.log('----------------------------------------');
+        console.log('👤 USER DETAILS FOR NOTIFICATION');
+        console.log('----------------------------------------');
+        console.log(`User ID: ${userIdForLog} (not included in notification)`);
+        console.log(`User Name: ${userDetails.userName}`);
+        console.log(`Contact Number: ${userDetails.contactNumber}`);
+        console.log(`Email: ${userDetails.email}`);
+        if (userDetails.address) {
+          console.log(`Address: ${userDetails.address.line1}, ${userDetails.address.city}, ${userDetails.address.state} - ${userDetails.address.pinCode}`);
+        }
+        console.log('----------------------------------------');
+      } else {
+        console.log('⚠️  User details not found for order user ID:', userId);
       }
+    } else {
+      console.log('⚠️  No user associated with this order');
     }
 
     // Prepare order data for WebSocket with amount and location
@@ -1651,8 +1668,17 @@ exports.notifyRidersForOrder = async (order) => {
       console.log('📤 SENDING NOTIFICATIONS TO RIDERS');
       console.log('----------------------------------------');
       console.log(`Total Riders: ${activeRiders.length}`);
+      console.log(`Order Number: ${orderData.orderNumber}`);
+      console.log(`Order Amount: ₹${orderData.amount || 0}`);
+      console.log(`Delivery Amount: ₹${orderData.deliveryAmount || 0}`);
+      if (userDetails) {
+        console.log(`User: ${userDetails.userName} (${userDetails.contactNumber})`);
+      }
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
       console.log(`✅ Notifications sent successfully: ${sentCount}/${activeRiders.length}`);
+      if (userDetails) {
+        console.log(`✅ User details included in notification: ${userDetails.userName}`);
+      }
       console.log('----------------------------------------');
       
       // Also send to notification queue for offline riders (optional fallback)

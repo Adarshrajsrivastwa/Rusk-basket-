@@ -214,9 +214,10 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
 
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
 
-      // Console log: Notification sent successfully
-      console.log(`✅ Notification sent to Rider ID: ${riderId} | Socket ID: ${socketId} | Order: ${orderData.orderNumber}`);
-      logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
+      // Console log: Notification sent successfully with user details
+      const userInfo = orderData.user ? `${orderData.user.userName} (${orderData.user.contactNumber})` : 'N/A';
+      console.log(`✅ Notification sent to Rider ID: ${riderId} | Socket ID: ${socketId} | Order: ${orderData.orderNumber} | User: ${userInfo}`);
+      logger.info(`Order assignment request sent to rider ${riderId} via WebSocket with user details: ${userInfo}`);
       return true;
     } else {
       // Console log: Rider not connected
