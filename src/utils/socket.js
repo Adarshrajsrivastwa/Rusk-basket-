@@ -61,33 +61,65 @@ const initializeSocket = (server) => {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
         
         if (!token) {
+          console.log('❌ SOCKET AUTH: Token not found in handshake');
           return next(new Error('Authentication token required'));
         }
 
+        console.log('🔑 SOCKET AUTH: Token received, verifying...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
+        console.log('✅ SOCKET AUTH: Token decoded successfully');
+        console.log('   - Decoded ID:', decoded.id);
+        console.log('   - Decoded Role:', decoded.role);
+        console.log('   - Token Expires:', decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'N/A');
+        
         if (decoded.role !== 'rider') {
+          console.log(`❌ SOCKET AUTH: Invalid role. Expected 'rider', got '${decoded.role}'`);
           return next(new Error('Only riders can connect to this socket'));
         }
+        
+        console.log('✅ SOCKET AUTH: Role verified as rider');
 
         // Verify rider exists and is active
+        console.log(`🔍 SOCKET AUTH: Looking up rider with ID: ${decoded.id}`);
         const rider = await Rider.findById(decoded.id);
         if (!rider) {
+          console.log(`❌ SOCKET AUTH: Rider not found with ID: ${decoded.id}`);
           return next(new Error('Rider not found'));
         }
 
+        console.log('✅ SOCKET AUTH: Rider found');
+        console.log('   - Rider Name:', rider.fullName || 'N/A');
+        console.log('   - Mobile:', rider.mobileNumber || 'N/A');
+        console.log('   - Is Active:', rider.isActive);
+        console.log('   - Approval Status:', rider.approvalStatus);
+
         if (!rider.isActive) {
+          console.log('❌ SOCKET AUTH: Rider account is inactive');
           return next(new Error('Rider account is inactive'));
         }
 
         if (rider.approvalStatus !== 'approved') {
+          console.log(`❌ SOCKET AUTH: Rider not approved. Status: ${rider.approvalStatus}`);
           return next(new Error('Rider account is not approved'));
         }
 
         socket.riderId = decoded.id;
         socket.rider = rider;
+        console.log('✅ SOCKET AUTH: Authentication successful!');
+        console.log('   - Rider ID:', socket.riderId);
+        console.log('========================================');
         next();
       } catch (error) {
+        console.log('❌ SOCKET AUTH ERROR:', error.message);
+        console.log('   - Error Type:', error.name);
+        if (error.name === 'JsonWebTokenError') {
+          console.log('   - Issue: Invalid token format or signature');
+        } else if (error.name === 'TokenExpiredError') {
+          console.log('   - Issue: Token has expired');
+        } else if (error.name === 'JsonWebTokenError') {
+          console.log('   - Issue: Token verification failed');
+        }
         logger.error('Socket authentication error:', error);
         next(new Error('Authentication failed'));
       }
@@ -172,6 +204,8 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           // Location information
           location: orderData.location,
           shippingAddress: orderData.shippingAddress,
+          // User information
+          user: orderData.user || null,
           // Full order data
           order: orderData,
         },
@@ -180,9 +214,13 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
 
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
 
+      // Console log: Notification sent successfully
+      console.log(`✅ Notification sent to Rider ID: ${riderId} | Socket ID: ${socketId} | Order: ${orderData.orderNumber}`);
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
     } else {
+      // Console log: Rider not connected
+      console.log(`❌ Rider ID: ${riderId} is NOT connected - Notification NOT sent | Order: ${orderData.orderNumber}`);
       logger.warn(`Rider ${riderId} is not connected. Order assignment request will not be delivered.`);
       return false;
     }
@@ -197,15 +235,19 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
  */
 const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
   if (!socketIOAvailable || !io) {
+    console.log(`⚠️  Socket.io not available. Skipping WebSocket notifications for ${riderIds.length} riders`);
     logger.debug(`Socket.io not available. Skipping WebSocket notifications for ${riderIds.length} riders`);
     return 0;
   }
   
+  console.log(`📡 Attempting to send notifications to ${riderIds.length} riders...`);
   const results = await Promise.all(
     riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
   );
   
-  return results.filter(Boolean).length;
+  const successCount = results.filter(Boolean).length;
+  console.log(`📊 Notification Summary: ${successCount} successful, ${riderIds.length - successCount} failed`);
+  return successCount;
 };
 
 /**

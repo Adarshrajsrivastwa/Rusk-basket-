@@ -1526,6 +1526,27 @@ exports.notifyRidersForOrder = async (order) => {
 
     const activeRiders = ridersForVendors.map(r => r._id.toString());
 
+    // Console log: List of riders who will receive notification
+    console.log('========================================');
+    console.log('📦 ORDER NOTIFICATION - RIDERS LIST');
+    console.log('========================================');
+    console.log(`Order Number: ${order.orderNumber}`);
+    console.log(`Order ID: ${order._id}`);
+    console.log(`Vendor IDs: ${vendorIds.join(', ')}`);
+    console.log(`Total Riders Found: ${ridersForVendors.length}`);
+    console.log('----------------------------------------');
+    if (ridersForVendors.length > 0) {
+      console.log('Riders who will receive notification:');
+      ridersForVendors.forEach((rider, index) => {
+        console.log(`  ${index + 1}. Rider ID: ${rider._id}`);
+        console.log(`     Name: ${rider.fullName || 'N/A'}`);
+        console.log(`     Mobile: ${rider.mobileNumber || 'N/A'}`);
+      });
+    } else {
+      console.log('⚠️  No active riders found for this order');
+    }
+    console.log('========================================');
+
     if (activeRiders.length === 0) {
       return;
     }
@@ -1541,6 +1562,33 @@ exports.notifyRidersForOrder = async (order) => {
     order.assignmentRequestSentAt = new Date();
     order.assignmentRequestSentTo = assignmentRequests;
     await order.save();
+
+    // Fetch user details using order.user
+    let userDetails = null;
+    if (order.user) {
+      const userId = order.user._id || order.user;
+      userDetails = await User.findById(userId).select('userName contactNumber email address addresses');
+      
+      if (userDetails) {
+        // Format user details for notification
+        userDetails = {
+          userId: userDetails._id,
+          userName: userDetails.userName || 'N/A',
+          contactNumber: userDetails.contactNumber || 'N/A',
+          email: userDetails.email || 'N/A',
+          address: userDetails.address ? {
+            line1: userDetails.address.line1 || '',
+            line2: userDetails.address.line2 || '',
+            pinCode: userDetails.address.pinCode || '',
+            city: userDetails.address.city || '',
+            state: userDetails.address.state || '',
+            latitude: userDetails.address.latitude || null,
+            longitude: userDetails.address.longitude || null,
+          } : null,
+          addresses: userDetails.addresses || [],
+        };
+      }
+    }
 
     // Prepare order data for WebSocket with amount and location
     const orderData = {
@@ -1593,12 +1641,19 @@ exports.notifyRidersForOrder = async (order) => {
           longitude: order.shippingAddress?.longitude || null,
         }
       },
+      user: userDetails, // Add user details to orderData
       createdAt: order.createdAt,
     };
 
     // Send WebSocket notifications to riders
     try {
+      console.log('----------------------------------------');
+      console.log('📤 SENDING NOTIFICATIONS TO RIDERS');
+      console.log('----------------------------------------');
+      console.log(`Total Riders: ${activeRiders.length}`);
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
+      console.log(`✅ Notifications sent successfully: ${sentCount}/${activeRiders.length}`);
+      console.log('----------------------------------------');
       
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
