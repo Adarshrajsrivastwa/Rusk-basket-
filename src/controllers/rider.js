@@ -8,6 +8,19 @@ const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { updateRiderProfileData } = require('../services/riderService');
 
+/**
+ * Check if rider has an active order (not delivered, cancelled, or refunded)
+ */
+const hasActiveOrder = async (riderId) => {
+  const activeOrder = await Order.findOne({
+    rider: riderId,
+    status: { 
+      $nin: ['delivered', 'cancelled', 'refunded'] 
+    },
+  });
+  return !!activeOrder;
+};
+
 exports.getProfile = async (req, res, next) => {
   try {
     const rider = await Rider.findById(req.rider._id);
@@ -277,6 +290,23 @@ exports.getAvailableOrders = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    // Check if rider has an active order - if yes, don't show available orders
+    const hasActive = await hasActiveOrder(riderId);
+    if (hasActive) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+        },
+        data: [],
+        message: 'You have an active order. Please complete your current delivery before accepting new orders.',
+      });
+    }
+
     // Get vendor this rider works for (from Rider model)
     const rider = await Rider.findById(riderId);
     if (!rider || !rider.vendor) {
@@ -366,6 +396,15 @@ exports.acceptOrderAssignment = async (req, res, next) => {
 
     const riderId = req.rider._id;
     const { orderId } = req.params;
+
+    // Check if rider has an active order - if yes, don't allow accepting new orders
+    const hasActive = await hasActiveOrder(riderId);
+    if (hasActive) {
+      return res.status(400).json({
+        success: false,
+        error: 'You have an active order. Please complete your current delivery before accepting new orders.',
+      });
+    }
 
     // Find the order for initial validation
     const initialOrder = await Order.findById(orderId);
@@ -682,6 +721,211 @@ exports.rejectOrderAssignment = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Reject order assignment error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get delivered orders by rider ID
+ * Returns all orders that have been delivered by the specified rider
+ */
+exports.getDeliveredOrders = async (req, res, next) => {
+  try {
+    const riderId = req.params.riderId || req.rider?._id;
+    
+    if (!riderId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rider ID is required',
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Find all delivered orders for this rider
+    const query = {
+      rider: riderId,
+      status: 'delivered',
+    };
+
+    const orders = await Order.find(query)
+      .populate('user', 'userName contactNumber')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'vendorName storeName storeAddress')
+      .sort({ deliveredAt: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Order.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count: orders.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: orders,
+    });
+  } catch (error) {
+    logger.error('Get delivered orders error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get current/active order for a rider
+ * Returns any order that is currently assigned to the rider and not yet delivered/cancelled
+ */
+exports.getCurrentOrder = async (req, res, next) => {
+  try {
+    const riderId = req.params.riderId || req.rider?._id;
+    
+    if (!riderId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rider ID is required',
+      });
+    }
+
+    // Find any active order for this rider (not delivered, cancelled, or refunded)
+    const query = {
+      rider: riderId,
+      status: { 
+        $nin: ['delivered', 'cancelled', 'refunded'] 
+      },
+    };
+
+    const order = await Order.findOne(query)
+      .populate('user', 'userName contactNumber')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'vendorName storeName storeAddress')
+      .sort({ assignedAt: -1, createdAt: -1 })
+      .lean();
+
+    if (!order) {
+      return res.status(200).json({
+        success: true,
+        message: 'No current order found',
+        data: null,
+        hasCurrentOrder: false,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Current order found',
+      data: order,
+      hasCurrentOrder: true,
+    });
+  } catch (error) {
+    logger.error('Get current order error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Mark order as delivered by rider
+ * Rider can only mark orders assigned to them as delivered
+ */
+exports.markOrderDelivered = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { orderId } = req.params;
+
+    // Find the order
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Verify order is assigned to this rider
+    if (!order.rider || order.rider.toString() !== riderId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This order is not assigned to you. You can only mark your own orders as delivered.',
+      });
+    }
+
+    // Check if order is in out_for_delivery status
+    if (order.status !== 'out_for_delivery') {
+      return res.status(400).json({
+        success: false,
+        error: `Order cannot be marked as delivered. Current status: ${order.status}. Order must be in 'out_for_delivery' status.`,
+      });
+    }
+
+    // Update order status to delivered
+    order.status = 'delivered';
+    order.deliveredAt = new Date();
+    
+    await order.save();
+
+    // Populate order details for response
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber');
+
+    // Notify user about delivery
+    if (notificationQueue && populatedOrder.user) {
+      await notificationQueue.add({
+        userId: populatedOrder.user._id,
+        type: 'order_delivered',
+        title: 'Order Delivered',
+        message: `Your order ${order.orderNumber} has been delivered successfully`,
+        data: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          type: 'user',
+        },
+      });
+    }
+
+    // Notify rider via WebSocket about the delivery completion
+    try {
+      const { notifyRiderOrderUpdate } = require('../utils/socket');
+      const orderUpdateData = {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: 'delivered',
+        amount: order.pricing?.total || 0,
+        deliveryAmount: order.deliveryAmount || 0,
+        deliveredAt: order.deliveredAt,
+      };
+      
+      notifyRiderOrderUpdate(riderId, orderUpdateData);
+    } catch (socketError) {
+      logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
+    }
+
+    logger.info(`Rider ${riderId} marked order ${order.orderNumber} as delivered`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Order marked as delivered successfully',
+      data: populatedOrder,
+    });
+  } catch (error) {
+    logger.error('Mark order delivered error:', error);
     next(error);
   }
 };

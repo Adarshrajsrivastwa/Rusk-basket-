@@ -1524,7 +1524,27 @@ exports.notifyRidersForOrder = async (order) => {
       approvalStatus: 'approved',
     }).select('_id fullName mobileNumber');
 
-    const activeRiders = ridersForVendors.map(r => r._id.toString());
+    if (ridersForVendors.length === 0) {
+      return;
+    }
+
+    // Filter out riders who have active orders (not delivered, cancelled, or refunded)
+    const ridersWithoutActiveOrders = [];
+    for (const rider of ridersForVendors) {
+      const hasActiveOrder = await Order.findOne({
+        rider: rider._id,
+        status: { 
+          $nin: ['delivered', 'cancelled', 'refunded'] 
+        },
+      });
+      
+      // Only include riders who don't have active orders
+      if (!hasActiveOrder) {
+        ridersWithoutActiveOrders.push(rider._id.toString());
+      }
+    }
+
+    const activeRiders = ridersWithoutActiveOrders;
 
     if (activeRiders.length === 0) {
       return;

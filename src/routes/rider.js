@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -199,6 +199,42 @@ router.put(
   updateProfile
 );
 
+// Get delivered orders by specific rider ID (must be before /:id route)
+router.get(
+  '/:riderId/orders/delivered',
+  [
+    param('riderId')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getDeliveredOrders
+);
+
+// Get current/active order for specific rider ID (must be before /:id route)
+router.get(
+  '/:riderId/orders/current',
+  [
+    param('riderId')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+  ],
+  getCurrentOrder
+);
+
 // Admin routes
 router.get('/', protectAdmin, getRiders);
 router.get('/pending', protectAdmin, getPendingRiders);
@@ -237,6 +273,14 @@ router.get(
 router.post(
   '/orders/:orderId/accept',
   protect,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
   acceptOrderAssignment
 );
 
@@ -244,6 +288,12 @@ router.post(
   '/orders/:orderId/reject',
   protect,
   [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
     body('reason')
       .optional()
       .trim()
@@ -251,6 +301,21 @@ router.post(
       .withMessage('Rejection reason cannot be more than 500 characters'),
   ],
   rejectOrderAssignment
+);
+
+// Mark order as delivered
+router.post(
+  '/orders/:orderId/delivered',
+  protect,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  markOrderDelivered
 );
 
 router.get(
@@ -271,6 +336,30 @@ router.get(
       .withMessage('Invalid status'),
   ],
   getMyOrders
+);
+
+// Get delivered orders by rider ID (protected - uses authenticated rider)
+router.get(
+  '/orders/delivered',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getDeliveredOrders
+);
+
+// Get current/active order for rider (protected - uses authenticated rider)
+router.get(
+  '/orders/current',
+  protect,
+  getCurrentOrder
 );
 
 // WebSocket connection status
