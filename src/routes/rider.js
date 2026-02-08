@@ -9,10 +9,7 @@ const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles } = require('../middleware/riderUpload');
 const { createRiderTicket, getRiderTickets, getRiderTicket, addRiderTicketMessage } = require('../controllers/ticket');
 
-const 
-
-
-router = express.Router();
+const router = express.Router();
 
 // Public routes - Authentication
 router.post(
