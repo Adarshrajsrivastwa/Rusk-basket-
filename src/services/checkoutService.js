@@ -2155,8 +2155,6 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     .populate('items.vendor', 'storeName storeId')
     .populate('coupon.couponId', 'couponName code');
 };
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-read_lints
 
 /**
  * Add items to existing order (vendor only)
