@@ -87,10 +87,35 @@ const parseTags = (tags) => {
       }
     }
     
-    // If it's not an array or string, throw error
-    throw new Error('Tags must be an array or comma-separated string');
+    // Handle other types - convert to string first
+    if (typeof tags === 'number' || typeof tags === 'boolean') {
+      return [String(tags).trim().toLowerCase()].filter(tag => tag.length > 0);
+    }
+    
+    // If it's an object (but not array), try to convert
+    if (typeof tags === 'object' && tags !== null) {
+      // If it has a toString method, use it
+      if (typeof tags.toString === 'function') {
+        const tagStr = tags.toString();
+        if (tagStr !== '[object Object]') {
+          return tagStr.split(',').map(tag => tag.trim().toLowerCase()).filter(tag => tag.length > 0);
+        }
+      }
+    }
+    
+    // If it's not an array or string, convert to string and try to split
+    // Always ensure we have a string before calling split
+    const tagStr = String(tags);
+    if (tagStr && tagStr !== 'undefined' && tagStr !== 'null' && typeof tagStr === 'string') {
+      return tagStr.split(',').map(tag => tag.trim().toLowerCase()).filter(tag => tag.length > 0);
+    }
+    
+    return [];
   } catch (error) {
-    throw new Error('Invalid tags format. Must be a valid JSON array or comma-separated string');
+    // If all else fails, return empty array instead of throwing
+    // This prevents the tags.split error from crashing the server
+    console.error('Error parsing tags:', error, 'Tags value:', tags, 'Type:', typeof tags);
+    return [];
   }
 };
 

@@ -14,6 +14,7 @@ const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { uploadFields } = require('../middleware/upload');
 const { createVendorTicket, getVendorTickets, getVendorTicket, addVendorTicketMessage } = require('../controllers/ticket');
+const { getVendorNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification, deleteAllNotifications, getUnreadCount } = require('../controllers/notification');
 
 const router = express.Router();
 
@@ -793,6 +794,65 @@ router.post(
   ],
   addVendorTicketMessage
 );
+
+// Notification routes (protected - vendor can manage their notifications)
+router.get(
+  '/notifications',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isRead')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isRead must be true or false'),
+    query('type')
+      .optional()
+      .isIn(['order_created', 'order_updated', 'order_cancelled', 'order_delivered', 'product_approved', 'product_rejected', 'invoice_generated', 'payment_received', 'general'])
+      .withMessage('Invalid notification type'),
+  ],
+  getVendorNotifications
+);
+
+router.get('/notifications/unread-count', protectVendor, getUnreadCount);
+
+router.put(
+  '/notifications/:notificationId/read',
+  protectVendor,
+  [
+    param('notificationId')
+      .notEmpty()
+      .withMessage('Notification ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid notification ID format'),
+  ],
+  markNotificationAsRead
+);
+
+router.put('/notifications/read-all', protectVendor, markAllNotificationsAsRead);
+
+router.delete(
+  '/notifications/:notificationId',
+  protectVendor,
+  [
+    param('notificationId')
+      .notEmpty()
+      .withMessage('Notification ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid notification ID format'),
+  ],
+  deleteNotification
+);
+
+router.delete('/notifications', protectVendor, deleteAllNotifications);
 
 module.exports = router;
 

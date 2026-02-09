@@ -580,15 +580,18 @@ exports.getAllTickets = async (req, res, next) => {
       });
     }
 
-    const { page = 1, limit = 10, status, category, search } = req.query;
+    const { page = 1, limit = 10, status, category, search, createdByModel } = req.query;
 
-    // Build filters - show tickets created by Users and Vendors
+    // Build filters - show tickets created by Users, Vendors, or Riders
     const filters = {};
     if (status) {
       filters.status = status;
     }
     if (category) {
       filters.category = category;
+    }
+    if (createdByModel) {
+      filters.createdByModel = createdByModel;
     }
     if (search) {
       filters.$or = [
@@ -634,6 +637,57 @@ exports.getAllTickets = async (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',
+      message: error.message,
+    });
+  }
+};
+
+// Get single ticket (admin only)
+exports.getAdminTicket = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const { ticketId } = req.params;
+
+    const ticket = await Ticket.findById(ticketId)
+      .populate('user', 'userName contactNumber email')
+      .populate('vendor', 'vendorName storeName contactNumber email')
+      .populate('rider', 'fullName mobileNumber email')
+      .populate('orderId', 'orderNumber totalAmount status')
+      .populate('createdBy', 'userName contactNumber email vendorName storeName fullName mobileNumber')
+      .populate('resolvedBy', 'name email')
+      .populate('statusChangedBy', 'name email');
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found',
+      });
+    }
+
+    // Populate messages with sender info
+    if (ticket.messages && ticket.messages.length > 0) {
+      await populateMessages(ticket.messages);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Ticket fetched successfully',
+      data: {
+        ticket,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch ticket',
       message: error.message,
     });
   }

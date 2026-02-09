@@ -2,10 +2,14 @@ const logger = require('./logger');
 const jwt = require('jsonwebtoken');
 const Rider = require('../models/Rider');
 const User = require('../models/User');
+const Vendor = require('../models/Vendor');
 
 let io = null;
 let socketIOAvailable = false;
 const connectedRiders = new Map(); // Map<riderId, socketId>
+const connectedVendors = new Map(); // Map<vendorId, socketId>
+const connectedUsers = new Map(); // Map<userId, socketId>
+const connectedAdmins = new Map(); // Map<adminId, socketId>
 
 // Try to load socket.io, but make it optional
 try {
@@ -73,43 +77,91 @@ const initializeSocket = (server) => {
         console.log('   - Decoded Role:', decoded.role);
         console.log('   - Token Expires:', decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'N/A');
         
-        if (decoded.role !== 'rider') {
-          console.log(`❌ SOCKET AUTH: Invalid role. Expected 'rider', got '${decoded.role}'`);
-          return next(new Error('Only riders can connect to this socket'));
+        // Handle different roles
+        if (decoded.role === 'rider') {
+          // Verify rider exists and is active
+          console.log(`🔍 SOCKET AUTH: Looking up rider with ID: ${decoded.id}`);
+          const rider = await Rider.findById(decoded.id);
+          if (!rider) {
+            console.log(`❌ SOCKET AUTH: Rider not found with ID: ${decoded.id}`);
+            return next(new Error('Rider not found'));
+          }
+
+          console.log('✅ SOCKET AUTH: Rider found');
+          console.log('   - Rider Name:', rider.fullName || 'N/A');
+          console.log('   - Mobile:', rider.mobileNumber || 'N/A');
+          console.log('   - Is Active:', rider.isActive);
+          console.log('   - Approval Status:', rider.approvalStatus);
+
+          if (!rider.isActive) {
+            console.log('❌ SOCKET AUTH: Rider account is inactive');
+            return next(new Error('Rider account is inactive'));
+          }
+
+          if (rider.approvalStatus !== 'approved') {
+            console.log(`❌ SOCKET AUTH: Rider not approved. Status: ${rider.approvalStatus}`);
+            return next(new Error('Rider account is not approved'));
+          }
+
+          socket.riderId = decoded.id;
+          socket.rider = rider;
+          socket.role = 'rider';
+          console.log('✅ SOCKET AUTH: Rider authentication successful!');
+          console.log('   - Rider ID:', socket.riderId);
+          console.log('========================================');
+          next();
+        } else if (decoded.role === 'vendor') {
+          // Verify vendor exists and is active
+          console.log(`🔍 SOCKET AUTH: Looking up vendor with ID: ${decoded.id}`);
+          const vendor = await Vendor.findById(decoded.id);
+          if (!vendor) {
+            console.log(`❌ SOCKET AUTH: Vendor not found with ID: ${decoded.id}`);
+            return next(new Error('Vendor not found'));
+          }
+
+          console.log('✅ SOCKET AUTH: Vendor found');
+          console.log('   - Vendor Name:', vendor.vendorName || 'N/A');
+          console.log('   - Store Name:', vendor.storeName || 'N/A');
+          console.log('   - Contact:', vendor.contactNumber || 'N/A');
+          console.log('   - Is Active:', vendor.isActive);
+
+          if (!vendor.isActive) {
+            console.log('❌ SOCKET AUTH: Vendor account is inactive');
+            return next(new Error('Vendor account is inactive'));
+          }
+
+          socket.vendorId = decoded.id;
+          socket.vendor = vendor;
+          socket.role = 'vendor';
+          console.log('✅ SOCKET AUTH: Vendor authentication successful!');
+          console.log('   - Vendor ID:', socket.vendorId);
+          console.log('========================================');
+          next();
+        } else if (decoded.role === 'user') {
+          // Verify user exists and is active
+          console.log(`🔍 SOCKET AUTH: Looking up user with ID: ${decoded.id}`);
+          const user = await User.findById(decoded.id);
+          if (!user) {
+            console.log(`❌ SOCKET AUTH: User not found with ID: ${decoded.id}`);
+            return next(new Error('User not found'));
+          }
+
+          if (!user.isActive) {
+            console.log('❌ SOCKET AUTH: User account is inactive');
+            return next(new Error('User account is inactive'));
+          }
+
+          socket.userId = decoded.id;
+          socket.user = user;
+          socket.role = 'user';
+          console.log('✅ SOCKET AUTH: User authentication successful!');
+          console.log('   - User ID:', socket.userId);
+          console.log('========================================');
+          next();
+        } else {
+          console.log(`❌ SOCKET AUTH: Invalid role. Got '${decoded.role}'`);
+          return next(new Error('Invalid role for socket connection'));
         }
-        
-        console.log('✅ SOCKET AUTH: Role verified as rider');
-
-        // Verify rider exists and is active
-        console.log(`🔍 SOCKET AUTH: Looking up rider with ID: ${decoded.id}`);
-        const rider = await Rider.findById(decoded.id);
-        if (!rider) {
-          console.log(`❌ SOCKET AUTH: Rider not found with ID: ${decoded.id}`);
-          return next(new Error('Rider not found'));
-        }
-
-        console.log('✅ SOCKET AUTH: Rider found');
-        console.log('   - Rider Name:', rider.fullName || 'N/A');
-        console.log('   - Mobile:', rider.mobileNumber || 'N/A');
-        console.log('   - Is Active:', rider.isActive);
-        console.log('   - Approval Status:', rider.approvalStatus);
-
-        if (!rider.isActive) {
-          console.log('❌ SOCKET AUTH: Rider account is inactive');
-          return next(new Error('Rider account is inactive'));
-        }
-
-        if (rider.approvalStatus !== 'approved') {
-          console.log(`❌ SOCKET AUTH: Rider not approved. Status: ${rider.approvalStatus}`);
-          return next(new Error('Rider account is not approved'));
-        }
-
-        socket.riderId = decoded.id;
-        socket.rider = rider;
-        console.log('✅ SOCKET AUTH: Authentication successful!');
-        console.log('   - Rider ID:', socket.riderId);
-        console.log('========================================');
-        next();
       } catch (error) {
         console.log('❌ SOCKET AUTH ERROR:', error.message);
         console.log('   - Error Type:', error.name);
@@ -126,32 +178,90 @@ const initializeSocket = (server) => {
     });
 
     io.on('connection', (socket) => {
-      const riderId = socket.riderId;
-      logger.info(`Rider connected: ${riderId} (Socket ID: ${socket.id})`);
+      const role = socket.role;
+      
+      if (role === 'rider') {
+        const riderId = socket.riderId;
+        logger.info(`Rider connected: ${riderId} (Socket ID: ${socket.id})`);
 
-      // Store rider connection
-      connectedRiders.set(riderId.toString(), socket.id);
+        // Store rider connection
+        connectedRiders.set(riderId.toString(), socket.id);
 
-      // Join rider to their personal room
-      socket.join(`rider:${riderId}`);
+        // Join rider to their personal room
+        socket.join(`rider:${riderId}`);
 
-      // Send connection confirmation
-      socket.emit('connected', {
-        success: true,
-        message: 'Connected to order assignment service',
-        riderId: riderId,
-      });
+        // Send connection confirmation
+        socket.emit('connected', {
+          success: true,
+          message: 'Connected to order assignment service',
+          riderId: riderId,
+        });
 
-      // Handle disconnect
-      socket.on('disconnect', () => {
-        logger.info(`Rider disconnected: ${riderId} (Socket ID: ${socket.id})`);
-        connectedRiders.delete(riderId.toString());
-      });
+        // Handle disconnect
+        socket.on('disconnect', () => {
+          logger.info(`Rider disconnected: ${riderId} (Socket ID: ${socket.id})`);
+          connectedRiders.delete(riderId.toString());
+        });
 
-      // Handle errors
-      socket.on('error', (error) => {
-        logger.error(`Socket error for rider ${riderId}:`, error);
-      });
+        // Handle errors
+        socket.on('error', (error) => {
+          logger.error(`Socket error for rider ${riderId}:`, error);
+        });
+      } else if (role === 'vendor') {
+        const vendorId = socket.vendorId;
+        logger.info(`Vendor connected: ${vendorId} (Socket ID: ${socket.id})`);
+
+        // Store vendor connection
+        connectedVendors.set(vendorId.toString(), socket.id);
+
+        // Join vendor to their personal room
+        socket.join(`vendor:${vendorId}`);
+
+        // Send connection confirmation
+        socket.emit('connected', {
+          success: true,
+          message: 'Connected to vendor notification service',
+          vendorId: vendorId,
+        });
+
+        // Handle disconnect
+        socket.on('disconnect', () => {
+          logger.info(`Vendor disconnected: ${vendorId} (Socket ID: ${socket.id})`);
+          connectedVendors.delete(vendorId.toString());
+        });
+
+        // Handle errors
+        socket.on('error', (error) => {
+          logger.error(`Socket error for vendor ${vendorId}:`, error);
+        });
+      } else if (role === 'user') {
+        const userId = socket.userId;
+        logger.info(`User connected: ${userId} (Socket ID: ${socket.id})`);
+
+        // Store user connection
+        connectedUsers.set(userId.toString(), socket.id);
+
+        // Join user to their personal room
+        socket.join(`user:${userId}`);
+
+        // Send connection confirmation
+        socket.emit('connected', {
+          success: true,
+          message: 'Connected to user notification service',
+          userId: userId,
+        });
+
+        // Handle disconnect
+        socket.on('disconnect', () => {
+          logger.info(`User disconnected: ${userId} (Socket ID: ${socket.id})`);
+          connectedUsers.delete(userId.toString());
+        });
+
+        // Handle errors
+        socket.on('error', (error) => {
+          logger.error(`Socket error for user ${userId}:`, error);
+        });
+      }
     });
 
     logger.info('Socket.io server initialized');
@@ -507,6 +617,23 @@ const getConnectionCounts = () => {
   };
 };
 
+/**
+ * Check if a vendor is connected
+ */
+const isVendorConnected = (vendorId) => {
+  if (!socketIOAvailable || !io) {
+    return false;
+  }
+  return connectedVendors.has(vendorId.toString());
+};
+
+/**
+ * Get connected vendor IDs
+ */
+const getConnectedVendorIds = () => {
+  return Array.from(connectedVendors.keys());
+};
+
 module.exports = {
   initializeSocket,
   getIO,
@@ -522,4 +649,6 @@ module.exports = {
   notifyVendorOrderUpdate,
   broadcastToAll,
   getConnectionCounts,
+  isVendorConnected,
+  getConnectedVendorIds,
 };

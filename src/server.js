@@ -109,6 +109,8 @@ const analyticsRoutes = require('./routes/analytics');
 const suggestionRoutes = require('./routes/suggestion');
 const ticketRoutes = require('./routes/ticket');
 const invoiceRoutes = require('./routes/invoice');
+const paymentGatewayRoutes = require('./routes/paymentGateway');
+const paymentRoutes = require('./routes/payment');
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -184,6 +186,8 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/suggestion', suggestionRoutes);
 app.use('/api/invoice', invoiceRoutes);
 app.use('/api/ticket', ticketRoutes);
+app.use('/api/payment-gateway', paymentGatewayRoutes);
+app.use('/api/payment', paymentRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

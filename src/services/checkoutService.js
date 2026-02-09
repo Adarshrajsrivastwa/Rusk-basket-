@@ -938,6 +938,93 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     logger.error('Error generating invoices for order:', error);
   }
 
+  /**
+   * Create notifications and send socket.io notifications to vendors when order is created
+   * Each vendor in the order gets a notification about the new order
+   */
+  try {
+    const Notification = require('../models/Notification');
+    const { sendVendorNotification } = require('../utils/socket');
+    
+    // Get unique vendors from order items with their items
+    const vendorItemsMap = new Map();
+    order.items.forEach(item => {
+      const vendorId = (item.vendor?._id || item.vendor).toString();
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    });
+    
+    // Create notification and send socket.io notification for each vendor
+    for (const [vendorId, vendorItems] of vendorItemsMap) {
+      try {
+        // Calculate vendor-specific total
+        const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+        const itemCount = vendorItems.length;
+        const itemNames = vendorItems.map(item => item.productName).join(', ');
+        
+        // Create notification in database
+        const notification = await Notification.create({
+          recipient: vendorId,
+          recipientModel: 'Vendor',
+          type: 'order_created',
+          title: 'New Order Received',
+          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s): ${itemNames.substring(0, 100)}${itemNames.length > 100 ? '...' : ''}. Total: ₹${vendorTotal.toFixed(2)}`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            itemCount: itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: order.shippingAddress,
+            paymentMethod: order.payment?.method,
+            createdAt: order.createdAt,
+          },
+          order: order._id,
+          isRead: false,
+        });
+        
+        // Send socket.io notification to vendor (if connected)
+        sendVendorNotification(vendorId, {
+          id: notification._id,
+          type: 'order_created',
+          title: 'New Order Received',
+          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            itemCount: itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: order.shippingAddress,
+            paymentMethod: order.payment?.method,
+            createdAt: order.createdAt,
+          },
+          order: order._id,
+        });
+        
+        logger.info(`Notification created and sent to vendor ${vendorId} for order ${order.orderNumber}`);
+      } catch (notificationError) {
+        // Log error but don't fail the order creation
+        logger.error(`Failed to create/send notification to vendor ${vendorId}:`, notificationError);
+      }
+    }
+  } catch (error) {
+    // Log error but don't fail the order creation
+    logger.error('Error creating/sending notifications to vendors:', error);
+  }
+
   return await Order.findById(order._id)
     .populate('user', 'userName contactNumber email')
     .populate('items.product', 'productName thumbnail')
@@ -1183,6 +1270,95 @@ exports.reorder = async (userId, orderId) => {
 
   // Update vendor revenue tracking
   await updateVendorRevenue(newOrder);
+
+  /**
+   * Create notifications and send socket.io notifications to vendors when order is reordered
+   * Each vendor in the order gets a notification about the new order
+   */
+  try {
+    const Notification = require('../models/Notification');
+    const { sendVendorNotification } = require('../utils/socket');
+    
+    // Get unique vendors from order items with their items
+    const vendorItemsMap = new Map();
+    newOrder.items.forEach(item => {
+      const vendorId = (item.vendor?._id || item.vendor).toString();
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    });
+    
+    // Create notification and send socket.io notification for each vendor
+    for (const [vendorId, vendorItems] of vendorItemsMap) {
+      try {
+        // Calculate vendor-specific total
+        const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+        const itemCount = vendorItems.length;
+        const itemNames = vendorItems.map(item => item.productName).join(', ');
+        
+        // Create notification in database
+        const notification = await Notification.create({
+          recipient: vendorId,
+          recipientModel: 'Vendor',
+          type: 'order_created',
+          title: 'New Order Received (Reorder)',
+          message: `You have received a new order #${newOrder.orderNumber} (reorder) with ${itemCount} item(s): ${itemNames.substring(0, 100)}${itemNames.length > 100 ? '...' : ''}. Total: ₹${vendorTotal.toFixed(2)}`,
+          data: {
+            orderId: newOrder._id,
+            orderNumber: newOrder.orderNumber,
+            itemCount: itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: newOrder.shippingAddress,
+            paymentMethod: newOrder.payment?.method,
+            createdAt: newOrder.createdAt,
+            isReorder: true,
+          },
+          order: newOrder._id,
+          isRead: false,
+        });
+        
+        // Send socket.io notification to vendor (if connected)
+        sendVendorNotification(vendorId, {
+          id: notification._id,
+          type: 'order_created',
+          title: 'New Order Received (Reorder)',
+          message: `You have received a new order #${newOrder.orderNumber} (reorder) with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
+          data: {
+            orderId: newOrder._id,
+            orderNumber: newOrder.orderNumber,
+            itemCount: itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: newOrder.shippingAddress,
+            paymentMethod: newOrder.payment?.method,
+            createdAt: newOrder.createdAt,
+            isReorder: true,
+          },
+          order: newOrder._id,
+        });
+        
+        logger.info(`Notification created and sent to vendor ${vendorId} for reorder ${newOrder.orderNumber}`);
+      } catch (notificationError) {
+        // Log error but don't fail the order creation
+        logger.error(`Failed to create/send notification to vendor ${vendorId}:`, notificationError);
+      }
+    }
+  } catch (error) {
+    // Log error but don't fail the order creation
+    logger.error('Error creating/sending notifications to vendors for reorder:', error);
+  }
 
   return await Order.findById(newOrder._id)
     .populate('user', 'userName contactNumber email')

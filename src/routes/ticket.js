@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
-const { getAllTickets, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
+const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { protect } = require('../middleware/adminAuth');
 
 const router = express.Router();
@@ -26,6 +26,10 @@ router.get(
       .optional()
       .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
       .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    query('createdByModel')
+      .optional()
+      .isIn(['User', 'Vendor', 'Rider'])
+      .withMessage('Invalid createdByModel. Must be one of: User, Vendor, Rider'),
     query('search')
       .optional()
       .trim()
@@ -33,6 +37,21 @@ router.get(
       .withMessage('Search term cannot exceed 200 characters'),
   ],
   getAllTickets
+);
+
+// Get single ticket (admin only)
+router.get(
+  '/:ticketId',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+  ],
+  getAdminTicket
 );
 
 // Update ticket status (admin only)

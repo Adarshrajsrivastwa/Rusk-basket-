@@ -84,25 +84,62 @@ exports.toggleProductOffer = async (req, res, next) => {
     }
 
     const now = new Date();
-    if ((product.offerStartDate || product.offerEndDate) && offerEnabled === undefined) {
+    
+    // Auto-enable daily offer if dates are in current range
+    if (product.isDailyOffer && (product.offerStartDate || product.offerEndDate)) {
       let isWithinDateRange = true;
       
       if (product.offerStartDate) {
         const startDate = new Date(product.offerStartDate);
-        if (now < startDate) {
+        startDate.setHours(0, 0, 0, 0); // Set to start of day
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        if (today < startDate) {
           isWithinDateRange = false;
         }
       }
       
       if (product.offerEndDate) {
         const endDate = new Date(product.offerEndDate);
+        endDate.setHours(23, 59, 59, 999); // Set to end of day
         if (now > endDate) {
           isWithinDateRange = false;
         }
       }
       
-      if (product.offerDiscountPercentage > 0) {
-        product.offerEnabled = isWithinDateRange;
+      // Auto-enable if dates are in current range and isDailyOffer is true
+      if (isWithinDateRange && product.isDailyOffer) {
+        product.offerEnabled = true;
+        logger.info(`Auto-enabled daily offer for product ${product._id} - dates are in current range`);
+      }
+    }
+    
+    // Handle date range validation for existing offers (when offerEnabled is not explicitly set)
+    if ((product.offerStartDate || product.offerEndDate) && offerEnabled === undefined) {
+      let isWithinDateRange = true;
+      
+      if (product.offerStartDate) {
+        const startDate = new Date(product.offerStartDate);
+        startDate.setHours(0, 0, 0, 0);
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        if (today < startDate) {
+          isWithinDateRange = false;
+        }
+      }
+      
+      if (product.offerEndDate) {
+        const endDate = new Date(product.offerEndDate);
+        endDate.setHours(23, 59, 59, 999);
+        if (now > endDate) {
+          isWithinDateRange = false;
+        }
+      }
+      
+      // Auto-enable if within date range and has discount
+      if (isWithinDateRange && product.offerDiscountPercentage > 0) {
+        product.offerEnabled = true;
+        logger.info(`Auto-enabled offer for product ${product._id} - dates are in current range`);
       }
     }
 
@@ -235,6 +272,7 @@ exports.getVendorOffers = async (req, res, next) => {
 exports.getProductOffer = async (req, res, next) => {
   try {
     const { productId } = req.params;
+    const vendorId = req.vendor ? req.vendor._id : null;
 
     const product = await Product.findById(productId)
       .populate('category', 'categoryName')
@@ -245,6 +283,14 @@ exports.getProductOffer = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         error: 'Product not found',
+      });
+    }
+
+    // If vendor is accessing, ensure they can only view their own products
+    if (vendorId && product.vendor.toString() !== vendorId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only view offers for your own products',
       });
     }
 

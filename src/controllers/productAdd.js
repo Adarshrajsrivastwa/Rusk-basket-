@@ -2,7 +2,7 @@ const Product = require('../models/Product');
 const { deleteFromCloudinary } = require('../utils/cloudinary');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { validateCategoryAndSubCategory, uploadProductThumbnail, uploadProductImages, parseSKUs } = require('../services/productService');
+const { validateCategoryAndSubCategory, uploadProductThumbnail, uploadProductImages, parseSKUs, parseTags } = require('../services/productService');
 
 /**
  * Calculate discount percentage based on regular price and sale price
@@ -43,8 +43,16 @@ exports.addProduct = async (req, res, next) => {
       salePrice,
       cashback,
       tax,
-      tags,
+      tags: tagsRaw,
     } = req.body;
+
+    // Handle tags - FormData can send it in various formats
+    // Log the type for debugging
+    if (tagsRaw !== undefined && tagsRaw !== null) {
+      logger.info('Tags received - Type:', typeof tagsRaw, 'IsArray:', Array.isArray(tagsRaw), 'Value:', tagsRaw);
+    }
+    
+    const tags = tagsRaw;
 
     try {
       await validateCategoryAndSubCategory(category, subCategory);
@@ -65,16 +73,22 @@ exports.addProduct = async (req, res, next) => {
       });
     }
 
-    // Parse tags from comma-separated string
+    // Parse tags - handle both array and comma-separated string
+    // FormData can send tags as array when multiple values are appended with same key
     let parsedTags = [];
-    if (tags) {
-      parsedTags = tags.split(',').map(tag => tag.trim().toLowerCase()).filter(tag => tag.length > 0);
-      if (parsedTags.length === 0) {
+    if (tags !== undefined && tags !== null) {
+      try {
+        parsedTags = parseTags(tags);
+      } catch (parseError) {
+        logger.error('Error parsing tags:', parseError, 'Tags value:', tags, 'Type:', typeof tags);
         return res.status(400).json({
           success: false,
-          error: 'At least one tag is required',
+          error: parseError.message || 'Invalid tags format',
         });
       }
+      
+      // Tags are optional, so don't require them
+      // But if provided, validate count
       if (parsedTags.length > 20) {
         return res.status(400).json({
           success: false,
@@ -91,9 +105,36 @@ exports.addProduct = async (req, res, next) => {
     const parsedSalePrice = parseFloat(salePrice);
     const calculatedDiscount = calculateDiscountPercentage(parsedRegularPrice, parsedSalePrice);
 
-    // Get vendor's location from storeAddress
-    const vendorLatitude = req.vendor.storeAddress?.latitude;
-    const vendorLongitude = req.vendor.storeAddress?.longitude;
+    // Determine vendor ID and location
+    let vendorId;
+    let vendorLatitude;
+    let vendorLongitude;
+    let createdById;
+
+    if (req.admin) {
+      // Admin adding product - vendorId must be provided in request body
+      const { vendorId: bodyVendorId } = req.body;
+      if (!bodyVendorId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vendor ID is required when admin adds a product',
+        });
+      }
+      vendorId = bodyVendorId;
+      createdById = req.admin._id;
+      // For admin, we don't set location (can be set later or left undefined)
+    } else if (req.vendor) {
+      // Vendor adding their own product
+      vendorId = req.vendor._id;
+      createdById = req.vendor._id;
+      vendorLatitude = req.vendor.storeAddress?.latitude;
+      vendorLongitude = req.vendor.storeAddress?.longitude;
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized. Admin or Vendor access required.',
+      });
+    }
 
     const product = await Product.create({
       productName,
@@ -117,16 +158,17 @@ exports.addProduct = async (req, res, next) => {
       cashback: cashback ? parseFloat(cashback) : 0,
       tax: tax ? parseFloat(tax) : 0, // Tax is stored as percentage (0-100)
       tags: parsedTags,
-      vendor: req.vendor._id,
+      vendor: vendorId,
       latitude: vendorLatitude || undefined,
       longitude: vendorLongitude || undefined,
-      createdBy: req.vendor._id,
+      createdBy: createdById,
+      createdByModel: req.admin ? 'Admin' : 'Vendor',
       approvalStatus: 'pending',
     });
 
     // Get total products count for this vendor
     const totalProducts = await Product.countDocuments({
-      vendor: req.vendor._id,
+      vendor: vendorId,
       isActive: true,
     });
 
@@ -157,7 +199,10 @@ exports.addProduct = async (req, res, next) => {
       stockStatus: stockStatus,
     };
 
-    logger.info(`Product created: ${product.productName} by Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`);
+    const creatorName = req.admin 
+      ? `Admin: ${req.admin.email || req.admin.name || req.admin._id}`
+      : `Vendor: ${req.vendor.vendorName || req.vendor.contactNumber}`;
+    logger.info(`Product created: ${product.productName} by ${creatorName}`);
 
     res.status(201).json({
       success: true,

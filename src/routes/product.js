@@ -12,6 +12,7 @@ const { getAllDailyOffers, getVendorDailyOffers } = require('../controllers/prod
 // Middleware
 const { protect } = require('../middleware/adminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
+const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { uploadMultiple } = require('../middleware/productUpload');
 
 // Public Routes
@@ -279,8 +280,12 @@ router.get(
 );
 
 // Vendor Routes (specific routes first to avoid conflicts)
-// Create product (Vendor only) - Products are created with 'pending' approval status
+// Create product (Vendor or Admin) - Products are created with 'pending' approval status
 const createProductValidation = [
+  body('vendorId')
+    .optional()
+    .isMongoId()
+    .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
   body('productName')
     .trim()
     .notEmpty()
@@ -370,28 +375,28 @@ const createProductValidation = [
     }),
 ];
 
-// Create product endpoint (Vendor only)
+// Create product endpoint (Vendor or Admin)
 router.post(
   '/create',
-  protectVendor,
+  protectVendorOrAdmin,
   uploadMultiple,
   createProductValidation,
   addProduct
 );
 
-// Add product endpoint (Vendor only) - Alias for /create
+// Add product endpoint (Vendor or Admin) - Alias for /create
 router.post(
   '/add',
-  protectVendor,
+  protectVendorOrAdmin,
   uploadMultiple,
   createProductValidation,
   addProduct
 );
 
-// Update product (Vendor only - can only update their own products)
+// Update product (Vendor or Admin - vendors can only update their own products)
 router.put(
   '/update/:id',
-  protectVendor,
+  protectVendorOrAdmin,
   uploadMultiple,
   [
     body('productName')
