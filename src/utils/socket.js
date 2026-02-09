@@ -2,15 +2,11 @@ const logger = require('./logger');
 const jwt = require('jsonwebtoken');
 const Rider = require('../models/Rider');
 const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const Admin = require('../models/Admin');
 
 let io = null;
 let socketIOAvailable = false;
 const connectedRiders = new Map(); // Map<riderId, socketId>
-const connectedVendors = new Map(); // Map<vendorId, socketId>
 const connectedUsers = new Map(); // Map<userId, socketId>
-const connectedAdmins = new Map(); // Map<adminId, socketId>
 
 // Try to load socket.io, but make it optional
 try {
@@ -121,33 +117,6 @@ const initializeSocket = (server) => {
           console.log('   - Rider ID:', socket.riderId);
           console.log('========================================');
           next();
-        } else if (decoded.role === 'vendor') {
-          // Verify vendor exists and is active
-          console.log(`🔍 SOCKET AUTH: Looking up vendor with ID: ${decoded.id}`);
-          const vendor = await Vendor.findById(decoded.id);
-          if (!vendor) {
-            console.log(`❌ SOCKET AUTH: Vendor not found with ID: ${decoded.id}`);
-            return next(new Error('Vendor not found'));
-          }
-
-          console.log('✅ SOCKET AUTH: Vendor found');
-          console.log('   - Vendor Name:', vendor.vendorName || 'N/A');
-          console.log('   - Store Name:', vendor.storeName || 'N/A');
-          console.log('   - Contact:', vendor.contactNumber || 'N/A');
-          console.log('   - Is Active:', vendor.isActive);
-
-          if (!vendor.isActive) {
-            console.log('❌ SOCKET AUTH: Vendor account is inactive');
-            return next(new Error('Vendor account is inactive'));
-          }
-
-          socket.vendorId = decoded.id;
-          socket.vendor = vendor;
-          socket.role = 'vendor';
-          console.log('✅ SOCKET AUTH: Vendor authentication successful!');
-          console.log('   - Vendor ID:', socket.vendorId);
-          console.log('========================================');
-          next();
         } else if (decoded.role === 'user') {
           // Verify user exists and is active
           console.log(`🔍 SOCKET AUTH: Looking up user with ID: ${decoded.id}`);
@@ -167,32 +136,6 @@ const initializeSocket = (server) => {
           socket.role = 'user';
           console.log('✅ SOCKET AUTH: User authentication successful!');
           console.log('   - User ID:', socket.userId);
-          console.log('========================================');
-          next();
-        } else if (decoded.role === 'admin') {
-          // Verify admin exists and is active
-          console.log(`🔍 SOCKET AUTH: Looking up admin with ID: ${decoded.id}`);
-          const admin = await Admin.findById(decoded.id);
-          if (!admin) {
-            console.log(`❌ SOCKET AUTH: Admin not found with ID: ${decoded.id}`);
-            return next(new Error('Admin not found'));
-          }
-
-          console.log('✅ SOCKET AUTH: Admin found');
-          console.log('   - Admin Name:', admin.name || 'N/A');
-          console.log('   - Email:', admin.email || 'N/A');
-          console.log('   - Is Active:', admin.isActive);
-
-          if (!admin.isActive) {
-            console.log('❌ SOCKET AUTH: Admin account is inactive');
-            return next(new Error('Admin account is inactive'));
-          }
-
-          socket.adminId = decoded.id;
-          socket.admin = admin;
-          socket.role = 'admin';
-          console.log('✅ SOCKET AUTH: Admin authentication successful!');
-          console.log('   - Admin ID:', socket.adminId);
           console.log('========================================');
           next();
         } else {
@@ -244,41 +187,6 @@ const initializeSocket = (server) => {
         socket.on('error', (error) => {
           logger.error(`Socket error for rider ${riderId}:`, error);
         });
-      } else if (role === 'vendor') {
-        const vendorId = socket.vendorId;
-        logger.info(`Vendor connected: ${vendorId} (Socket ID: ${socket.id})`);
-
-        // Store vendor connection
-        connectedVendors.set(vendorId.toString(), socket.id);
-
-        // Join vendor to their personal room
-        socket.join(`vendor:${vendorId}`);
-
-        // Send connection confirmation
-        socket.emit('connected', {
-          success: true,
-          message: 'Connected to vendor notification service',
-          vendorId: vendorId,
-        });
-
-        // Handle vendor-specific events
-        socket.on('vendor:ping', () => {
-          socket.emit('vendor:pong', {
-            success: true,
-            timestamp: new Date().toISOString(),
-          });
-        });
-
-        // Handle disconnect
-        socket.on('disconnect', () => {
-          logger.info(`Vendor disconnected: ${vendorId} (Socket ID: ${socket.id})`);
-          connectedVendors.delete(vendorId.toString());
-        });
-
-        // Handle errors
-        socket.on('error', (error) => {
-          logger.error(`Socket error for vendor ${vendorId}:`, error);
-        });
       } else if (role === 'user') {
         const userId = socket.userId;
         logger.info(`User connected: ${userId} (Socket ID: ${socket.id})`);
@@ -305,41 +213,6 @@ const initializeSocket = (server) => {
         // Handle errors
         socket.on('error', (error) => {
           logger.error(`Socket error for user ${userId}:`, error);
-        });
-      } else if (role === 'admin') {
-        const adminId = socket.adminId;
-        logger.info(`Admin connected: ${adminId} (Socket ID: ${socket.id})`);
-
-        // Store admin connection
-        connectedAdmins.set(adminId.toString(), socket.id);
-
-        // Join admin to their personal room
-        socket.join(`admin:${adminId}`);
-
-        // Send connection confirmation
-        socket.emit('connected', {
-          success: true,
-          message: 'Connected to admin notification service',
-          adminId: adminId,
-        });
-
-        // Handle admin-specific events
-        socket.on('admin:ping', () => {
-          socket.emit('admin:pong', {
-            success: true,
-            timestamp: new Date().toISOString(),
-          });
-        });
-
-        // Handle disconnect
-        socket.on('disconnect', () => {
-          logger.info(`Admin disconnected: ${adminId} (Socket ID: ${socket.id})`);
-          connectedAdmins.delete(adminId.toString());
-        });
-
-        // Handle errors
-        socket.on('error', (error) => {
-          logger.error(`Socket error for admin ${adminId}:`, error);
         });
       }
     });
@@ -545,67 +418,6 @@ const sendUserNotification = async (userId, notificationData) => {
   }
 };
 
-/**
- * Send notification to a vendor
- */
-const sendVendorNotification = (vendorId, notificationData) => {
-  if (!socketIOAvailable || !io) {
-    logger.debug(`Socket.io not available. Skipping WebSocket notification for vendor ${vendorId}`);
-    return false;
-  }
-  
-  try {
-    const ioInstance = getIO();
-    const socketId = connectedVendors.get(vendorId.toString());
-
-    if (socketId) {
-      ioInstance.to(`vendor:${vendorId}`).emit('notification', {
-        type: 'notification',
-        ...notificationData,
-        timestamp: new Date().toISOString(),
-      });
-      logger.info(`Notification sent to vendor ${vendorId} via WebSocket`);
-      return true;
-    } else {
-      logger.warn(`Vendor ${vendorId} is not connected. Notification will not be delivered.`);
-      return false;
-    }
-  } catch (error) {
-    logger.error(`Error sending notification to vendor ${vendorId}:`, error);
-    return false;
-  }
-};
-
-/**
- * Send notification to an admin
- */
-const sendAdminNotification = (adminId, notificationData) => {
-  if (!socketIOAvailable || !io) {
-    logger.debug(`Socket.io not available. Skipping WebSocket notification for admin ${adminId}`);
-    return false;
-  }
-  
-  try {
-    const ioInstance = getIO();
-    const socketId = connectedAdmins.get(adminId.toString());
-
-    if (socketId) {
-      ioInstance.to(`admin:${adminId}`).emit('notification', {
-        type: 'notification',
-        ...notificationData,
-        timestamp: new Date().toISOString(),
-      });
-      logger.info(`Notification sent to admin ${adminId} via WebSocket`);
-      return true;
-    } else {
-      logger.warn(`Admin ${adminId} is not connected. Notification will not be delivered.`);
-      return false;
-    }
-  } catch (error) {
-    logger.error(`Error sending notification to admin ${adminId}:`, error);
-    return false;
-  }
-};
 
 /**
  * Send order update to user
@@ -635,33 +447,6 @@ const notifyUserOrderUpdate = (userId, orderData) => {
   }
 };
 
-/**
- * Send order update to vendor
- */
-const notifyVendorOrderUpdate = (vendorId, orderData) => {
-  if (!socketIOAvailable || !io) {
-    logger.debug(`Socket.io not available. Skipping WebSocket notification for vendor ${vendorId}`);
-    return;
-  }
-  
-  try {
-    const ioInstance = getIO();
-    
-    const updatePayload = {
-      type: 'order_update',
-      orderId: orderData.orderId,
-      orderNumber: orderData.orderNumber,
-      status: orderData.status,
-      data: orderData,
-      timestamp: new Date().toISOString(),
-    };
-    
-    ioInstance.to(`vendor:${vendorId}`).emit('order_update', updatePayload);
-    logger.info(`Order update sent to vendor ${vendorId} via WebSocket`);
-  } catch (error) {
-    logger.error(`Error sending order update to vendor ${vendorId}:`, error);
-  }
-};
 
 /**
  * Broadcast to all connected users
@@ -691,27 +476,8 @@ const getConnectionCounts = () => {
   return {
     riders: connectedRiders.size,
     users: connectedUsers.size,
-    vendors: connectedVendors.size,
-    admins: connectedAdmins.size,
-    total: connectedRiders.size + connectedUsers.size + connectedVendors.size + connectedAdmins.size,
+    total: connectedRiders.size + connectedUsers.size,
   };
-};
-
-/**
- * Check if a vendor is connected
- */
-const isVendorConnected = (vendorId) => {
-  if (!socketIOAvailable || !io) {
-    return false;
-  }
-  return connectedVendors.has(vendorId.toString());
-};
-
-/**
- * Get connected vendor IDs
- */
-const getConnectedVendorIds = () => {
-  return Array.from(connectedVendors.keys());
 };
 
 module.exports = {
@@ -723,12 +489,7 @@ module.exports = {
   getConnectedRidersCount,
   isRiderConnected,
   sendUserNotification,
-  sendVendorNotification,
-  sendAdminNotification,
   notifyUserOrderUpdate,
-  notifyVendorOrderUpdate,
   broadcastToAll,
   getConnectionCounts,
-  isVendorConnected,
-  getConnectedVendorIds,
 };
