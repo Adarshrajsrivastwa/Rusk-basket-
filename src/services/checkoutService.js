@@ -1973,6 +1973,9 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
     throw new Error(`Invalid order status: ${status}`);
   }
 
+  // Store previous status before updating
+  const previousStatus = order.status;
+
   // Update order status
   order.status = status;
 
@@ -1999,6 +2002,54 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
   }
 
   await order.save();
+
+  // Notify vendor about order status update via socket
+  try {
+    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+    
+    // Get fresh order data
+    const updatedOrder = await Order.findById(order._id)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'storeName storeId')
+      .populate('coupon.couponId', 'couponName code')
+      .populate('rider', 'fullName mobileNumber');
+
+    // Send order update event to vendor
+    notifyVendorOrderUpdate(vendorId, {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: status,
+      previousStatus: previousStatus,
+      data: updatedOrder,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Send notification for important status changes
+    if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+      const statusMessages = {
+        'ready': 'Order is ready for pickup',
+        'out_for_delivery': 'Order is out for delivery',
+        'delivered': 'Order has been delivered',
+        'cancelled': 'Order has been cancelled',
+      };
+      
+      sendVendorNotification(vendorId, {
+        type: 'order_status_updated',
+        title: 'Order Status Updated',
+        message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+        data: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: status,
+          previousStatus: previousStatus,
+        },
+      });
+    }
+  } catch (notifyError) {
+    // Don't fail the request if socket notification fails
+    logger.error('Error sending socket notification to vendor:', notifyError);
+  }
 
   return await Order.findById(order._id)
     .populate('user', 'userName contactNumber email')
@@ -2039,6 +2090,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
   }
 
   // Update order
+  const previousStatus = order.status;
   order.status = 'cancelled';
   order.cancelledAt = new Date();
   order.cancelledBy = 'user';
@@ -2046,6 +2098,57 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
   order.payment.status = order.payment.method === 'cod' ? 'failed' : 'refunded';
 
   await order.save();
+
+  // Notify all vendors in the order about cancellation
+  try {
+    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+    const vendorIds = new Set();
+    
+    // Get all unique vendor IDs from order items
+    order.items.forEach(item => {
+      const itemVendorId = item.vendor?._id || item.vendor;
+      if (itemVendorId) {
+        vendorIds.add(itemVendorId.toString());
+      }
+    });
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'storeName storeId')
+      .populate('coupon.couponId', 'couponName code');
+
+    // Notify each vendor
+    for (const vendorId of vendorIds) {
+      try {
+        notifyVendorOrderUpdate(vendorId, {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: 'cancelled',
+          previousStatus: previousStatus,
+          data: populatedOrder,
+          timestamp: new Date().toISOString(),
+        });
+
+        sendVendorNotification(vendorId, {
+          type: 'order_cancelled',
+          title: 'Order Cancelled',
+          message: `Order #${order.orderNumber} has been cancelled by the customer. Reason: ${reason || 'No reason provided'}`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            status: 'cancelled',
+            cancellationReason: reason,
+            cancelledBy: 'user',
+          },
+        });
+      } catch (vendorNotifyError) {
+        logger.error(`Error sending notification to vendor ${vendorId}:`, vendorNotifyError);
+      }
+    }
+  } catch (notifyError) {
+    // Don't fail the request if socket notification fails
+    logger.error('Error sending socket notifications for order cancellation:', notifyError);
+  }
 
   return await Order.findById(order._id)
     .populate('items.product', 'productName thumbnail')
@@ -2395,6 +2498,44 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     }));
     
     await updateVendorRevenue(order, itemsToTrack);
+  }
+
+  // Notify vendor about items added to order
+  try {
+    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+    const populatedOrder = await Order.findById(order._id)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'storeName storeId')
+      .populate('coupon.couponId', 'couponName code offerType')
+      .populate('rider', 'fullName mobileNumber');
+
+    // Send order update event
+    notifyVendorOrderUpdate(vendorId, {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      data: populatedOrder,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Send notification
+    const itemCount = items.length;
+    sendVendorNotification(vendorId, {
+      type: 'order_items_added',
+      title: 'Items Added to Order',
+      message: `${itemCount} item(s) added to order #${order.orderNumber}. New total: ₹${order.pricing?.total?.toFixed(2) || 0}`,
+      data: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        itemsAdded: itemCount,
+        newTotal: order.pricing?.total || 0,
+        status: order.status,
+      },
+    });
+  } catch (notifyError) {
+    // Don't fail the request if socket notification fails
+    logger.error('Error sending socket notification to vendor for items added:', notifyError);
   }
 
   return await Order.findById(order._id)

@@ -781,6 +781,46 @@ exports.updateOrderStatus = async (req, res, next) => {
       }
     }
 
+    // Notify vendor about order status update confirmation via socket
+    try {
+      const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+      const orderUpdateData = {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: status,
+        previousStatus: previousStatus,
+        data: order,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Send order update event
+      notifyVendorOrderUpdate(vendorId, orderUpdateData);
+      
+      // Send notification for important status changes
+      if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+        const statusMessages = {
+          'ready': 'Order is ready for pickup',
+          'out_for_delivery': 'Order is out for delivery',
+          'delivered': 'Order has been delivered',
+          'cancelled': 'Order has been cancelled',
+        };
+        
+        sendVendorNotification(vendorId, {
+          type: 'order_status_updated',
+          title: 'Order Status Updated',
+          message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            status: status,
+            previousStatus: previousStatus,
+          },
+        });
+      }
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+    }
+
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'name email contactNumber')
       .populate('items.product', 'name description')
@@ -944,6 +984,43 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     await order.save();
+
+    // Notify vendor via socket about rider assignment
+    try {
+      const { sendVendorNotification, notifyVendorOrderUpdate } = require('../utils/socket');
+      const vendorId = req.vendor._id;
+      
+      // Send notification
+      sendVendorNotification(vendorId, {
+        type: 'rider_assigned',
+        title: 'Rider Assigned to Order',
+        message: `Rider ${rider.fullName || rider.mobileNumber} has been assigned to order #${order.orderNumber}`,
+        data: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          riderId: rider._id,
+          riderName: rider.fullName,
+          riderMobile: rider.mobileNumber,
+          status: order.status,
+        },
+      });
+      
+      // Send order update event
+      notifyVendorOrderUpdate(vendorId, {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        rider: {
+          _id: rider._id,
+          fullName: rider.fullName,
+          mobileNumber: rider.mobileNumber,
+        },
+        data: order,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+    }
 
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'name email contactNumber')

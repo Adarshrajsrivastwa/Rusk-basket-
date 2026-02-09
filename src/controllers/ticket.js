@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Rider = require('../models/Rider');
 const Admin = require('../models/Admin');
+const logger = require('../utils/logger');
 
 // Helper function to populate messages with sender info
 const populateMessages = async (messages) => {
@@ -118,6 +119,40 @@ exports.createTicket = async (req, res, next) => {
     // Populate other fields
     await ticket.populate('createdBy', 'userName contactNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    // Notify all active admins about new ticket
+    try {
+      const { sendAdminNotification } = require('../utils/socket');
+      const Admin = require('../models/Admin');
+      
+      // Get all active admins
+      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
+      
+      // Send notification to each admin
+      for (const admin of activeAdmins) {
+        try {
+          sendAdminNotification(admin._id, {
+            type: 'ticket_created',
+            title: 'New Ticket Created',
+            message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            data: {
+              ticketId: ticket._id,
+              ticketNumber: ticket.ticketNumber || ticket._id,
+              category: ticket.category,
+              status: ticket.status,
+              createdBy: 'User',
+              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+              orderId: ticket.orderId || null,
+            },
+          });
+        } catch (adminNotifyError) {
+          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+        }
+      }
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+      logger.error('Error sending socket notifications to admins for ticket creation:', notifyError);
+    }
 
     res.status(201).json({
       success: true,
@@ -483,6 +518,38 @@ exports.updateTicketStatus = async (req, res, next) => {
     await ticket.populate('rider', 'fullName mobileNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
 
+    // Notify vendor if this is a vendor ticket
+    if (ticket.vendor && ticket.createdByModel === 'Vendor') {
+      try {
+        const { sendVendorNotification } = require('../utils/socket');
+        const vendorId = ticket.vendor._id || ticket.vendor;
+        
+        const statusMessages = {
+          'active': 'Ticket is now active',
+          'pending': 'Ticket is pending review',
+          'resolved': 'Ticket has been resolved',
+          'closed': 'Ticket has been closed',
+        };
+
+        sendVendorNotification(vendorId, {
+          type: 'ticket_status_updated',
+          title: 'Ticket Status Updated',
+          message: `Your ticket #${ticket.ticketNumber || ticket._id} status changed from ${oldStatus} to ${status}. ${statusMessages[status] || ''}`,
+          data: {
+            ticketId: ticket._id,
+            ticketNumber: ticket.ticketNumber || ticket._id,
+            status: status,
+            previousStatus: oldStatus,
+            adminResponse: ticket.adminResponse,
+            category: ticket.category,
+          },
+        });
+      } catch (notifyError) {
+        // Don't fail the request if socket notification fails
+        logger.error('Error sending socket notification to vendor for ticket status update:', notifyError);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: 'Ticket status updated successfully',
@@ -551,6 +618,31 @@ exports.addAdminMessage = async (req, res, next) => {
     await ticket.populate('vendor', 'vendorName storeName contactNumber email');
     await ticket.populate('rider', 'fullName mobileNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    // Notify vendor if this is a vendor ticket
+    if (ticket.vendor && ticket.createdByModel === 'Vendor') {
+      try {
+        const { sendVendorNotification } = require('../utils/socket');
+        const vendorId = ticket.vendor._id || ticket.vendor;
+        
+        sendVendorNotification(vendorId, {
+          type: 'ticket_message_received',
+          title: 'New Message on Your Ticket',
+          message: `Admin has replied to your ticket #${ticket.ticketNumber || ticket._id}. ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`,
+          data: {
+            ticketId: ticket._id,
+            ticketNumber: ticket.ticketNumber || ticket._id,
+            status: ticket.status,
+            message: message,
+            sender: 'Admin',
+            category: ticket.category,
+          },
+        });
+      } catch (notifyError) {
+        // Don't fail the request if socket notification fails
+        logger.error('Error sending socket notification to vendor for admin message:', notifyError);
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -750,6 +842,41 @@ exports.createVendorTicket = async (req, res, next) => {
     await ticket.populate('createdBy', 'vendorName storeName contactNumber email');
     await ticket.populate('vendor', 'vendorName storeName contactNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    // Notify all active admins about new vendor ticket
+    try {
+      const { sendAdminNotification } = require('../utils/socket');
+      const Admin = require('../models/Admin');
+      
+      // Get all active admins
+      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
+      
+      // Send notification to each admin
+      for (const admin of activeAdmins) {
+        try {
+          sendAdminNotification(admin._id, {
+            type: 'ticket_created',
+            title: 'New Ticket Created',
+            message: `Vendor has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            data: {
+              ticketId: ticket._id,
+              ticketNumber: ticket.ticketNumber || ticket._id,
+              category: ticket.category,
+              status: ticket.status,
+              createdBy: 'Vendor',
+              vendorName: ticket.vendor?.vendorName || ticket.vendor?.storeName || 'Vendor',
+              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+              orderId: ticket.orderId || null,
+            },
+          });
+        } catch (adminNotifyError) {
+          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+        }
+      }
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+      logger.error('Error sending socket notifications to admins for vendor ticket creation:', notifyError);
+    }
 
     res.status(201).json({
       success: true,
@@ -1007,6 +1134,41 @@ exports.createRiderTicket = async (req, res, next) => {
     await ticket.populate('createdBy', 'fullName mobileNumber email');
     await ticket.populate('rider', 'fullName mobileNumber email');
     await ticket.populate('orderId', 'orderNumber totalAmount status');
+
+    // Notify all active admins about new rider ticket
+    try {
+      const { sendAdminNotification } = require('../utils/socket');
+      const Admin = require('../models/Admin');
+      
+      // Get all active admins
+      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
+      
+      // Send notification to each admin
+      for (const admin of activeAdmins) {
+        try {
+          sendAdminNotification(admin._id, {
+            type: 'ticket_created',
+            title: 'New Ticket Created',
+            message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            data: {
+              ticketId: ticket._id,
+              ticketNumber: ticket.ticketNumber || ticket._id,
+              category: ticket.category,
+              status: ticket.status,
+              createdBy: 'Rider',
+              riderName: ticket.rider?.fullName || 'Rider',
+              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+              orderId: ticket.orderId || null,
+            },
+          });
+        } catch (adminNotifyError) {
+          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+        }
+      }
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+      logger.error('Error sending socket notifications to admins for rider ticket creation:', notifyError);
+    }
 
     res.status(201).json({
       success: true,

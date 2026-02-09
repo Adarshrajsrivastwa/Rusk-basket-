@@ -873,6 +873,7 @@ exports.markOrderDelivered = async (req, res, next) => {
     }
 
     // Update order status to delivered
+    const previousStatus = order.status;
     order.status = 'delivered';
     order.deliveredAt = new Date();
     
@@ -884,6 +885,56 @@ exports.markOrderDelivered = async (req, res, next) => {
       .populate('items.product', 'productName thumbnail')
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
+
+    // Notify all vendors in the order about delivery
+    try {
+      const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+      const vendorIds = new Set();
+      
+      // Get all unique vendor IDs from order items
+      populatedOrder.items.forEach(item => {
+        const itemVendorId = item.vendor?._id || item.vendor;
+        if (itemVendorId) {
+          vendorIds.add(itemVendorId.toString());
+        }
+      });
+
+      // Notify each vendor
+      for (const vendorId of vendorIds) {
+        try {
+          notifyVendorOrderUpdate(vendorId, {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            status: 'delivered',
+            previousStatus: previousStatus,
+            data: populatedOrder,
+            timestamp: new Date().toISOString(),
+          });
+
+          sendVendorNotification(vendorId, {
+            type: 'order_delivered',
+            title: 'Order Delivered',
+            message: `Order #${order.orderNumber} has been delivered successfully by rider`,
+            data: {
+              orderId: order._id,
+              orderNumber: order.orderNumber,
+              status: 'delivered',
+              deliveredAt: order.deliveredAt,
+              rider: populatedOrder.rider ? {
+                _id: populatedOrder.rider._id,
+                fullName: populatedOrder.rider.fullName,
+                mobileNumber: populatedOrder.rider.mobileNumber,
+              } : null,
+            },
+          });
+        } catch (vendorNotifyError) {
+          logger.error(`Error sending notification to vendor ${vendorId}:`, vendorNotifyError);
+        }
+      }
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+      logger.error('Error sending socket notifications for order delivery:', notifyError);
+    }
 
     // Notify user about delivery
     if (notificationQueue && populatedOrder.user) {

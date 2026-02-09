@@ -4,6 +4,7 @@ const router = express.Router();
 
 // Controllers
 const { getAllProductsList } = require('../controllers/productGet');
+const { addProduct } = require('../controllers/productAdd');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
@@ -13,6 +14,7 @@ const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = re
 // Middleware
 const { protect } = require('../middleware/adminAuth');
 const { uploadFields } = require('../middleware/upload');
+const { uploadMultiple } = require('../middleware/productUpload');
 
 // Get all products list - simplified view (Admin only)
 router.get(
@@ -54,6 +56,107 @@ router.get(
       .withMessage('Search query must be between 1 and 200 characters'),
   ],
   getAllProductsList
+);
+
+// Create product (Admin only)
+router.post(
+  '/products',
+  protect,
+  uploadMultiple,
+  [
+    body('vendorId')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+    body('productName')
+      .trim()
+      .notEmpty()
+      .withMessage('Product name is required')
+      .bail()
+      .isLength({ max: 200 })
+      .withMessage('Product name cannot exceed 200 characters'),
+    body('productType')
+      .notEmpty()
+      .withMessage('Product type is required')
+      .bail()
+      .isIn(['quantity', 'weight', 'volume'])
+      .withMessage('Product type must be quantity, weight, or volume'),
+    body('productTypeValue')
+      .notEmpty()
+      .withMessage('Product type value is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Product type value must be a number greater than or equal to 0'),
+    body('productTypeUnit')
+      .trim()
+      .notEmpty()
+      .withMessage('Product type unit is required'),
+    body('category')
+      .notEmpty()
+      .withMessage('Category is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    body('subCategory')
+      .notEmpty()
+      .withMessage('SubCategory is required')
+      .bail()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 5000 })
+      .withMessage('Description cannot exceed 5000 characters'),
+    body('skuHsn')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('SKU/HSN code cannot exceed 50 characters'),
+    body('inventory')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Inventory must be a number greater than or equal to 0'),
+    body('actualPrice')
+      .notEmpty()
+      .withMessage('Actual price is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Actual price must be a number greater than or equal to 0'),
+    body('regularPrice')
+      .notEmpty()
+      .withMessage('Regular price is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Regular price must be a number greater than or equal to 0'),
+    body('salePrice')
+      .notEmpty()
+      .withMessage('Sale price is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Sale price must be a number greater than or equal to 0'),
+    body('cashback')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Cashback must be a number greater than or equal to 0'),
+    body('tax')
+      .notEmpty()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Tax must be a percentage between 0 and 100'),
+    body('tags')
+      .optional()
+      .trim()
+      .custom((value) => {
+        if (typeof value === 'string') {
+          const tags = value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+          if (tags.length > 20) {
+            throw new Error('Maximum 20 tags allowed');
+          }
+        }
+        return true;
+      }),
+  ],
+  addProduct
 );
 
 // Get all orders (Admin only)

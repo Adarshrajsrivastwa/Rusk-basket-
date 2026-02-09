@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Rider = require('../models/Rider');
 const User = require('../models/User');
 const Vendor = require('../models/Vendor');
+const Admin = require('../models/Admin');
 
 let io = null;
 let socketIOAvailable = false;
@@ -158,6 +159,32 @@ const initializeSocket = (server) => {
           console.log('   - User ID:', socket.userId);
           console.log('========================================');
           next();
+        } else if (decoded.role === 'admin') {
+          // Verify admin exists and is active
+          console.log(`🔍 SOCKET AUTH: Looking up admin with ID: ${decoded.id}`);
+          const admin = await Admin.findById(decoded.id);
+          if (!admin) {
+            console.log(`❌ SOCKET AUTH: Admin not found with ID: ${decoded.id}`);
+            return next(new Error('Admin not found'));
+          }
+
+          console.log('✅ SOCKET AUTH: Admin found');
+          console.log('   - Admin Name:', admin.name || 'N/A');
+          console.log('   - Email:', admin.email || 'N/A');
+          console.log('   - Is Active:', admin.isActive);
+
+          if (!admin.isActive) {
+            console.log('❌ SOCKET AUTH: Admin account is inactive');
+            return next(new Error('Admin account is inactive'));
+          }
+
+          socket.adminId = decoded.id;
+          socket.admin = admin;
+          socket.role = 'admin';
+          console.log('✅ SOCKET AUTH: Admin authentication successful!');
+          console.log('   - Admin ID:', socket.adminId);
+          console.log('========================================');
+          next();
         } else {
           console.log(`❌ SOCKET AUTH: Invalid role. Got '${decoded.role}'`);
           return next(new Error('Invalid role for socket connection'));
@@ -224,6 +251,14 @@ const initializeSocket = (server) => {
           vendorId: vendorId,
         });
 
+        // Handle vendor-specific events
+        socket.on('vendor:ping', () => {
+          socket.emit('vendor:pong', {
+            success: true,
+            timestamp: new Date().toISOString(),
+          });
+        });
+
         // Handle disconnect
         socket.on('disconnect', () => {
           logger.info(`Vendor disconnected: ${vendorId} (Socket ID: ${socket.id})`);
@@ -260,6 +295,41 @@ const initializeSocket = (server) => {
         // Handle errors
         socket.on('error', (error) => {
           logger.error(`Socket error for user ${userId}:`, error);
+        });
+      } else if (role === 'admin') {
+        const adminId = socket.adminId;
+        logger.info(`Admin connected: ${adminId} (Socket ID: ${socket.id})`);
+
+        // Store admin connection
+        connectedAdmins.set(adminId.toString(), socket.id);
+
+        // Join admin to their personal room
+        socket.join(`admin:${adminId}`);
+
+        // Send connection confirmation
+        socket.emit('connected', {
+          success: true,
+          message: 'Connected to admin notification service',
+          adminId: adminId,
+        });
+
+        // Handle admin-specific events
+        socket.on('admin:ping', () => {
+          socket.emit('admin:pong', {
+            success: true,
+            timestamp: new Date().toISOString(),
+          });
+        });
+
+        // Handle disconnect
+        socket.on('disconnect', () => {
+          logger.info(`Admin disconnected: ${adminId} (Socket ID: ${socket.id})`);
+          connectedAdmins.delete(adminId.toString());
+        });
+
+        // Handle errors
+        socket.on('error', (error) => {
+          logger.error(`Socket error for admin ${adminId}:`, error);
         });
       }
     });

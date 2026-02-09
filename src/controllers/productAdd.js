@@ -136,7 +136,23 @@ exports.addProduct = async (req, res, next) => {
       });
     }
 
+    // Generate unique product number
+    let productNumber;
+    try {
+      productNumber = await Product.generateProductNumber();
+      if (!productNumber) {
+        throw new Error('Failed to generate product number');
+      }
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate product number. Please try again.',
+        message: error.message,
+      });
+    }
+
     const product = await Product.create({
+      productNumber,
       productName,
       productType: {
         type: productType,

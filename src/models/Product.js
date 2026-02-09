@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const ProductSchema = new mongoose.Schema({
+  productNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true,
+  },
   productName: {
     type: String,
     required: [true, 'Product name is required'],
@@ -335,5 +341,40 @@ ProductSchema.index({ offerEnabled: 1 });
 ProductSchema.index({ offerEnabled: 1, offerStartDate: 1, offerEndDate: 1 });
 ProductSchema.index({ isDailyOffer: 1, offerEnabled: 1 });
 ProductSchema.index({ offerEnabled: 1, offerEndDate: 1 });
+
+// Static method to generate unique product number (format: RD-445)
+ProductSchema.statics.generateProductNumber = async function () {
+  let productNumber;
+  let exists = true;
+  let attempts = 0;
+  const maxAttempts = 10;
+  
+  while (exists && attempts < maxAttempts) {
+    // Generate a random number between 100 and 99999
+    const randomNum = Math.floor(100 + Math.random() * 99899);
+    productNumber = `RD-${randomNum}`;
+    const product = await this.findOne({ productNumber });
+    if (!product) {
+      exists = false;
+    }
+    attempts++;
+  }
+  
+  if (exists) {
+    throw new Error('Failed to generate unique product number after multiple attempts');
+  }
+  
+  return productNumber;
+};
+
+// Create unique sparse index for productNumber (only for non-null values)
+ProductSchema.index(
+  { productNumber: 1 },
+  { 
+    unique: true, 
+    sparse: true,
+    partialFilterExpression: { productNumber: { $exists: true, $ne: null } }
+  }
+);
 
 module.exports = mongoose.model('Product', ProductSchema);
