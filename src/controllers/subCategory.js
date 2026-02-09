@@ -432,9 +432,10 @@ exports.getSubCategoriesByCategory = async (req, res, next) => {
             subCategory: subCategory._id 
           });
           
-          // Keep _id for update operations, code for display
-          return formatResponse({
+          // Ensure _id is converted to string for frontend compatibility
+          const subCategoryData = {
             ...subCategory,
+            _id: subCategory._id ? String(subCategory._id) : subCategory._id,
             code: subCategory.code,
             subCategoryName: subCategory.name || '',
             products: totalProducts || 0,
@@ -442,14 +443,19 @@ exports.getSubCategoriesByCategory = async (req, res, next) => {
             categoryName: subCategory.category?.name || null,
             category: subCategory.category ? {
               ...subCategory.category,
+              _id: subCategory.category._id ? String(subCategory.category._id) : subCategory.category._id,
               code: subCategory.category.code,
             } : subCategory.category,
             status: subCategory.isActive ? 'active' : 'inactive',
-          });
+          };
+          
+          // Keep _id for update operations, code for display
+          return formatResponse(subCategoryData);
         } catch (err) {
           logger.error(`Error counting products for subcategory ${subCategory._id}:`, err);
-          return formatResponse({
+          const subCategoryData = {
             ...subCategory,
+            _id: subCategory._id ? String(subCategory._id) : subCategory._id,
             code: subCategory.code,
             subCategoryName: subCategory.name || '',
             products: 0,
@@ -457,10 +463,12 @@ exports.getSubCategoriesByCategory = async (req, res, next) => {
             categoryName: subCategory.category?.name || null,
             category: subCategory.category ? {
               ...subCategory.category,
+              _id: subCategory.category._id ? String(subCategory.category._id) : subCategory.category._id,
               code: subCategory.category.code,
             } : subCategory.category,
             status: subCategory.isActive ? 'active' : 'inactive',
-          });
+          };
+          return formatResponse(subCategoryData);
         }
       })
     );
