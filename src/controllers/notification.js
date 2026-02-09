@@ -8,6 +8,15 @@ const mongoose = require('mongoose');
  */
 exports.getVendorNotifications = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
     const vendorId = req.vendor._id;
     const { page = 1, limit = 20, isRead, type } = req.query;
 
@@ -63,15 +72,17 @@ exports.getVendorNotifications = async (req, res, next) => {
  */
 exports.markNotificationAsRead = async (req, res, next) => {
   try {
-    const vendorId = req.vendor._id;
-    const { notificationId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid notification ID format',
+        error: 'Validation failed',
+        errors: errors.array(),
       });
     }
+
+    const vendorId = req.vendor._id;
+    const { notificationId } = req.params;
 
     const notification = await Notification.findOne({
       _id: notificationId,
@@ -139,15 +150,17 @@ exports.markAllNotificationsAsRead = async (req, res, next) => {
  */
 exports.deleteNotification = async (req, res, next) => {
   try {
-    const vendorId = req.vendor._id;
-    const { notificationId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid notification ID format',
+        error: 'Validation failed',
+        errors: errors.array(),
       });
     }
+
+    const vendorId = req.vendor._id;
+    const { notificationId } = req.params;
 
     const notification = await Notification.findOne({
       _id: notificationId,
