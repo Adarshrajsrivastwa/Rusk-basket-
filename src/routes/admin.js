@@ -1,11 +1,14 @@
 const express = require('express');
-const { query, body } = require('express-validator');
+const { query, body, param } = require('express-validator');
 const router = express.Router();
 
 // Controllers
 const { getAllProductsList } = require('../controllers/productGet');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile } = require('../controllers/admin');
+const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
+const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor } = require('../controllers/vendor');
+const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
 
 // Middleware
 const { protect } = require('../middleware/adminAuth');
@@ -290,6 +293,332 @@ router.put(
       }),
   ],
   updateAdminProfile
+);
+
+// ============ TICKET ROUTES (Admin only) ============
+
+// Get all tickets (admin only)
+router.get(
+  '/tickets',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['active', 'pending', 'resolved', 'closed'])
+      .withMessage('Invalid status. Must be one of: active, pending, resolved, closed'),
+    query('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    query('createdByModel')
+      .optional()
+      .isIn(['User', 'Vendor', 'Rider'])
+      .withMessage('Invalid createdByModel. Must be one of: User, Vendor, Rider'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search term cannot exceed 200 characters'),
+  ],
+  getAllTickets
+);
+
+// Get single ticket (admin only)
+router.get(
+  '/tickets/:ticketId',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+  ],
+  getAdminTicket
+);
+
+// Update ticket status (admin only)
+router.patch(
+  '/tickets/:ticketId/status',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('status')
+      .notEmpty()
+      .withMessage('Status is required')
+      .isIn(['active', 'pending', 'resolved', 'closed'])
+      .withMessage('Status must be one of: active, pending, resolved, closed'),
+    body('adminResponse')
+      .optional()
+      .trim()
+      .isLength({ max: 2000 })
+      .withMessage('Admin response cannot be more than 2000 characters'),
+  ],
+  updateTicketStatus
+);
+
+// Add admin message to ticket
+router.post(
+  '/tickets/:ticketId/messages',
+  protect,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('message')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ min: 1, max: 2000 })
+      .withMessage('Message must be between 1 and 2000 characters'),
+  ],
+  addAdminMessage
+);
+
+// ============ VENDOR MANAGEMENT ROUTES (Admin only) ============
+
+// Get all vendors (admin only)
+router.get(
+  '/vendors',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getVendors
+);
+
+// Get single vendor (admin only)
+router.get(
+  '/vendors/:id',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  getVendor
+);
+
+// Suspend/Activate vendor (admin only)
+router.put(
+  '/vendors/:id/suspend',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  suspendVendor
+);
+
+// Update vendor documents (admin only)
+router.put(
+  '/vendors/:id/documents',
+  protect,
+  uploadFields,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  updateVendorDocuments
+);
+
+// Update vendor service radius (admin only)
+router.put(
+  '/vendors/:id/radius',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+    body('serviceRadius')
+      .notEmpty()
+      .withMessage('Service radius is required')
+      .isFloat({ min: 0 })
+      .withMessage('Service radius must be a positive number'),
+  ],
+  updateVendorRadius
+);
+
+// Update vendor handling charge (admin only)
+router.put(
+  '/vendors/:id/handling-charge',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+    body('handlingChargePercentage')
+      .notEmpty()
+      .withMessage('Handling charge percentage is required')
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Handling charge percentage must be between 0 and 100'),
+  ],
+  updateVendorHandlingCharge
+);
+
+// Delete vendor (admin only)
+router.delete(
+  '/vendors/:id',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  deleteVendor
+);
+
+// ============ RIDER MANAGEMENT ROUTES (Admin only) ============
+
+// Get all riders (admin only)
+router.get(
+  '/riders',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('approvalStatus')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Invalid approval status'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+  ],
+  getRiders
+);
+
+// Get pending riders (admin only)
+router.get(
+  '/riders/pending',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+  ],
+  getPendingRiders
+);
+
+// Get single rider (admin only)
+router.get(
+  '/riders/:id',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+  ],
+  getRider
+);
+
+// Approve rider (admin only)
+router.put(
+  '/riders/:id/approve',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+  ],
+  approveRider
+);
+
+// Reject rider (admin only)
+router.put(
+  '/riders/:id/reject',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  approveRider
+);
+
+// Suspend/Activate rider (admin only)
+router.put(
+  '/riders/:id/suspend',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+  ],
+  suspendRider
 );
 
 module.exports = router;

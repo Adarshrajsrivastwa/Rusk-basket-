@@ -114,13 +114,15 @@ const executeQuery = async (model, queryOptions = {}) => {
       queryLogger(JSON.stringify({ query, sort: sortObj }), executionTime);
     }
     
+    const totalPages = Math.ceil(total / paginationObj.limit);
     return {
       data,
       pagination: {
         page: paginationObj.page,
         limit: paginationObj.limit,
         total,
-        pages: Math.ceil(total / paginationObj.limit),
+        pages: totalPages,
+        totalPages: totalPages, // Added for frontend compatibility
       },
       executionTime: `${executionTime}ms`,
     };
