@@ -124,20 +124,34 @@ const corsOptions = {
       'http://127.0.0.1:5174',
       'http://46.202.164.93',
       'https://grocery.rushbaskets.com',
+      'https://grocery.rushbaskets.com/',
       'https://admin.rushbaskets.com',
+      'https://admin.rushbaskets.com/',
       'https://api.rushbaskets.com',
+      'https://api.rushbaskets.com/',
       process.env.CORS_ORIGIN,
     ].filter(Boolean);
     
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Normalize origin by removing trailing slash for comparison
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    const normalizedAllowedOrigins = allowedOrigins.map(o => o.replace(/\/$/, ''));
+    
+    // Check if origin matches any allowed origin
+    if (normalizedAllowedOrigins.includes(normalizedOrigin)) {
       callback(null, true);
     } else {
+      console.log('CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true, // IMPORTANT: Cookies allow karne ke liye
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-CSRF-Token'],
   exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 200,
 };
