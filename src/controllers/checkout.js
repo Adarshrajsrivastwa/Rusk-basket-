@@ -299,11 +299,62 @@ exports.createOrder = async (req, res, next) => {
 
     logger.info(`Order created: ${order.orderNumber} by User: ${req.user._id}`);
 
-    res.status(201).json({
+    // Initialize payment gateway for prepaid payments (not COD)
+    let paymentData = null;
+    if (paymentMethod !== 'cod') {
+      try {
+        const { initializePayment } = require('../services/paymentService');
+        const User = require('../models/User');
+        const user = await User.findById(userId).select('email');
+
+        const orderData = {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          userId: userId.toString(),
+          amount: order.payment.amount,
+          email: user?.email || '',
+          phone: shippingAddress.phone,
+          shippingAddress: shippingAddress,
+          items: order.items.map(item => ({
+            title: item.productName,
+            quantity: item.quantity,
+            price: item.salePrice || item.unitPrice,
+          })),
+          redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
+        };
+
+        paymentData = await initializePayment(orderData);
+
+        // Update order with payment gateway transaction ID
+        order.payment.transactionId = paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId;
+        await order.save();
+
+        logger.info(`Payment initialized for order ${order.orderNumber}`);
+      } catch (paymentError) {
+        logger.error('Payment initialization error:', paymentError);
+        // Don't fail order creation if payment initialization fails
+        // Payment can be initialized later via /api/payment/initialize
+      }
+    }
+
+    const responseData = {
       success: true,
       message: 'Order created successfully',
       data: order,
-    });
+    };
+
+    // Include payment data if payment was initialized
+    if (paymentData) {
+      responseData.payment = {
+        gateway: paymentData.paymentGateway,
+        orderId: paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId,
+        redirectUrl: paymentData.redirectUrl,
+        keyId: paymentData.keyId,
+        checkoutUrl: paymentData.checkoutUrl,
+      };
+    }
+
+    res.status(201).json(responseData);
   } catch (error) {
     logger.error('Create order error:', error);
     res.status(400).json({
