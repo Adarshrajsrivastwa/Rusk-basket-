@@ -281,3 +281,48 @@ exports.getEnabledPaymentGateways = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Test payment gateway credentials
+ */
+exports.testPaymentGatewayCredentials = async (req, res, next) => {
+  try {
+    const { gatewayName, credentials, isTestMode } = req.body;
+
+    if (!gatewayName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Gateway name is required',
+      });
+    }
+
+    if (!credentials || typeof credentials !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: 'Credentials are required and must be an object',
+      });
+    }
+
+    if (!['razorpay', 'phonepay', 'shopify'].includes(gatewayName.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid gateway name. Must be one of: razorpay, phonepay, shopify',
+      });
+    }
+
+    const { testPaymentGatewayCredentials } = require('../services/paymentService');
+    const result = await testPaymentGatewayCredentials(gatewayName, credentials, isTestMode);
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result,
+    });
+  } catch (error) {
+    logger.error('Test payment gateway credentials error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to test credentials',
+    });
+  }
+};

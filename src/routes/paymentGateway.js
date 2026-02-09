@@ -8,6 +8,7 @@ const {
   togglePaymentGateway,
   deletePaymentGateway,
   getEnabledPaymentGateways,
+  testPaymentGatewayCredentials,
 } = require('../controllers/paymentGateway');
 const { protect } = require('../middleware/adminAuth');
 
@@ -159,6 +160,30 @@ router.delete(
       .withMessage('Invalid gateway ID'),
   ],
   deletePaymentGateway
+);
+
+router.post(
+  '/test-credentials',
+  protect,
+  [
+    body('gatewayName')
+      .notEmpty()
+      .withMessage('Gateway name is required')
+      .bail()
+      .isIn(['shopify', 'razorpay', 'phonepay'])
+      .withMessage('Gateway name must be one of: shopify, razorpay, phonepay'),
+    body('credentials')
+      .notEmpty()
+      .withMessage('Credentials are required')
+      .bail()
+      .isObject()
+      .withMessage('Credentials must be an object'),
+    body('isTestMode')
+      .optional()
+      .isBoolean()
+      .withMessage('isTestMode must be a boolean'),
+  ],
+  testPaymentGatewayCredentials
 );
 
 module.exports = router;

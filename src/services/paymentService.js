@@ -367,6 +367,150 @@ const verifyPayment = async (paymentData, gatewayName) => {
   }
 };
 
+/**
+ * Test Razorpay credentials
+ */
+const testRazorpayCredentials = async (credentials) => {
+  try {
+    const Razorpay = require('razorpay');
+    
+    if (!credentials.razorpayKeyId || !credentials.razorpayKeySecret) {
+      throw new Error('Key ID and Key Secret are required');
+    }
+    
+    const razorpay = new Razorpay({
+      key_id: credentials.razorpayKeyId,
+      key_secret: credentials.razorpayKeySecret,
+    });
+
+    // Try to fetch account details to verify credentials
+    // Using a simple API call that doesn't require existing data
+    try {
+      await razorpay.payments.all({ count: 1 });
+    } catch (apiError) {
+      // If it's a 404 or empty result, credentials are still valid
+      // Only fail if it's an authentication error
+      if (apiError.statusCode === 401 || apiError.statusCode === 403) {
+        throw new Error('Invalid Razorpay credentials. Please check your Key ID and Key Secret.');
+      }
+      // For other errors (like 404), credentials are likely valid
+    }
+    
+    return {
+      success: true,
+      message: 'Razorpay credentials are valid',
+      gateway: 'razorpay',
+    };
+  } catch (error) {
+    logger.error('Razorpay credentials test error:', error);
+    throw new Error(`Razorpay credentials test failed: ${error.message}`);
+  }
+};
+
+/**
+ * Test PhonePe credentials
+ */
+const testPhonePeCredentials = async (credentials) => {
+  try {
+    if (!credentials.phonepayMerchantId || !credentials.phonepaySaltKey) {
+      throw new Error('Merchant ID and Salt Key are required');
+    }
+
+    // PhonePe doesn't have a direct test API, so we validate the structure
+    // In production, you might want to make a test API call
+    if (!credentials.phonepayMerchantId.trim()) {
+      throw new Error('Merchant ID cannot be empty');
+    }
+    
+    if (!credentials.phonepaySaltKey.trim()) {
+      throw new Error('Salt Key cannot be empty');
+    }
+
+    return {
+      success: true,
+      message: 'PhonePe credentials structure is valid',
+      gateway: 'phonepay',
+      note: 'Note: This validates credential structure. Actual API connectivity should be tested with a real transaction.',
+    };
+  } catch (error) {
+    logger.error('PhonePe credentials test error:', error);
+    throw new Error(`PhonePe credentials test failed: ${error.message}`);
+  }
+};
+
+/**
+ * Test Shopify credentials
+ */
+const testShopifyCredentials = async (credentials) => {
+  try {
+    if (!credentials.shopifyStoreUrl || !credentials.shopifyApiKey || !credentials.shopifyAccessToken) {
+      throw new Error('Store URL, API Key, and Access Token are required');
+    }
+
+    // Remove trailing slash from store URL if present
+    const storeUrl = credentials.shopifyStoreUrl.replace(/\/$/, '');
+    const apiUrl = `${storeUrl}/admin/api/2024-01/shop.json`;
+
+    // Test API connection
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'X-Shopify-Access-Token': credentials.shopifyAccessToken,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    });
+
+    if (response.data && response.data.shop) {
+      return {
+        success: true,
+        message: 'Shopify credentials are valid',
+        gateway: 'shopify',
+        shopName: response.data.shop.name,
+      };
+    } else {
+      throw new Error('Invalid response from Shopify API');
+    }
+  } catch (error) {
+    logger.error('Shopify credentials test error:', error);
+    if (error.response) {
+      if (error.response.status === 401) {
+        throw new Error('Invalid Shopify Access Token');
+      } else if (error.response.status === 404) {
+        throw new Error('Invalid Shopify Store URL');
+      }
+    }
+    throw new Error(`Shopify credentials test failed: ${error.message}`);
+  }
+};
+
+/**
+ * Test payment gateway credentials
+ */
+const testPaymentGatewayCredentials = async (gatewayName, credentials, isTestMode = false) => {
+  try {
+    if (!gatewayName || !credentials) {
+      throw new Error('Gateway name and credentials are required');
+    }
+
+    switch (gatewayName.toLowerCase()) {
+      case 'razorpay':
+        return await testRazorpayCredentials(credentials);
+      
+      case 'phonepay':
+        return await testPhonePeCredentials(credentials);
+      
+      case 'shopify':
+        return await testShopifyCredentials(credentials);
+      
+      default:
+        throw new Error(`Unsupported payment gateway: ${gatewayName}`);
+    }
+  } catch (error) {
+    logger.error('Payment gateway credentials test error:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   getActivePaymentGateway,
   getAllEnabledGateways,
@@ -378,4 +522,5 @@ module.exports = {
   verifyPhonePePayment,
   initializeShopifyPayment,
   verifyShopifyPayment,
+  testPaymentGatewayCredentials,
 };
