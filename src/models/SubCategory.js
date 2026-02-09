@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const SubCategorySchema = new mongoose.Schema({
+  code: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
   name: {
     type: String,
     required: [true, 'SubCategory name is required'],
@@ -40,11 +45,32 @@ const SubCategorySchema = new mongoose.Schema({
   },
 });
 
-SubCategorySchema.pre('save', function (next) {
+// Generate unique code before saving
+SubCategorySchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
+  
+  // Generate code if it doesn't exist
+  if (!this.code) {
+    let codeExists = true;
+    let codeNumber = 1;
+    let code;
+    
+    while (codeExists) {
+      code = `SUB${String(codeNumber).padStart(6, '0')}`;
+      const existingSubCategory = await mongoose.model('SubCategory').findOne({ code });
+      if (!existingSubCategory) {
+        codeExists = false;
+        this.code = code;
+      } else {
+        codeNumber++;
+      }
+    }
+  }
+  
   next();
 });
 
+SubCategorySchema.index({ code: 1 });
 SubCategorySchema.index({ category: 1 });
 SubCategorySchema.index({ isActive: 1 });
 SubCategorySchema.index({ createdAt: -1 });

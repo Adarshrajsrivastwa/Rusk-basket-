@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const InvoiceSchema = new mongoose.Schema({
+  code: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
   invoiceNumber: {
     type: String,
     unique: true,
@@ -164,8 +169,28 @@ const InvoiceSchema = new mongoose.Schema({
   },
 });
 
-InvoiceSchema.pre('save', function (next) {
+// Generate unique code before saving
+InvoiceSchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
+  
+  // Generate code if it doesn't exist
+  if (!this.code) {
+    let codeExists = true;
+    let codeNumber = 1;
+    let code;
+    
+    while (codeExists) {
+      code = `INV${String(codeNumber).padStart(6, '0')}`;
+      const existingInvoice = await mongoose.model('Invoice').findOne({ code });
+      if (!existingInvoice) {
+        codeExists = false;
+        this.code = code;
+      } else {
+        codeNumber++;
+      }
+    }
+  }
+  
   next();
 });
 
@@ -201,6 +226,7 @@ InvoiceSchema.statics.generateInvoiceNumber = async function () {
 };
 
 // Indexes for better query performance
+InvoiceSchema.index({ code: 1 });
 InvoiceSchema.index({ user: 1, createdAt: -1 });
 InvoiceSchema.index({ vendor: 1, createdAt: -1 });
 InvoiceSchema.index({ order: 1 });

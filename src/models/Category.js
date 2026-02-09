@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const CategorySchema = new mongoose.Schema({
+  code: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
   name: {
     type: String,
     required: [true, 'Category name is required'],
@@ -41,11 +46,32 @@ const CategorySchema = new mongoose.Schema({
   },
 });
 
-CategorySchema.pre('save', function (next) {
+// Generate unique code before saving
+CategorySchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
+  
+  // Generate code if it doesn't exist
+  if (!this.code) {
+    let codeExists = true;
+    let codeNumber = 1;
+    let code;
+    
+    while (codeExists) {
+      code = `CAT${String(codeNumber).padStart(6, '0')}`;
+      const existingCategory = await mongoose.model('Category').findOne({ code });
+      if (!existingCategory) {
+        codeExists = false;
+        this.code = code;
+      } else {
+        codeNumber++;
+      }
+    }
+  }
+  
   next();
 });
 
+CategorySchema.index({ code: 1 });
 CategorySchema.index({ isActive: 1 });
 CategorySchema.index({ createdAt: -1 });
 

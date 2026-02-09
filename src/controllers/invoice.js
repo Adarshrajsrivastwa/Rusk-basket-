@@ -5,6 +5,26 @@ const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 
+// Helper function to format response - keep _id for operations but ensure code is present
+const formatResponse = (obj) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => formatResponse(item));
+  }
+  
+  const cleaned = { ...obj };
+  
+  // Recursively format nested objects (but keep _id in nested objects too for references)
+  for (const key in cleaned) {
+    if (cleaned[key] && typeof cleaned[key] === 'object' && !(cleaned[key] instanceof Date)) {
+      cleaned[key] = formatResponse(cleaned[key]);
+    }
+  }
+  
+  return cleaned;
+};
+
 /**
  * Create invoice (usually called automatically when order is placed)
  * Extracts all pricing information directly from order:
@@ -165,9 +185,11 @@ exports.getInvoiceById = async (req, res, next) => {
       });
     }
 
-    // Format invoice data with all details
-    const formattedInvoice = {
-      ...invoice.toObject(),
+    // Format invoice data with all details - keep _id for operations, code for display
+    const invoiceData = invoice.toObject ? invoice.toObject() : invoice;
+    const formattedInvoice = formatResponse({
+      ...invoiceData,
+      code: invoice.code,
       // Ensure pricing is included
       pricing: invoice.pricing || {
         subtotal: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
@@ -186,7 +208,7 @@ exports.getInvoiceById = async (req, res, next) => {
         dueDate.setDate(dueDate.getDate() + 30);
         return dueDate;
       })(),
-    };
+    });
 
     res.status(200).json({
       success: true,
@@ -212,11 +234,18 @@ exports.getInvoicesByOrder = async (req, res, next) => {
       .populate('vendor', 'vendorName storeName')
       .populate('user', 'userName')
       .populate('items.product', 'productName description thumbnail skuHsn skus')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Format invoices - keep _id for operations, code for display
+    const formattedInvoices = invoices.map(invoice => formatResponse({
+      ...invoice,
+      code: invoice.code,
+    }));
 
     res.status(200).json({
       success: true,
-      data: invoices,
+      data: formattedInvoices,
     });
   } catch (error) {
     logger.error('Get invoices by order error:', error);
@@ -263,10 +292,16 @@ exports.getUserInvoices = async (req, res, next) => {
 
     const total = await Invoice.countDocuments(query);
 
+    // Format invoices - keep _id for operations, code for display
+    const formattedInvoices = invoices.map(invoice => formatResponse({
+      ...invoice,
+      code: invoice.code,
+    }));
+
     res.status(200).json({
       success: true,
       data: {
-        invoices,
+        invoices: formattedInvoices,
         pagination: {
           page,
           limit,
@@ -320,10 +355,16 @@ exports.getVendorInvoices = async (req, res, next) => {
 
     const total = await Invoice.countDocuments(query);
 
+    // Format invoices - keep _id for operations, code for display
+    const formattedInvoices = invoices.map(invoice => formatResponse({
+      ...invoice,
+      code: invoice.code,
+    }));
+
     res.status(200).json({
       success: true,
       data: {
-        invoices,
+        invoices: formattedInvoices,
         pagination: {
           page,
           limit,
@@ -385,10 +426,11 @@ exports.getAllInvoices = async (req, res, next) => {
 
     const total = await Invoice.countDocuments(query);
 
-    // Format invoices with serial number for table display
-    const formattedInvoices = invoices.map((invoice, index) => ({
+    // Format invoices with serial number for table display - keep _id for operations, code for display
+    const formattedInvoices = invoices.map((invoice, index) => formatResponse({
       serialNumber: skip + index + 1,
       invoiceNumber: invoice.invoiceNumber,
+      code: invoice.code,
       date: invoice.date,
       orderId: invoice.orderNumber,
       order: invoice.order,
@@ -463,10 +505,17 @@ exports.updateInvoiceStatus = async (req, res, next) => {
 
     logger.info(`Invoice status updated: ${invoice.invoiceNumber} to ${status}`);
 
+    // Format response - keep _id for operations, code for display
+    const invoiceData = invoice.toObject ? invoice.toObject() : invoice;
+    const responseData = formatResponse({
+      ...invoiceData,
+      code: invoice.code,
+    });
+
     res.status(200).json({
       success: true,
       message: 'Invoice status updated successfully',
-      data: invoice,
+      data: responseData,
     });
   } catch (error) {
     logger.error('Update invoice status error:', error);
@@ -554,12 +603,19 @@ exports.updateInvoice = async (req, res, next) => {
       .populate('order', 'orderNumber status')
       .populate('user', 'userName contactNumber email shippingAddress')
       .populate('vendor', 'vendorName storeName contactNumber email storeAddress')
-      .populate('items.product', 'productName description thumbnail skuHsn skus');
+      .populate('items.product', 'productName description thumbnail skuHsn skus')
+      .lean();
+
+    // Format response - keep _id for operations, code for display
+    const responseData = formatResponse({
+      ...updatedInvoice,
+      code: updatedInvoice.code,
+    });
 
     res.status(200).json({
       success: true,
       message: 'Invoice updated successfully',
-      data: updatedInvoice,
+      data: responseData,
     });
   } catch (error) {
     logger.error('Update invoice error:', error);
@@ -664,9 +720,16 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
         .populate('order', 'orderNumber status')
         .populate('user', 'userName contactNumber email shippingAddress')
         .populate('vendor', 'vendorName storeName contactNumber email storeAddress')
-        .populate('items.product', 'productName description thumbnail skuHsn skus');
+        .populate('items.product', 'productName description thumbnail skuHsn skus')
+        .lean();
 
-      updatedInvoices.push(populatedInvoice);
+      // Format response - keep _id for operations, code for display
+      const formattedInvoice = formatResponse({
+        ...populatedInvoice,
+        code: populatedInvoice.code,
+      });
+
+      updatedInvoices.push(formattedInvoice);
 
       logger.info(`Invoice updated from order: ${invoice.invoiceNumber} for Order: ${order.orderNumber}, Vendor: ${invoice.vendor}`);
       logger.info(`Updated pricing - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
