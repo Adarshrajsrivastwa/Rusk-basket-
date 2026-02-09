@@ -45,10 +45,20 @@ const initializeSocket = (server) => {
             'http://127.0.0.1:5173',
             'http://127.0.0.1:5174',
             'http://46.202.164.93',
+            'https://grocery.rushbaskets.com',
+            'https://grocery.rushbaskets.com/',
+            'https://admin.rushbaskets.com',
+            'https://admin.rushbaskets.com/',
+            'https://api.rushbaskets.com',
+            'https://api.rushbaskets.com/',
             process.env.CORS_ORIGIN,
           ].filter(Boolean);
           
-          if (!origin || allowedOrigins.includes(origin)) {
+          // Normalize origin (remove trailing slash for comparison)
+          const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
+          const normalizedAllowedOrigins = allowedOrigins.map(o => o.replace(/\/$/, ''));
+          
+          if (!origin || normalizedAllowedOrigins.includes(normalizedOrigin)) {
             callback(null, true);
           } else {
             callback(null, true);

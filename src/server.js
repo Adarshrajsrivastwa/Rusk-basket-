@@ -132,28 +132,40 @@ const corsOptions = {
       process.env.CORS_ORIGIN,
     ].filter(Boolean);
     
+    // Normalize origin (remove trailing slash for comparison)
+    const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
+    const normalizedAllowedOrigins = allowedOrigins.map(o => o.replace(/\/$/, ''));
+    
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
       return callback(null, true);
     }
     
-    // Normalize origin by removing trailing slash for comparison
-    const normalizedOrigin = origin.replace(/\/$/, '');
-    const normalizedAllowedOrigins = allowedOrigins.map(o => o.replace(/\/$/, ''));
-    
     // Check if origin matches any allowed origin
     if (normalizedAllowedOrigins.includes(normalizedOrigin)) {
       callback(null, true);
     } else {
+      // Log for debugging
       console.log('CORS blocked origin:', origin);
+      console.log('Allowed origins:', normalizedAllowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true, // IMPORTANT: Cookies allow karne ke liye
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-CSRF-Token'],
-  exposedHeaders: ['Set-Cookie'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers',
+    'X-CSRF-Token'
+  ],
+  exposedHeaders: ['Set-Cookie', 'Authorization'],
   optionsSuccessStatus: 200,
+  preflightContinue: false,
 };
 
 app.use(cors(corsOptions));
