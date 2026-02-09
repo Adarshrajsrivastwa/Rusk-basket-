@@ -910,6 +910,15 @@ exports.getVendorTickets = async (req, res, next) => {
       });
     }
 
+    // Ensure vendor is authenticated
+    if (!req.vendor || !req.vendor._id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Vendor privileges required.',
+        message: 'Vendor authentication required to access tickets.',
+      });
+    }
+
     const vendorId = req.vendor._id;
     const { page = 1, limit = 10, status, category } = req.query;
 

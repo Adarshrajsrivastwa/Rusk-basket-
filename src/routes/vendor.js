@@ -642,6 +642,88 @@ router.delete(
 
 router.delete('/notifications', protectVendor, deleteAllNotifications);
 
+// Ticket routes (protected - vendor can create and manage their tickets)
+// Must be placed before /:id route to ensure proper matching
+router.post(
+  '/tickets',
+  protectVendor,
+  [
+    body('complaint')
+      .trim()
+      .notEmpty()
+      .withMessage('Complaint is required')
+      .isLength({ min: 10, max: 2000 })
+      .withMessage('Complaint must be between 10 and 2000 characters'),
+    body('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  createVendorTicket
+);
+
+router.get(
+  '/tickets',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['active', 'pending', 'resolved', 'closed'])
+      .withMessage('Invalid status. Must be one of: active, pending, resolved, closed'),
+    query('category')
+      .optional()
+      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
+      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
+  ],
+  getVendorTickets
+);
+
+router.get(
+  '/tickets/:ticketId',
+  protectVendor,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+  ],
+  getVendorTicket
+);
+
+router.post(
+  '/tickets/:ticketId/messages',
+  protectVendor,
+  [
+    param('ticketId')
+      .notEmpty()
+      .withMessage('Ticket ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid ticket ID format'),
+    body('message')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ min: 1, max: 2000 })
+      .withMessage('Message must be between 1 and 2000 characters'),
+  ],
+  addVendorTicketMessage
+);
+
 // Admin route to get vendor dashboard data
 router.get(
   '/:id/dashboard',
@@ -773,87 +855,6 @@ router.get('/products/:productId/offer', protectVendor, getProductOffer);
 
 // Logout route (protected)
 router.post('/logout', protectVendor, vendorLogout);
-
-// Ticket routes (protected - vendor can create and manage their tickets)
-router.post(
-  '/tickets',
-  protectVendor,
-  [
-    body('complaint')
-      .trim()
-      .notEmpty()
-      .withMessage('Complaint is required')
-      .isLength({ min: 10, max: 2000 })
-      .withMessage('Complaint must be between 10 and 2000 characters'),
-    body('category')
-      .optional()
-      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
-      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
-    body('orderId')
-      .optional()
-      .isMongoId()
-      .withMessage('Invalid order ID format'),
-  ],
-  createVendorTicket
-);
-
-router.get(
-  '/tickets',
-  protectVendor,
-  [
-    query('page')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('Page must be a positive integer'),
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 100 })
-      .withMessage('Limit must be between 1 and 100'),
-    query('status')
-      .optional()
-      .isIn(['active', 'pending', 'resolved', 'closed'])
-      .withMessage('Invalid status. Must be one of: active, pending, resolved, closed'),
-    query('category')
-      .optional()
-      .isIn(['order_delivery', 'account_profile', 'payments_refunds', 'login_otp', 'general_queries'])
-      .withMessage('Invalid category. Must be one of: order_delivery, account_profile, payments_refunds, login_otp, general_queries'),
-  ],
-  getVendorTickets
-);
-
-router.get(
-  '/tickets/:ticketId',
-  protectVendor,
-  [
-    param('ticketId')
-      .notEmpty()
-      .withMessage('Ticket ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid ticket ID format'),
-  ],
-  getVendorTicket
-);
-
-router.post(
-  '/tickets/:ticketId/messages',
-  protectVendor,
-  [
-    param('ticketId')
-      .notEmpty()
-      .withMessage('Ticket ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid ticket ID format'),
-    body('message')
-      .trim()
-      .notEmpty()
-      .withMessage('Message is required')
-      .isLength({ min: 1, max: 2000 })
-      .withMessage('Message must be between 1 and 2000 characters'),
-  ],
-  addVendorTicketMessage
-);
 
 module.exports = router;
 
