@@ -49,12 +49,26 @@ const protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // Log decoded token for debugging (without sensitive data)
+    logger.debug(`Vendor auth - Decoded token: role=${decoded.role}, id=${decoded.id}, path=${req.path}`);
+
+    if (!decoded.role) {
+      logger.warn(`Vendor access denied - Token missing role field, user ID: ${decoded.id}, path: ${req.path}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Vendor privileges required.',
+        message: 'Token is missing role information. Please login again.',
+        debug: process.env.NODE_ENV === 'development' ? { decoded: { id: decoded.id } } : undefined,
+      });
+    }
+
     if (decoded.role !== 'vendor') {
       logger.warn(`Vendor access denied for role: ${decoded.role}, user ID: ${decoded.id}, path: ${req.path}`);
       return res.status(403).json({
         success: false,
         error: 'Access denied. Vendor privileges required.',
         message: `Current role: ${decoded.role || 'unknown'}. Vendor role required.`,
+        debug: process.env.NODE_ENV === 'development' ? { decoded: { id: decoded.id, role: decoded.role } } : undefined,
       });
     }
 

@@ -2,6 +2,7 @@ const Notification = require('../models/Notification');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
+const { sendVendorPushNotification } = require('../utils/firebaseNotification');
 
 /**
  * Get vendor notifications
@@ -637,5 +638,64 @@ exports.getAdminUnreadCount = async (req, res, next) => {
       message: error.message || 'An error occurred',
       unreadCount: 0,
     });
+  }
+};
+
+/**
+ * Helper function to create vendor notification with Firebase push notification
+ * This function creates a notification in the database and automatically sends a push notification
+ * @param {Object} notificationData - Notification data
+ * @param {String} notificationData.vendorId - Vendor ID
+ * @param {String} notificationData.type - Notification type
+ * @param {String} notificationData.title - Notification title
+ * @param {String} notificationData.message - Notification message
+ * @param {Object} notificationData.data - Additional data
+ * @param {String} notificationData.orderId - Order ID (optional)
+ * @returns {Promise<Object>} Created notification
+ */
+exports.createVendorNotificationWithPush = async (notificationData) => {
+  try {
+    const { vendorId, type, title, message, data = {}, orderId = null } = notificationData;
+
+    if (!vendorId || !type || !title || !message) {
+      throw new Error('Missing required fields: vendorId, type, title, message');
+    }
+
+    // Create notification in database
+    const notification = await Notification.create({
+      recipient: vendorId,
+      recipientModel: 'Vendor',
+      type: type,
+      title: title,
+      message: message,
+      data: data,
+      order: orderId,
+      isRead: false,
+    });
+
+    // Send Firebase push notification
+    try {
+      await sendVendorPushNotification(vendorId, {
+        type: type,
+        title: title,
+        message: message,
+        orderId: orderId ? orderId.toString() : '',
+        orderNumber: data.orderNumber || '',
+        status: data.status || '',
+        data: {
+          notificationId: notification._id.toString(),
+          ...data,
+        },
+      });
+      logger.info(`Push notification sent to vendor ${vendorId} for notification ${notification._id}`);
+    } catch (pushError) {
+      // Log error but don't fail notification creation
+      logger.error(`Failed to send push notification to vendor ${vendorId}:`, pushError);
+    }
+
+    return notification;
+  } catch (error) {
+    logger.error('Error creating vendor notification with push:', error);
+    throw error;
   }
 };
