@@ -45,11 +45,16 @@ const getAllEnabledGateways = async () => {
  */
 const initializeRazorpayPayment = async (orderData, credentials) => {
   try {
+    // Validate credentials
+    if (!credentials.razorpayKeyId || !credentials.razorpayKeySecret) {
+      throw new Error('Razorpay Key ID and Key Secret are required. Please configure Razorpay credentials in admin panel.');
+    }
+
     const Razorpay = require('razorpay');
     
     const razorpay = new Razorpay({
-      key_id: credentials.razorpayKeyId,
-      key_secret: credentials.razorpayKeySecret,
+      key_id: credentials.razorpayKeyId.trim(),
+      key_secret: credentials.razorpayKeySecret.trim(),
     });
 
     const options = {
@@ -71,6 +76,29 @@ const initializeRazorpayPayment = async (orderData, credentials) => {
       amount: order.amount / 100,
       currency: order.currency,
       keyId: credentials.razorpayKeyId,
+      // Frontend ke liye structured data
+      frontendData: {
+        gateway: 'razorpay',
+        keyId: credentials.razorpayKeyId,
+        orderId: order.id,
+        amount: order.amount, // Amount in paise for Razorpay
+        currency: order.currency,
+        name: orderData.items?.[0]?.title || 'Order Payment',
+        description: `Payment for Order ${orderData.orderNumber}`,
+        prefill: {
+          name: orderData.shippingAddress?.name || '',
+          email: orderData.email || '',
+          contact: orderData.phone || '',
+        },
+        notes: {
+          orderId: orderData.orderId,
+          orderNumber: orderData.orderNumber,
+          userId: orderData.userId,
+        },
+        theme: {
+          color: '#3399cc',
+        },
+      },
       paymentData: {
         orderId: order.id,
         amount: order.amount,
@@ -167,6 +195,15 @@ const initializePhonePePayment = async (orderData, credentials, testMode = false
         merchantTransactionId: merchantTransactionId,
         amount: amount / 100,
         redirectUrl: response.data.data.instrumentResponse.redirectInfo.url,
+        // Frontend ke liye structured data
+        frontendData: {
+          gateway: 'phonepay',
+          redirectUrl: response.data.data.instrumentResponse.redirectInfo.url,
+          merchantTransactionId: merchantTransactionId,
+          amount: amount / 100,
+          orderId: orderData.orderId,
+          orderNumber: orderData.orderNumber,
+        },
         paymentData: {
           merchantTransactionId: merchantTransactionId,
           amount: amount,
@@ -232,13 +269,40 @@ const initializeShopifyPayment = async (orderData, credentials) => {
     const storeUrl = credentials.shopifyStoreUrl.replace(/\/$/, '');
     const apiUrl = `${storeUrl}/admin/api/2024-01/checkouts.json`;
 
+    // Convert items to Shopify line_items format
+    // Shopify expects: [{ variant_id, quantity, price }] or [{ product_id, quantity, price }]
+    const lineItems = (orderData.items || []).map(item => ({
+      quantity: item.quantity || 1,
+      price: item.price || item.salePrice || item.unitPrice || 0,
+      title: item.title || item.productName || 'Product',
+      // If variant_id or product_id available, include them
+      ...(item.variantId && { variant_id: item.variantId }),
+      ...(item.productId && !item.variantId && { product_id: item.productId }),
+    }));
+
+    // Format shipping address for Shopify
+    const formatShopifyAddress = (address) => {
+      if (!address) return {};
+      return {
+        first_name: address.name?.split(' ')[0] || '',
+        last_name: address.name?.split(' ').slice(1).join(' ') || '',
+        address1: address.line1 || '',
+        address2: address.line2 || '',
+        city: address.city || '',
+        province: address.state || '',
+        zip: address.pinCode || '',
+        country: address.country || 'India',
+        phone: address.phone || '',
+      };
+    };
+
     // Create checkout session
     const checkoutData = {
       checkout: {
-        line_items: orderData.items || [],
+        line_items: lineItems,
         email: orderData.email || '',
-        shipping_address: orderData.shippingAddress || {},
-        billing_address: orderData.billingAddress || orderData.shippingAddress || {},
+        shipping_address: formatShopifyAddress(orderData.shippingAddress),
+        billing_address: formatShopifyAddress(orderData.billingAddress || orderData.shippingAddress),
         note: `Order: ${orderData.orderNumber || orderData.orderId}`,
       },
     };
@@ -257,6 +321,15 @@ const initializeShopifyPayment = async (orderData, credentials) => {
         checkoutId: response.data.checkout.id,
         checkoutUrl: response.data.checkout.abandoned_checkout_url,
         amount: orderData.amount,
+        // Frontend ke liye structured data
+        frontendData: {
+          gateway: 'shopify',
+          checkoutUrl: response.data.checkout.abandoned_checkout_url,
+          checkoutId: response.data.checkout.id,
+          amount: orderData.amount,
+          orderId: orderData.orderId,
+          orderNumber: orderData.orderNumber,
+        },
         paymentData: {
           checkoutId: response.data.checkout.id,
         },
@@ -310,9 +383,21 @@ const verifyShopifyPayment = async (paymentData, credentials) => {
 const initializePayment = async (orderData) => {
   try {
     const gateway = await getActivePaymentGateway();
-    const credentials = gateway.testMode 
-      ? { ...gateway.credentials, ...gateway.testCredentials } 
-      : gateway.credentials;
+    
+    // Merge credentials - test credentials override production credentials if testMode is enabled
+    let credentials = { ...gateway.credentials };
+    if (gateway.testMode && gateway.testCredentials) {
+      // Only merge non-empty test credentials
+      Object.keys(gateway.testCredentials).forEach(key => {
+        if (gateway.testCredentials[key] && gateway.testCredentials[key].trim()) {
+          credentials[key] = gateway.testCredentials[key];
+        }
+      });
+    }
+
+    // Log credentials status for debugging (without exposing secrets)
+    logger.info(`Initializing payment with gateway: ${gateway.name}, testMode: ${gateway.testMode}`);
+    logger.info(`Credentials check - KeyId present: ${!!credentials.razorpayKeyId}, KeySecret present: ${!!credentials.razorpayKeySecret}`);
 
     switch (gateway.name) {
       case 'razorpay':

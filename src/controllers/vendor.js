@@ -783,20 +783,9 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     // Notify vendor about order status update confirmation via socket
     try {
-      const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
-      const orderUpdateData = {
-        orderId: order._id,
-        orderNumber: order.orderNumber,
-        status: status,
-        previousStatus: previousStatus,
-        data: order,
-        timestamp: new Date().toISOString(),
-      };
+      const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       
-      // Send order update event
-      notifyVendorOrderUpdate(vendorId, orderUpdateData);
-      
-      // Send notification for important status changes
+      // Send push notification for important status changes
       if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
         const statusMessages = {
           'ready': 'Order is ready for pickup',
@@ -805,12 +794,15 @@ exports.updateOrderStatus = async (req, res, next) => {
           'cancelled': 'Order has been cancelled',
         };
         
-        sendVendorNotification(vendorId, {
+        await sendVendorPushNotification(vendorId, {
           type: 'order_status_updated',
           title: 'Order Status Updated',
           message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: status,
           data: {
-            orderId: order._id,
+            orderId: order._id.toString(),
             orderNumber: order.orderNumber,
             status: status,
             previousStatus: previousStatus,
@@ -987,39 +979,28 @@ exports.assignRiderToOrder = async (req, res, next) => {
 
     // Notify vendor via socket about rider assignment
     try {
-      const { sendVendorNotification, notifyVendorOrderUpdate } = require('../utils/socket');
+      const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorId = req.vendor._id;
       
-      // Send notification
-      sendVendorNotification(vendorId, {
+      // Send push notification
+      await sendVendorPushNotification(vendorId, {
         type: 'rider_assigned',
         title: 'Rider Assigned to Order',
         message: `Rider ${rider.fullName || rider.mobileNumber} has been assigned to order #${order.orderNumber}`,
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
         data: {
-          orderId: order._id,
+          orderId: order._id.toString(),
           orderNumber: order.orderNumber,
-          riderId: rider._id,
+          riderId: rider._id.toString(),
           riderName: rider.fullName,
           riderMobile: rider.mobileNumber,
           status: order.status,
         },
       });
-      
-      // Send order update event
-      notifyVendorOrderUpdate(vendorId, {
-        orderId: order._id,
-        orderNumber: order.orderNumber,
-        status: order.status,
-        rider: {
-          _id: rider._id,
-          fullName: rider.fullName,
-          mobileNumber: rider.mobileNumber,
-        },
-        data: order,
-        timestamp: new Date().toISOString(),
-      });
     } catch (notifyError) {
-      // Don't fail the request if socket notification fails
+      // Don't fail the request if push notification fails
+      logger.error('Error sending push notification to vendor for rider assignment:', notifyError);
     }
 
     const populatedOrder = await Order.findById(orderId)

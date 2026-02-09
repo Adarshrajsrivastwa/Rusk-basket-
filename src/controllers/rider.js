@@ -877,6 +877,43 @@ exports.markOrderDelivered = async (req, res, next) => {
     order.status = 'delivered';
     order.deliveredAt = new Date();
     
+    // If COD payment, add amount to user wallet
+    if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
+      try {
+        const Wallet = require('../models/Wallet');
+        
+        // Find or create wallet for user
+        let wallet = await Wallet.findOne({ user: order.user });
+        if (!wallet) {
+          wallet = await Wallet.create({ user: order.user, balance: 0 });
+        }
+        
+        // Add COD payment amount to wallet
+        const codAmount = order.payment.amount;
+        wallet.balance += codAmount;
+        
+        // Add transaction record
+        wallet.transactions.push({
+          type: 'credit',
+          amount: codAmount,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
+        });
+        
+        await wallet.save();
+        
+        // Update order payment status
+        order.payment.status = 'completed';
+        order.payment.paidAt = new Date();
+        
+        logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
+      } catch (walletError) {
+        logger.error('Error adding COD payment to wallet:', walletError);
+        // Don't fail order status update if wallet update fails
+      }
+    }
+    
     await order.save();
 
     // Populate order details for response
@@ -888,7 +925,7 @@ exports.markOrderDelivered = async (req, res, next) => {
 
     // Notify all vendors in the order about delivery
     try {
-      const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+      const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorIds = new Set();
       
       // Get all unique vendor IDs from order items
@@ -902,21 +939,15 @@ exports.markOrderDelivered = async (req, res, next) => {
       // Notify each vendor
       for (const vendorId of vendorIds) {
         try {
-          notifyVendorOrderUpdate(vendorId, {
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            status: 'delivered',
-            previousStatus: previousStatus,
-            data: populatedOrder,
-            timestamp: new Date().toISOString(),
-          });
-
-          sendVendorNotification(vendorId, {
+          await sendVendorPushNotification(vendorId, {
             type: 'order_delivered',
             title: 'Order Delivered',
             message: `Order #${order.orderNumber} has been delivered successfully by rider`,
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            status: 'delivered',
             data: {
-              orderId: order._id,
+              orderId: order._id.toString(),
               orderNumber: order.orderNumber,
               status: 'delivered',
               deliveredAt: order.deliveredAt,
@@ -936,7 +967,22 @@ exports.markOrderDelivered = async (req, res, next) => {
       logger.error('Error sending socket notifications for order delivery:', notifyError);
     }
 
-    // Notify user about delivery
+    // Send push notification to user about delivery
+    if (populatedOrder.user) {
+      try {
+        const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+        await sendOrderStatusNotification(populatedOrder.user._id, {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: 'delivered',
+        });
+      } catch (pushError) {
+        logger.error('Error sending push notification for order delivery:', pushError);
+        // Don't fail the request if push notification fails
+      }
+    }
+
+    // Notify user about delivery (queue for other notification types)
     if (notificationQueue && populatedOrder.user) {
       await notificationQueue.add({
         userId: populatedOrder.user._id,

@@ -23,10 +23,28 @@ if (notificationQueue) {
         }
       }
       
-      // TODO: Implement notification logic (e.g., push notifications, in-app notifications, etc.)
-      // Example:
+      // Send push notification via Firebase
+      try {
+        const { sendPushNotification } = require('../utils/firebaseNotification');
+        const pushResult = await sendPushNotification(userId, {
+          title: title,
+          message: message,
+          type: type,
+          ...data,
+        });
+        
+        if (pushResult.success) {
+          logger.info(`Push notification sent to user ${userId} for type: ${type}`);
+        } else {
+          logger.warn(`Failed to send push notification to user ${userId}: ${pushResult.error}`);
+        }
+      } catch (pushError) {
+        logger.error(`Error sending push notification to user ${userId}:`, pushError);
+        // Continue even if push notification fails
+      }
+      
+      // TODO: Implement in-app notification storage if needed
       // await createNotification({ userId, type, title, message, data });
-      // await sendPushNotification(userId, { title, message });
       
       return { success: true, userId, type };
     } catch (error) {

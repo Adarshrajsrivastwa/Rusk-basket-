@@ -944,7 +944,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
    */
   try {
     const Notification = require('../models/Notification');
-    const { sendVendorNotification } = require('../utils/socket');
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
     
     // Get unique vendors from order items with their items
     const vendorItemsMap = new Map();
@@ -956,7 +956,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       vendorItemsMap.get(vendorId).push(item);
     });
     
-    // Create notification and send socket.io notification for each vendor
+    // Create notification and send push notification for each vendor
     for (const [vendorId, vendorItems] of vendorItemsMap) {
       try {
         // Calculate vendor-specific total
@@ -990,14 +990,15 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
           isRead: false,
         });
         
-        // Send socket.io notification to vendor (if connected)
-        sendVendorNotification(vendorId, {
-          id: notification._id,
+        // Send push notification to vendor
+        await sendVendorPushNotification(vendorId, {
           type: 'order_created',
           title: 'New Order Received',
           message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
           data: {
-            orderId: order._id,
+            orderId: order._id.toString(),
             orderNumber: order.orderNumber,
             itemCount: itemCount,
             total: vendorTotal,
@@ -1277,7 +1278,7 @@ exports.reorder = async (userId, orderId) => {
    */
   try {
     const Notification = require('../models/Notification');
-    const { sendVendorNotification } = require('../utils/socket');
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
     
     // Get unique vendors from order items with their items
     const vendorItemsMap = new Map();
@@ -1289,7 +1290,7 @@ exports.reorder = async (userId, orderId) => {
       vendorItemsMap.get(vendorId).push(item);
     });
     
-    // Create notification and send socket.io notification for each vendor
+    // Create notification and send push notification for each vendor
     for (const [vendorId, vendorItems] of vendorItemsMap) {
       try {
         // Calculate vendor-specific total
@@ -1324,14 +1325,15 @@ exports.reorder = async (userId, orderId) => {
           isRead: false,
         });
         
-        // Send socket.io notification to vendor (if connected)
-        sendVendorNotification(vendorId, {
-          id: notification._id,
+        // Send push notification to vendor
+        await sendVendorPushNotification(vendorId, {
           type: 'order_created',
           title: 'New Order Received (Reorder)',
           message: `You have received a new order #${newOrder.orderNumber} (reorder) with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
+          orderId: newOrder._id.toString(),
+          orderNumber: newOrder.orderNumber,
           data: {
-            orderId: newOrder._id,
+            orderId: newOrder._id.toString(),
             orderNumber: newOrder.orderNumber,
             itemCount: itemCount,
             total: vendorTotal,
@@ -1996,6 +1998,43 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
     // Out for delivery
   } else if (status === 'delivered') {
     order.deliveredAt = new Date();
+    
+    // If COD payment, add amount to user wallet
+    if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
+      try {
+        const Wallet = require('../models/Wallet');
+        
+        // Find or create wallet for user
+        let wallet = await Wallet.findOne({ user: order.user });
+        if (!wallet) {
+          wallet = await Wallet.create({ user: order.user, balance: 0 });
+        }
+        
+        // Add COD payment amount to wallet
+        const codAmount = order.payment.amount;
+        wallet.balance += codAmount;
+        
+        // Add transaction record
+        wallet.transactions.push({
+          type: 'credit',
+          amount: codAmount,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          description: `COD payment received for order ${order.orderNumber}`,
+        });
+        
+        await wallet.save();
+        
+        // Update order payment status
+        order.payment.status = 'completed';
+        order.payment.paidAt = new Date();
+        
+        logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount}`);
+      } catch (walletError) {
+        logger.error('Error adding COD payment to wallet:', walletError);
+        // Don't fail order status update if wallet update fails
+      }
+    }
   } else if (status === 'cancelled') {
     order.cancelledAt = new Date();
     order.cancelledBy = 'vendor';
@@ -2003,49 +2042,57 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
 
   await order.save();
 
-  // Notify vendor about order status update via socket
-  try {
-    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
-    
-    // Get fresh order data
-    const updatedOrder = await Order.findById(order._id)
-      .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
-      .populate('items.vendor', 'storeName storeId')
-      .populate('coupon.couponId', 'couponName code')
-      .populate('rider', 'fullName mobileNumber');
-
-    // Send order update event to vendor
-    notifyVendorOrderUpdate(vendorId, {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      status: status,
-      previousStatus: previousStatus,
-      data: updatedOrder,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Send notification for important status changes
-    if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
-      const statusMessages = {
-        'ready': 'Order is ready for pickup',
-        'out_for_delivery': 'Order is out for delivery',
-        'delivered': 'Order has been delivered',
-        'cancelled': 'Order has been cancelled',
-      };
-      
-      sendVendorNotification(vendorId, {
-        type: 'order_status_updated',
-        title: 'Order Status Updated',
-        message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
-        data: {
+    // Send push notification to user about order status update
+    if (order.user && ['confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+      try {
+        const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+        await sendOrderStatusNotification(order.user, {
           orderId: order._id,
           orderNumber: order.orderNumber,
           status: status,
-          previousStatus: previousStatus,
-        },
-      });
+        });
+      } catch (pushError) {
+        logger.error('Error sending push notification for order status update:', pushError);
+        // Don't fail the request if push notification fails
+      }
     }
+
+    // Send push notification to vendor about order status update
+    try {
+      const { sendVendorPushNotification } = require('../utils/firebaseNotification');
+      
+      // Get fresh order data
+      const updatedOrder = await Order.findById(order._id)
+        .populate('user', 'userName contactNumber email')
+        .populate('items.product', 'productName thumbnail')
+        .populate('items.vendor', 'storeName storeId')
+        .populate('coupon.couponId', 'couponName code')
+        .populate('rider', 'fullName mobileNumber');
+
+      // Send notification for important status changes
+      if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+        const statusMessages = {
+          'ready': 'Order is ready for pickup',
+          'out_for_delivery': 'Order is out for delivery',
+          'delivered': 'Order has been delivered',
+          'cancelled': 'Order has been cancelled',
+        };
+
+        await sendVendorPushNotification(vendorId, {
+          type: 'order_status_updated',
+          title: 'Order Status Updated',
+          message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: status,
+          data: {
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            status: status,
+            previousStatus: previousStatus,
+          },
+        });
+      }
   } catch (notifyError) {
     // Don't fail the request if socket notification fails
     logger.error('Error sending socket notification to vendor:', notifyError);
@@ -2099,9 +2146,22 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
 
   await order.save();
 
+  // Send push notification to user about order cancellation
+  try {
+    const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+    await sendOrderStatusNotification(order.user, {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: 'cancelled',
+    });
+  } catch (pushError) {
+    logger.error('Error sending push notification for order cancellation:', pushError);
+    // Don't fail the request if push notification fails
+  }
+
   // Notify all vendors in the order about cancellation
   try {
-    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
     const vendorIds = new Set();
     
     // Get all unique vendor IDs from order items
@@ -2120,21 +2180,15 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     // Notify each vendor
     for (const vendorId of vendorIds) {
       try {
-        notifyVendorOrderUpdate(vendorId, {
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          status: 'cancelled',
-          previousStatus: previousStatus,
-          data: populatedOrder,
-          timestamp: new Date().toISOString(),
-        });
-
-        sendVendorNotification(vendorId, {
+        await sendVendorPushNotification(vendorId, {
           type: 'order_cancelled',
           title: 'Order Cancelled',
           message: `Order #${order.orderNumber} has been cancelled by the customer. Reason: ${reason || 'No reason provided'}`,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: 'cancelled',
           data: {
-            orderId: order._id,
+            orderId: order._id.toString(),
             orderNumber: order.orderNumber,
             status: 'cancelled',
             cancellationReason: reason,
@@ -2502,7 +2556,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
 
   // Notify vendor about items added to order
   try {
-    const { notifyVendorOrderUpdate, sendVendorNotification } = require('../utils/socket');
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
     const populatedOrder = await Order.findById(order._id)
       .populate('user', 'userName contactNumber email')
       .populate('items.product', 'productName thumbnail')
@@ -2510,23 +2564,16 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       .populate('coupon.couponId', 'couponName code offerType')
       .populate('rider', 'fullName mobileNumber');
 
-    // Send order update event
-    notifyVendorOrderUpdate(vendorId, {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      status: order.status,
-      data: populatedOrder,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Send notification
+    // Send push notification
     const itemCount = items.length;
-    sendVendorNotification(vendorId, {
+    await sendVendorPushNotification(vendorId, {
       type: 'order_items_added',
       title: 'Items Added to Order',
       message: `${itemCount} item(s) added to order #${order.orderNumber}. New total: ₹${order.pricing?.total?.toFixed(2) || 0}`,
+      orderId: order._id.toString(),
+      orderNumber: order.orderNumber,
       data: {
-        orderId: order._id,
+        orderId: order._id.toString(),
         orderNumber: order.orderNumber,
         itemsAdded: itemCount,
         newTotal: order.pricing?.total || 0,

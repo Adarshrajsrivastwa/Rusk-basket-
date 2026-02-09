@@ -122,7 +122,7 @@ exports.createTicket = async (req, res, next) => {
 
     // Notify all active admins about new ticket
     try {
-      const { sendAdminNotification } = require('../utils/socket');
+      const { sendAdminPushNotification } = require('../utils/firebaseNotification');
       const Admin = require('../models/Admin');
       
       // Get all active admins
@@ -131,18 +131,19 @@ exports.createTicket = async (req, res, next) => {
       // Send notification to each admin
       for (const admin of activeAdmins) {
         try {
-          sendAdminNotification(admin._id, {
+          await sendAdminPushNotification(admin._id, {
             type: 'ticket_created',
             title: 'New Ticket Created',
             message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            ticketId: ticket._id.toString(),
             data: {
-              ticketId: ticket._id,
-              ticketNumber: ticket.ticketNumber || ticket._id,
+              ticketId: ticket._id.toString(),
+              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
               category: ticket.category,
               status: ticket.status,
               createdBy: 'User',
               complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId || null,
+              orderId: ticket.orderId ? ticket.orderId.toString() : null,
             },
           });
         } catch (adminNotifyError) {
@@ -845,7 +846,7 @@ exports.createVendorTicket = async (req, res, next) => {
 
     // Notify all active admins about new vendor ticket
     try {
-      const { sendAdminNotification } = require('../utils/socket');
+      const { sendAdminPushNotification } = require('../utils/firebaseNotification');
       const Admin = require('../models/Admin');
       
       // Get all active admins
@@ -854,19 +855,20 @@ exports.createVendorTicket = async (req, res, next) => {
       // Send notification to each admin
       for (const admin of activeAdmins) {
         try {
-          sendAdminNotification(admin._id, {
+          await sendAdminPushNotification(admin._id, {
             type: 'ticket_created',
             title: 'New Ticket Created',
             message: `Vendor has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            ticketId: ticket._id.toString(),
             data: {
-              ticketId: ticket._id,
-              ticketNumber: ticket.ticketNumber || ticket._id,
+              ticketId: ticket._id.toString(),
+              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
               category: ticket.category,
               status: ticket.status,
               createdBy: 'Vendor',
               vendorName: ticket.vendor?.vendorName || ticket.vendor?.storeName || 'Vendor',
               complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId || null,
+              orderId: ticket.orderId ? ticket.orderId.toString() : null,
             },
           });
         } catch (adminNotifyError) {
@@ -1137,7 +1139,7 @@ exports.createRiderTicket = async (req, res, next) => {
 
     // Notify all active admins about new rider ticket
     try {
-      const { sendAdminNotification } = require('../utils/socket');
+      const { sendAdminPushNotification } = require('../utils/firebaseNotification');
       const Admin = require('../models/Admin');
       
       // Get all active admins
@@ -1146,19 +1148,20 @@ exports.createRiderTicket = async (req, res, next) => {
       // Send notification to each admin
       for (const admin of activeAdmins) {
         try {
-          sendAdminNotification(admin._id, {
+          await sendAdminPushNotification(admin._id, {
             type: 'ticket_created',
             title: 'New Ticket Created',
             message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+            ticketId: ticket._id.toString(),
             data: {
-              ticketId: ticket._id,
-              ticketNumber: ticket.ticketNumber || ticket._id,
+              ticketId: ticket._id.toString(),
+              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
               category: ticket.category,
               status: ticket.status,
               createdBy: 'Rider',
               riderName: ticket.rider?.fullName || 'Rider',
               complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId || null,
+              orderId: ticket.orderId ? ticket.orderId.toString() : null,
             },
           });
         } catch (adminNotifyError) {

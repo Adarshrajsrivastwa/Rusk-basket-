@@ -86,7 +86,17 @@ router.post(
       res.status(200).json({
         success: true,
         message: 'Payment initialized successfully',
-        data: paymentResult,
+        data: {
+          ...paymentResult,
+          // Frontend ke liye structured response
+          frontendData: paymentResult.frontendData || {
+            gateway: paymentResult.paymentGateway,
+            orderId: paymentResult.orderId || paymentResult.merchantTransactionId || paymentResult.checkoutId,
+            redirectUrl: paymentResult.redirectUrl,
+            keyId: paymentResult.keyId,
+            amount: paymentResult.amount,
+          },
+        },
       });
     } catch (error) {
       logger.error('Initialize payment error:', error);
@@ -160,8 +170,9 @@ router.post(
       if (verificationResult.success) {
         // Update order payment status
         order.payment.status = 'completed';
-        order.payment.transactionId = verificationResult.paymentId || verificationResult.orderId;
+        order.payment.transactionId = verificationResult.paymentId || verificationResult.orderId || verificationResult.merchantTransactionId;
         order.payment.paidAt = new Date();
+        order.payment.method = gateway; // Store payment gateway used
         await order.save();
 
         logger.info(`Payment verified for order ${order.orderNumber} via ${gateway}`);
@@ -174,6 +185,8 @@ router.post(
             orderNumber: order.orderNumber,
             paymentStatus: order.payment.status,
             transactionId: order.payment.transactionId,
+            paymentMethod: order.payment.method,
+            paidAt: order.payment.paidAt,
           },
         });
       } else {
@@ -210,6 +223,7 @@ router.post(
           order.payment.status = 'completed';
           order.payment.transactionId = transactionId || merchantTransactionId;
           order.payment.paidAt = new Date();
+          order.payment.method = 'phonepay'; // Store payment gateway used
           await order.save();
 
           logger.info(`PhonePe payment callback processed for order ${order.orderNumber}`);
@@ -220,6 +234,114 @@ router.post(
     } catch (error) {
       logger.error('PhonePe callback error:', error);
       res.status(200).json({ success: false }); // Return 200 to prevent retries
+    }
+  }
+);
+
+/**
+ * Retry payment for an order (if payment failed or not initialized)
+ */
+router.post(
+  '/retry/:orderId',
+  protect,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+  ],
+  async (req, res, next) => {
+    try {
+      const errors = require('express-validator').validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      const { orderId } = req.params;
+      const userId = req.user._id;
+
+      // Get order and verify ownership
+      const order = await Order.findOne({ _id: orderId, user: userId });
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found',
+        });
+      }
+
+      // Check if payment is already completed
+      if (order.payment.status === 'completed') {
+        return res.status(400).json({
+          success: false,
+          error: 'Payment already completed for this order',
+        });
+      }
+
+      // If payment method is COD, update it to prepaid for online payment
+      if (order.payment.method === 'cod') {
+        order.payment.method = 'prepaid';
+        await order.save();
+        logger.info(`Payment method updated from COD to prepaid for order ${order.orderNumber}`);
+      }
+
+      // Get user email for payment
+      const User = require('../models/User');
+      const user = await User.findById(userId).select('email');
+
+      // Prepare order data for payment
+      const orderData = {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        userId: userId.toString(),
+        amount: order.payment.amount,
+        email: user?.email || '',
+        phone: order.shippingAddress.phone,
+        shippingAddress: order.shippingAddress,
+        items: order.items.map(item => ({
+          title: item.productName,
+          quantity: item.quantity,
+          price: item.salePrice || item.unitPrice,
+        })),
+        redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
+      };
+
+      // Initialize payment
+      const paymentResult = await initializePayment(orderData);
+
+      // Update order with payment gateway info
+      order.payment.transactionId = paymentResult.orderId || paymentResult.merchantTransactionId || paymentResult.checkoutId;
+      order.payment.status = 'processing';
+      await order.save();
+
+      logger.info(`Payment retry successful for order ${order.orderNumber} using ${paymentResult.paymentGateway}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Payment retry successful',
+        data: {
+          ...paymentResult,
+          // Frontend ke liye structured response
+          frontendData: paymentResult.frontendData || {
+            gateway: paymentResult.paymentGateway,
+            orderId: paymentResult.orderId || paymentResult.merchantTransactionId || paymentResult.checkoutId,
+            redirectUrl: paymentResult.redirectUrl,
+            keyId: paymentResult.keyId,
+            amount: paymentResult.amount,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('Retry payment error:', error);
+      res.status(400).json({
+        success: false,
+        error: error.message || 'Failed to retry payment',
+      });
     }
   }
 );

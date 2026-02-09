@@ -299,8 +299,22 @@ exports.createOrder = async (req, res, next) => {
 
     logger.info(`Order created: ${order.orderNumber} by User: ${req.user._id}`);
 
+    // Send push notification to user about order creation
+    try {
+      const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+      await sendOrderStatusNotification(userId, {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: 'pending',
+      });
+    } catch (pushError) {
+      logger.error('Error sending push notification for order creation:', pushError);
+      // Don't fail the request if push notification fails
+    }
+
     // Initialize payment gateway for prepaid payments (not COD)
     let paymentData = null;
+    let paymentError = null;
     if (paymentMethod !== 'cod') {
       try {
         const { initializePayment } = require('../services/paymentService');
@@ -330,8 +344,14 @@ exports.createOrder = async (req, res, next) => {
         await order.save();
 
         logger.info(`Payment initialized for order ${order.orderNumber}`);
-      } catch (paymentError) {
-        logger.error('Payment initialization error:', paymentError);
+      } catch (err) {
+        paymentError = err.message || 'Payment initialization failed';
+        logger.error('Payment initialization error:', {
+          message: err.message,
+          stack: err.stack,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber
+        });
         // Don't fail order creation if payment initialization fails
         // Payment can be initialized later via /api/payment/initialize
       }
@@ -351,6 +371,32 @@ exports.createOrder = async (req, res, next) => {
         redirectUrl: paymentData.redirectUrl,
         keyId: paymentData.keyId,
         checkoutUrl: paymentData.checkoutUrl,
+        // Frontend ke liye gateway-specific structured data
+        frontendData: paymentData.frontendData || {
+          gateway: paymentData.paymentGateway,
+          orderId: paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId,
+          redirectUrl: paymentData.redirectUrl,
+          keyId: paymentData.keyId,
+          amount: paymentData.amount,
+        },
+      };
+    } else if (paymentMethod !== 'cod' && paymentError) {
+      // If payment initialization failed, include error message
+      // Remove sensitive error details but keep helpful message
+      let userFriendlyError = paymentError;
+      if (paymentError.includes('key_id') || paymentError.includes('Key ID')) {
+        userFriendlyError = 'Razorpay credentials are missing or invalid. Please configure Razorpay Key ID and Key Secret in admin panel.';
+      } else if (paymentError.includes('No payment gateway')) {
+        userFriendlyError = 'No payment gateway is enabled. Please enable a payment gateway from admin panel.';
+      }
+      
+      responseData.payment = {
+        error: userFriendlyError,
+        message: 'Payment gateway initialization failed. You can retry payment using /api/payment/retry endpoint.',
+        canRetry: true,
+        retryEndpoint: '/api/payment/retry',
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
       };
     }
 

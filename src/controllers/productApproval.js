@@ -49,16 +49,16 @@ exports.approveProduct = async (req, res, next) => {
     // Notify vendor via socket about product approval/rejection
     if (product.vendor) {
       try {
-        const { sendVendorNotification } = require('../utils/socket');
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
         const vendorId = product.vendor._id || product.vendor;
         
         if (action === 'approve') {
-          sendVendorNotification(vendorId, {
+          await sendVendorPushNotification(vendorId, {
             type: 'product_approved',
             title: 'Product Approved',
             message: `Your product "${product.productName}" has been approved and is now live`,
             data: {
-              productId: product._id,
+              productId: product._id.toString(),
               productName: product.productName,
               productNumber: product.productNumber,
               approvalStatus: 'approved',
@@ -66,12 +66,12 @@ exports.approveProduct = async (req, res, next) => {
             },
           });
         } else {
-          sendVendorNotification(vendorId, {
+          await sendVendorPushNotification(vendorId, {
             type: 'product_rejected',
             title: 'Product Rejected',
             message: `Your product "${product.productName}" has been rejected. Reason: ${product.rejectionReason || 'No reason provided'}`,
             data: {
-              productId: product._id,
+              productId: product._id.toString(),
               productName: product.productName,
               productNumber: product.productNumber,
               approvalStatus: 'rejected',

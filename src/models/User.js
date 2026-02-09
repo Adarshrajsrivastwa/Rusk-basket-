@@ -112,6 +112,29 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  fcmToken: {
+    type: String,
+    trim: true,
+  },
+  fcmTokens: [{
+    token: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    deviceId: {
+      type: String,
+      trim: true,
+    },
+    platform: {
+      type: String,
+      enum: ['android', 'ios', 'web'],
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   createdAt: {
     type: Date,
     default: Date.now,
