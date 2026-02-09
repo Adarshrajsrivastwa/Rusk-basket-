@@ -1,4 +1,11 @@
-const admin = require('firebase-admin');
+// Conditionally require firebase-admin to prevent app crash if not installed
+let admin = null;
+try {
+  admin = require('firebase-admin');
+} catch (error) {
+  // firebase-admin not installed, will log warning in initializeFirebase
+}
+
 const logger = require('./logger');
 const User = require('../models/User');
 const Vendor = require('../models/Vendor');
@@ -13,6 +20,12 @@ const initializeFirebase = () => {
   }
 
   try {
+    // Check if firebase-admin is installed
+    if (!admin) {
+      logger.warn('firebase-admin module not installed. Push notifications will be disabled. Run: npm install firebase-admin');
+      return;
+    }
+
     // Check if Firebase credentials are provided
     if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
       logger.warn('Firebase service account not configured. Push notifications will be disabled.');
@@ -128,6 +141,10 @@ const sendPushNotification = async (userId, notificationData) => {
     };
 
     // Send notification
+    if (!admin) {
+      logger.warn('firebase-admin not available. Skipping push notification.');
+      return { success: false, error: 'Firebase admin not available' };
+    }
     const response = await admin.messaging().sendEachForMulticast(message);
 
     // Handle invalid tokens
@@ -322,6 +339,10 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
     };
 
     // Send notification
+    if (!admin) {
+      logger.warn('firebase-admin not available. Skipping push notification.');
+      return { success: false, error: 'Firebase admin not available' };
+    }
     const response = await admin.messaging().sendEachForMulticast(message);
 
     // Handle invalid tokens
@@ -428,6 +449,10 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
     };
 
     // Send notification
+    if (!admin) {
+      logger.warn('firebase-admin not available. Skipping push notification.');
+      return { success: false, error: 'Firebase admin not available' };
+    }
     const response = await admin.messaging().sendEachForMulticast(message);
 
     // Handle invalid tokens

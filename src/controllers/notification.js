@@ -8,6 +8,14 @@ const mongoose = require('mongoose');
  */
 exports.getVendorNotifications = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
@@ -88,6 +96,14 @@ exports.getVendorNotifications = async (req, res, next) => {
  */
 exports.markNotificationAsRead = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
@@ -145,6 +161,14 @@ exports.markNotificationAsRead = async (req, res, next) => {
  */
 exports.markAllNotificationsAsRead = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
@@ -190,6 +214,14 @@ exports.markAllNotificationsAsRead = async (req, res, next) => {
  */
 exports.deleteNotification = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
@@ -246,6 +278,14 @@ exports.deleteNotification = async (req, res, next) => {
  */
 exports.deleteAllNotifications = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
@@ -289,6 +329,14 @@ exports.deleteAllNotifications = async (req, res, next) => {
  */
 exports.getUnreadCount = async (req, res, next) => {
   try {
+    // Explicitly reject admin access - only vendors can access
+    if (req.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. This endpoint is only accessible to vendors.',
+      });
+    }
+    
     // Check if vendor is authenticated
     if (!req.vendor || !req.vendor._id) {
       return res.status(401).json({
