@@ -50,46 +50,59 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (decoded.role !== 'vendor') {
+      logger.warn(`Vendor access denied for role: ${decoded.role}, user ID: ${decoded.id}, path: ${req.path}`);
       return res.status(403).json({
         success: false,
         error: 'Access denied. Vendor privileges required.',
+        message: `Current role: ${decoded.role || 'unknown'}. Vendor role required.`,
       });
     }
 
     req.vendor = await Vendor.findById(decoded.id);
 
     if (!req.vendor) {
+      logger.warn(`Vendor not found for ID: ${decoded.id}, path: ${req.path}`);
       return res.status(401).json({
         success: false,
         error: 'Vendor not found',
+        message: 'The vendor account associated with this token does not exist.',
       });
     }
 
     if (!req.vendor.isActive) {
+      logger.warn(`Inactive vendor account access attempt: ${decoded.id}, path: ${req.path}`);
       return res.status(403).json({
         success: false,
         error: 'Vendor account is deactivated',
+        message: 'Your vendor account has been deactivated. Please contact the system administrator.',
       });
     }
+
+    logger.debug(`Vendor authenticated: ${req.vendor._id}, path: ${req.path}`);
 
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
+      logger.warn(`Invalid JWT token for vendor auth, path: ${req.path}`);
       return res.status(401).json({
         success: false,
         error: 'Invalid token. Please login again.',
+        message: 'The authentication token is invalid or malformed.',
       });
     }
     if (error.name === 'TokenExpiredError') {
+      logger.warn(`Expired token for vendor auth, path: ${req.path}`);
       return res.status(401).json({
         success: false,
         error: 'Token expired. Please login again.',
+        message: 'Your session has expired. Please login again.',
       });
     }
-    logger.error('Vendor auth middleware error:', error);
+    logger.error(`Vendor auth middleware error for path ${req.path}:`, error);
     return res.status(401).json({
       success: false,
       error: 'Not authorized to access this route',
+      message: error.message || 'An error occurred during authentication.',
     });
   }
 };
