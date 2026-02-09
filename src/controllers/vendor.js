@@ -62,7 +62,9 @@ exports.createVendor = async (req, res, next) => {
       });
     }
 
-    await createVendorData(vendor, req.body, req.files, req.admin._id);
+    // Ensure files is defined (can be empty object if no files uploaded)
+    const files = req.files || {};
+    await createVendorData(vendor, req.body, files, req.admin._id);
     
     // Ensure storeId is set before saving
     if (!vendor.storeId) {

@@ -6,6 +6,11 @@ const logger = require('../utils/logger');
 const uploadVendorFiles = async (files) => {
   const uploadPromises = [];
 
+  // Safety check: ensure files is defined
+  if (!files || typeof files !== 'object') {
+    return {};
+  }
+
   const storeImages = files.storeImage || files['storeImage '] || files[' storeImage'] || files['storeImage[]'] || files['storeImage[] '] || files[' storeImage[]'] || [];
   if (storeImages.length > 0) {
     storeImages.forEach((file) => {
