@@ -10,6 +10,7 @@ const { getAdminProfile, updateAdminProfile } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
+const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
 
 // Middleware
 const { protect } = require('../middleware/adminAuth');
@@ -723,5 +724,71 @@ router.put(
   ],
   suspendRider
 );
+
+// ============ ADMIN NOTIFICATION ROUTES ============
+
+// Get admin notifications
+router.get(
+  '/notifications',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isRead')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isRead must be true or false'),
+    query('type')
+      .optional()
+      .isIn(['order_created', 'order_updated', 'order_cancelled', 'order_delivered', 'product_approved', 'product_rejected', 'invoice_generated', 'payment_received', 'ticket_created', 'general'])
+      .withMessage('Invalid notification type'),
+  ],
+  getAdminNotifications
+);
+
+// Get admin unread notification count
+router.get('/notifications/unread-count', protect, getAdminUnreadCount);
+
+// Mark admin notification as read
+router.patch(
+  '/notifications/:notificationId/read',
+  protect,
+  [
+    param('notificationId')
+      .notEmpty()
+      .withMessage('Notification ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid notification ID format'),
+  ],
+  markAdminNotificationAsRead
+);
+
+// Mark all admin notifications as read
+router.patch('/notifications/read-all', protect, markAllAdminNotificationsAsRead);
+
+// Delete admin notification
+router.delete(
+  '/notifications/:notificationId',
+  protect,
+  [
+    param('notificationId')
+      .notEmpty()
+      .withMessage('Notification ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid notification ID format'),
+  ],
+  deleteAdminNotification
+);
+
+// Delete all admin notifications
+router.delete('/notifications', protect, deleteAllAdminNotifications);
 
 module.exports = router;

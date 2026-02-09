@@ -50,25 +50,31 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (decoded.role !== 'admin') {
+      logger.warn(`Admin access denied for role: ${decoded.role}, user ID: ${decoded.id}`);
       return res.status(403).json({
         success: false,
         error: 'Access denied. Admin privileges required.',
+        message: `Current role: ${decoded.role || 'unknown'}. Admin role required.`,
       });
     }
 
     req.admin = await Admin.findById(decoded.id);
 
     if (!req.admin) {
+      logger.warn(`Admin not found for ID: ${decoded.id}`);
       return res.status(401).json({
         success: false,
         error: 'Admin not found',
+        message: 'The admin account associated with this token does not exist.',
       });
     }
 
     if (!req.admin.isActive) {
+      logger.warn(`Inactive admin account access attempt: ${decoded.id}`);
       return res.status(403).json({
         success: false,
         error: 'Admin account is deactivated',
+        message: 'Your admin account has been deactivated. Please contact the system administrator.',
       });
     }
 

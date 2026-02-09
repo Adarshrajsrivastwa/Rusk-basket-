@@ -522,7 +522,7 @@ exports.updateTicketStatus = async (req, res, next) => {
     // Notify vendor if this is a vendor ticket
     if (ticket.vendor && ticket.createdByModel === 'Vendor') {
       try {
-        const { sendVendorNotification } = require('../utils/socket');
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
         const vendorId = ticket.vendor._id || ticket.vendor;
         
         const statusMessages = {
@@ -532,13 +532,14 @@ exports.updateTicketStatus = async (req, res, next) => {
           'closed': 'Ticket has been closed',
         };
 
-        sendVendorNotification(vendorId, {
+        await sendVendorPushNotification(vendorId, {
           type: 'ticket_status_updated',
           title: 'Ticket Status Updated',
           message: `Your ticket #${ticket.ticketNumber || ticket._id} status changed from ${oldStatus} to ${status}. ${statusMessages[status] || ''}`,
+          ticketId: ticket._id.toString(),
           data: {
-            ticketId: ticket._id,
-            ticketNumber: ticket.ticketNumber || ticket._id,
+            ticketId: ticket._id.toString(),
+            ticketNumber: ticket.ticketNumber || ticket._id.toString(),
             status: status,
             previousStatus: oldStatus,
             adminResponse: ticket.adminResponse,
@@ -546,8 +547,8 @@ exports.updateTicketStatus = async (req, res, next) => {
           },
         });
       } catch (notifyError) {
-        // Don't fail the request if socket notification fails
-        logger.error('Error sending socket notification to vendor for ticket status update:', notifyError);
+        // Don't fail the request if push notification fails
+        logger.error('Error sending push notification to vendor for ticket status update:', notifyError);
       }
     }
 
@@ -623,16 +624,17 @@ exports.addAdminMessage = async (req, res, next) => {
     // Notify vendor if this is a vendor ticket
     if (ticket.vendor && ticket.createdByModel === 'Vendor') {
       try {
-        const { sendVendorNotification } = require('../utils/socket');
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
         const vendorId = ticket.vendor._id || ticket.vendor;
         
-        sendVendorNotification(vendorId, {
+        await sendVendorPushNotification(vendorId, {
           type: 'ticket_message_received',
           title: 'New Message on Your Ticket',
           message: `Admin has replied to your ticket #${ticket.ticketNumber || ticket._id}. ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`,
+          ticketId: ticket._id.toString(),
           data: {
-            ticketId: ticket._id,
-            ticketNumber: ticket.ticketNumber || ticket._id,
+            ticketId: ticket._id.toString(),
+            ticketNumber: ticket.ticketNumber || ticket._id.toString(),
             status: ticket.status,
             message: message,
             sender: 'Admin',
@@ -640,8 +642,8 @@ exports.addAdminMessage = async (req, res, next) => {
           },
         });
       } catch (notifyError) {
-        // Don't fail the request if socket notification fails
-        logger.error('Error sending socket notification to vendor for admin message:', notifyError);
+        // Don't fail the request if push notification fails
+        logger.error('Error sending push notification to vendor for admin message:', notifyError);
       }
     }
 
