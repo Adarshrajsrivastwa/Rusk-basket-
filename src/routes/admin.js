@@ -6,7 +6,7 @@ const router = express.Router();
 const { getAllProductsList } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { getAllOrders } = require('../controllers/checkout');
-const { getAdminProfile, updateAdminProfile } = require('../controllers/admin');
+const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
@@ -790,5 +790,43 @@ router.delete(
 
 // Delete all admin notifications
 router.delete('/notifications', protect, deleteAllAdminNotifications);
+
+// ============ ADMIN FCM TOKEN ROUTES ============
+
+// Update FCM token
+router.post(
+  '/fcm-token',
+  protect,
+  [
+    body('token')
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .trim(),
+    body('deviceId')
+      .optional()
+      .trim(),
+    body('platform')
+      .optional()
+      .isIn(['android', 'ios', 'web'])
+      .withMessage('Platform must be android, ios, or web'),
+  ],
+  updateFCMToken
+);
+
+// Remove FCM token
+router.post(
+  '/fcm-token/remove',
+  protect,
+  [
+    body('token')
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .trim(),
+  ],
+  removeFCMToken
+);
+
+// Test push notification
+router.post('/test-notification', protect, testNotification);
 
 module.exports = router;

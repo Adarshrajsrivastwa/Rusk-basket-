@@ -13,3 +13,8 @@ coverage/
 .vscode/
 .idea/
 uploads/
+# Firebase credentials
+FIREBASE_ENV_FORMAT.txt
+*firebase*.json
+*service-account*.json
+*credentials*.json

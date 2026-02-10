@@ -1,6 +1,7 @@
 const Admin = require('../models/Admin');
 const { validationResult } = require('express-validator');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
+const { sendAdminPushNotification } = require('../utils/firebaseNotification');
 const logger = require('../utils/logger');
 
 /**
@@ -251,5 +252,166 @@ exports.updateAdminProfile = async (req, res, next) => {
       });
     }
     next(error);
+  }
+};
+
+/**
+ * Update FCM token for admin
+ */
+exports.updateFCMToken = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const adminId = req.admin._id;
+    const { token, deviceId, platform } = req.body;
+
+    const admin = await Admin.findById(adminId);
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        error: 'Admin not found',
+      });
+    }
+
+    // Update single fcmToken (for backward compatibility)
+    if (token) {
+      admin.fcmToken = token;
+    }
+
+    // Add to fcmTokens array if not already present
+    if (token && admin.fcmTokens) {
+      const existingTokenIndex = admin.fcmTokens.findIndex(
+        t => t.token === token
+      );
+
+      if (existingTokenIndex === -1) {
+        // Add new token
+        admin.fcmTokens.push({
+          token: token,
+          deviceId: deviceId || '',
+          platform: platform || 'web',
+        });
+      } else {
+        // Update existing token
+        admin.fcmTokens[existingTokenIndex].deviceId = deviceId || admin.fcmTokens[existingTokenIndex].deviceId;
+        admin.fcmTokens[existingTokenIndex].platform = platform || admin.fcmTokens[existingTokenIndex].platform;
+        admin.fcmTokens[existingTokenIndex].createdAt = new Date();
+      }
+    } else if (token) {
+      // Initialize fcmTokens array if it doesn't exist
+      admin.fcmTokens = [{
+        token: token,
+        deviceId: deviceId || '',
+        platform: platform || 'web',
+      }];
+    }
+
+    await admin.save();
+
+    logger.info(`FCM token updated for admin ${adminId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'FCM token updated successfully',
+    });
+  } catch (error) {
+    logger.error('Update FCM token error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to update FCM token',
+    });
+  }
+};
+
+/**
+ * Remove FCM token
+ */
+exports.removeFCMToken = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const adminId = req.admin._id;
+    const { token } = req.body;
+
+    const admin = await Admin.findById(adminId);
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        error: 'Admin not found',
+      });
+    }
+
+    // Remove from fcmToken if it matches
+    if (admin.fcmToken === token) {
+      admin.fcmToken = undefined;
+    }
+
+    // Remove from fcmTokens array
+    if (admin.fcmTokens && admin.fcmTokens.length > 0) {
+      admin.fcmTokens = admin.fcmTokens.filter(t => t.token !== token);
+    }
+
+    await admin.save();
+
+    logger.info(`FCM token removed for admin ${adminId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'FCM token removed successfully',
+    });
+  } catch (error) {
+    logger.error('Remove FCM token error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to remove FCM token',
+    });
+  }
+};
+
+/**
+ * Test push notification (for testing)
+ */
+exports.testNotification = async (req, res, next) => {
+  try {
+    const adminId = req.admin._id;
+
+    const result = await sendAdminPushNotification(adminId, {
+      title: 'Test Notification',
+      message: 'This is a test push notification from Rush Baskets Admin',
+      type: 'test',
+    });
+
+    if (result.success) {
+      res.status(200).json({
+        success: true,
+        message: 'Test notification sent successfully',
+        data: result,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.error || 'Failed to send test notification',
+      });
+    }
+  } catch (error) {
+    logger.error('Test notification error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to send test notification',
+    });
   }
 };
