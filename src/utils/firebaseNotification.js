@@ -364,21 +364,25 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
  */
 const sendAdminPushNotification = async (adminId, notificationData) => {
   try {
+    logger.info(`[FCM] Starting push notification to admin ${adminId}`);
+    
     if (!firebaseInitialized) {
-      logger.warn('Firebase not initialized. Skipping push notification.');
+      logger.error('[FCM] Firebase not initialized. Skipping push notification.');
       return { success: false, error: 'Firebase not initialized' };
     }
+    logger.info('[FCM] Firebase is initialized');
 
     // Get admin with FCM tokens
-    const adminUser = await Admin.findById(adminId).select('fcmToken fcmTokens isActive');
+    const adminUser = await Admin.findById(adminId).select('fcmToken fcmTokens isActive name email');
     
     if (!adminUser) {
-      logger.warn(`Admin ${adminId} not found for push notification`);
+      logger.warn(`[FCM] Admin ${adminId} not found for push notification`);
       return { success: false, error: 'Admin not found' };
     }
+    logger.info(`[FCM] Admin found: ${adminUser.name || adminUser.email || adminId}`);
 
     if (!adminUser.isActive) {
-      logger.info(`Admin ${adminId} is not active. Skipping push notification`);
+      logger.warn(`[FCM] Admin ${adminId} is not active. Skipping push notification`);
       return { success: false, error: 'Admin is not active' };
     }
 
@@ -387,6 +391,7 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
     
     if (adminUser.fcmToken) {
       tokens.push(adminUser.fcmToken);
+      logger.info(`[FCM] Found single fcmToken for admin ${adminId}`);
     }
     
     if (adminUser.fcmTokens && adminUser.fcmTokens.length > 0) {
@@ -395,10 +400,13 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
           tokens.push(tokenObj.token);
         }
       });
+      logger.info(`[FCM] Found ${adminUser.fcmTokens.length} token(s) in fcmTokens array for admin ${adminId}`);
     }
 
+    logger.info(`[FCM] Total tokens collected for admin ${adminId}: ${tokens.length}`);
+
     if (tokens.length === 0) {
-      logger.info(`No FCM tokens found for admin ${adminId}`);
+      logger.error(`[FCM] No FCM tokens found for admin ${adminId}. Admin needs to register FCM token.`);
       return { success: false, error: 'No FCM tokens found' };
     }
 
@@ -444,7 +452,13 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
     };
 
     // Send notification
+    logger.info(`[FCM] Sending notification to ${tokens.length} token(s) for admin ${adminId}`);
+    logger.info(`[FCM] Notification title: ${message.notification.title}`);
+    logger.info(`[FCM] Notification body: ${message.notification.body}`);
+    
     const response = await admin.messaging().sendEachForMulticast(message);
+
+    logger.info(`[FCM] Firebase response for admin ${adminId}: Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
     // Handle invalid tokens
     if (response.failureCount > 0) {
@@ -452,23 +466,31 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           invalidTokens.push(tokens[idx]);
+          logger.warn(`[FCM] Failed to send to token ${tokens[idx]}: ${resp.error?.message || resp.error?.code || 'Unknown error'}`);
         }
       });
 
       if (invalidTokens.length > 0) {
+        logger.info(`[FCM] Removing ${invalidTokens.length} invalid token(s) for admin ${adminId}`);
         await removeInvalidAdminTokens(adminId, invalidTokens);
       }
     }
 
-    logger.info(`Push notification sent to admin ${adminId}. Success: ${response.successCount}, Failed: ${response.failureCount}`);
+    if (response.successCount > 0) {
+      logger.info(`[FCM] ✅ Successfully sent push notification to admin ${adminId}. ${response.successCount} token(s) received notification`);
+    } else {
+      logger.error(`[FCM] ❌ Failed to send push notification to admin ${adminId}. All ${response.failureCount} token(s) failed`);
+    }
 
     return {
-      success: true,
+      success: response.successCount > 0,
       successCount: response.successCount,
       failureCount: response.failureCount,
     };
   } catch (error) {
-    logger.error('Error sending push notification to admin:', error);
+    logger.error(`[FCM] ❌ Error sending push notification to admin ${adminId}:`, error);
+    logger.error(`[FCM] Error details: ${error.message}`);
+    logger.error(`[FCM] Error stack:`, error.stack);
     return { success: false, error: error.message };
   }
 };
