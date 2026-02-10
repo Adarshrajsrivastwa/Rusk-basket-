@@ -123,36 +123,51 @@ exports.createTicket = async (req, res, next) => {
     // Notify all active admins about new ticket
     try {
       const { sendAdminPushNotification } = require('../utils/firebaseNotification');
-      const Admin = require('../models/Admin');
       
       // Get all active admins
       const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
       
-      // Send notification to each admin
+      // Prepare notification data
+      const notificationData = {
+        type: 'ticket_created',
+        title: 'New Ticket Created',
+        message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+        ticketId: ticket._id.toString(),
+        data: {
+          ticketId: ticket._id.toString(),
+          ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+          category: ticket.category,
+          status: ticket.status,
+          createdBy: 'User',
+          complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+          orderId: ticket.orderId ? ticket.orderId.toString() : null,
+        },
+      };
+      
+      // Send push notification to each admin
+      let successCount = 0;
+      let failureCount = 0;
+      
       for (const admin of activeAdmins) {
         try {
-          await sendAdminPushNotification(admin._id, {
-            type: 'ticket_created',
-            title: 'New Ticket Created',
-            message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
-            ticketId: ticket._id.toString(),
-            data: {
-              ticketId: ticket._id.toString(),
-              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
-              category: ticket.category,
-              status: ticket.status,
-              createdBy: 'User',
-              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId ? ticket.orderId.toString() : null,
-            },
-          });
+          const pushResult = await sendAdminPushNotification(admin._id, notificationData);
+          if (pushResult && pushResult.success) {
+            successCount++;
+            logger.info(`Push notification sent to admin ${admin._id} for user ticket ${ticket.ticketNumber}`);
+          } else {
+            failureCount++;
+            logger.warn(`Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+          }
         } catch (adminNotifyError) {
-          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+          failureCount++;
+          logger.error(`Error sending push notification to admin ${admin._id}:`, adminNotifyError);
         }
       }
+      
+      logger.info(`Push notifications sent to ${activeAdmins.length} active admins for user ticket ${ticket.ticketNumber}. Success: ${successCount}, Failed: ${failureCount}`);
     } catch (notifyError) {
-      // Don't fail the request if socket notification fails
-      logger.error('Error sending socket notifications to admins for ticket creation:', notifyError);
+      // Don't fail the request if notification fails
+      logger.error('Error sending push notifications to admins for ticket creation:', notifyError);
     }
 
     res.status(201).json({
@@ -849,37 +864,52 @@ exports.createVendorTicket = async (req, res, next) => {
     // Notify all active admins about new vendor ticket
     try {
       const { sendAdminPushNotification } = require('../utils/firebaseNotification');
-      const Admin = require('../models/Admin');
       
       // Get all active admins
       const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
       
-      // Send notification to each admin
+      // Prepare notification data
+      const notificationData = {
+        type: 'ticket_created',
+        title: 'New Ticket Created',
+        message: `Vendor has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+        ticketId: ticket._id.toString(),
+        data: {
+          ticketId: ticket._id.toString(),
+          ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+          category: ticket.category,
+          status: ticket.status,
+          createdBy: 'Vendor',
+          vendorName: ticket.vendor?.vendorName || ticket.vendor?.storeName || 'Vendor',
+          complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+          orderId: ticket.orderId ? ticket.orderId.toString() : null,
+        },
+      };
+      
+      // Send push notification to each admin
+      let successCount = 0;
+      let failureCount = 0;
+      
       for (const admin of activeAdmins) {
         try {
-          await sendAdminPushNotification(admin._id, {
-            type: 'ticket_created',
-            title: 'New Ticket Created',
-            message: `Vendor has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
-            ticketId: ticket._id.toString(),
-            data: {
-              ticketId: ticket._id.toString(),
-              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
-              category: ticket.category,
-              status: ticket.status,
-              createdBy: 'Vendor',
-              vendorName: ticket.vendor?.vendorName || ticket.vendor?.storeName || 'Vendor',
-              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId ? ticket.orderId.toString() : null,
-            },
-          });
+          const pushResult = await sendAdminPushNotification(admin._id, notificationData);
+          if (pushResult && pushResult.success) {
+            successCount++;
+            logger.info(`Push notification sent to admin ${admin._id} for vendor ticket ${ticket.ticketNumber}`);
+          } else {
+            failureCount++;
+            logger.warn(`Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+          }
         } catch (adminNotifyError) {
-          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+          failureCount++;
+          logger.error(`Error sending push notification to admin ${admin._id}:`, adminNotifyError);
         }
       }
+      
+      logger.info(`Push notifications sent to ${activeAdmins.length} active admins for vendor ticket ${ticket.ticketNumber}. Success: ${successCount}, Failed: ${failureCount}`);
     } catch (notifyError) {
-      // Don't fail the request if socket notification fails
-      logger.error('Error sending socket notifications to admins for vendor ticket creation:', notifyError);
+      // Don't fail the request if notification fails
+      logger.error('Error sending push notifications to admins for vendor ticket creation:', notifyError);
     }
 
     res.status(201).json({
@@ -1151,37 +1181,52 @@ exports.createRiderTicket = async (req, res, next) => {
     // Notify all active admins about new rider ticket
     try {
       const { sendAdminPushNotification } = require('../utils/firebaseNotification');
-      const Admin = require('../models/Admin');
       
       // Get all active admins
       const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
       
-      // Send notification to each admin
+      // Prepare notification data
+      const notificationData = {
+        type: 'ticket_created',
+        title: 'New Ticket Created',
+        message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+        ticketId: ticket._id.toString(),
+        data: {
+          ticketId: ticket._id.toString(),
+          ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+          category: ticket.category,
+          status: ticket.status,
+          createdBy: 'Rider',
+          riderName: ticket.rider?.fullName || 'Rider',
+          complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+          orderId: ticket.orderId ? ticket.orderId.toString() : null,
+        },
+      };
+      
+      // Send push notification to each admin
+      let successCount = 0;
+      let failureCount = 0;
+      
       for (const admin of activeAdmins) {
         try {
-          await sendAdminPushNotification(admin._id, {
-            type: 'ticket_created',
-            title: 'New Ticket Created',
-            message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
-            ticketId: ticket._id.toString(),
-            data: {
-              ticketId: ticket._id.toString(),
-              ticketNumber: ticket.ticketNumber || ticket._id.toString(),
-              category: ticket.category,
-              status: ticket.status,
-              createdBy: 'Rider',
-              riderName: ticket.rider?.fullName || 'Rider',
-              complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-              orderId: ticket.orderId ? ticket.orderId.toString() : null,
-            },
-          });
+          const pushResult = await sendAdminPushNotification(admin._id, notificationData);
+          if (pushResult && pushResult.success) {
+            successCount++;
+            logger.info(`Push notification sent to admin ${admin._id} for rider ticket ${ticket.ticketNumber}`);
+          } else {
+            failureCount++;
+            logger.warn(`Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+          }
         } catch (adminNotifyError) {
-          logger.error(`Error sending notification to admin ${admin._id}:`, adminNotifyError);
+          failureCount++;
+          logger.error(`Error sending push notification to admin ${admin._id}:`, adminNotifyError);
         }
       }
+      
+      logger.info(`Push notifications sent to ${activeAdmins.length} active admins for rider ticket ${ticket.ticketNumber}. Success: ${successCount}, Failed: ${failureCount}`);
     } catch (notifyError) {
-      // Don't fail the request if socket notification fails
-      logger.error('Error sending socket notifications to admins for rider ticket creation:', notifyError);
+      // Don't fail the request if notification fails
+      logger.error('Error sending push notifications to admins for rider ticket creation:', notifyError);
     }
 
     res.status(201).json({

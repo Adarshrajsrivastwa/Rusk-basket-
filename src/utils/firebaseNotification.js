@@ -302,8 +302,11 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
         ...notificationData.data,
       },
       tokens: tokens,
+      // TTL: 4 weeks (in seconds) - ensures notification is stored for offline delivery
+      // When device comes online, notification will be delivered
       android: {
         priority: 'high',
+        ttl: 60 * 60 * 24 * 28, // 28 days in seconds
         notification: {
           sound: 'default',
           channelId: 'vendor_notifications',
@@ -311,11 +314,16 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
         },
       },
       apns: {
+        headers: {
+          'apns-expiration': String(Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 28), // 28 days
+          'apns-priority': '10',
+        },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
             priority: 10,
+            'content-available': 1, // Enable background notification
           },
         },
       },
@@ -408,8 +416,11 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
         ...notificationData.data,
       },
       tokens: tokens,
+      // TTL: 4 weeks (in seconds) - ensures notification is stored for offline delivery
+      // When device comes online, notification will be delivered
       android: {
         priority: 'high',
+        ttl: 60 * 60 * 24 * 28, // 28 days in seconds
         notification: {
           sound: 'default',
           channelId: 'admin_notifications',
@@ -417,11 +428,16 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
         },
       },
       apns: {
+        headers: {
+          'apns-expiration': String(Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 28), // 28 days
+          'apns-priority': '10',
+        },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
             priority: 10,
+            'content-available': 1, // Enable background notification
           },
         },
       },
