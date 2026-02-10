@@ -152,6 +152,8 @@ exports.getCategories = async (req, res, next) => {
           _id: category._id ? String(category._id) : category._id,
           code: category.code,
           totalProducts,
+          // Ensure image is null if not present (instead of undefined)
+          image: category.image && category.image.url ? category.image : null,
         };
         // Keep _id for update operations, code for display
         return formatResponse(categoryData);
@@ -308,6 +310,8 @@ exports.getCategory = async (req, res, next) => {
         category: formatResponse({
           ...category,
           code: category.code,
+          // Ensure image is null if not present (instead of undefined)
+          image: category.image && category.image.url ? category.image : null,
         }),
         summary: {
           totalProducts,
