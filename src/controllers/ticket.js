@@ -122,52 +122,72 @@ exports.createTicket = async (req, res, next) => {
 
     // Notify all active admins about new ticket
     try {
+      logger.info(`Starting notification process for user ticket ${ticket.ticketNumber}`);
       const { sendAdminPushNotification } = require('../utils/firebaseNotification');
       
-      // Get all active admins
-      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
+      // Get all active admins with FCM token info
+      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email fcmToken fcmTokens');
+      logger.info(`Found ${activeAdmins.length} active admin(s) to notify`);
       
-      // Prepare notification data
-      const notificationData = {
-        type: 'ticket_created',
-        title: 'New Ticket Created',
-        message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
-        ticketId: ticket._id.toString(),
-        data: {
-          ticketId: ticket._id.toString(),
-          ticketNumber: ticket.ticketNumber || ticket._id.toString(),
-          category: ticket.category,
-          status: ticket.status,
-          createdBy: 'User',
-          complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-          orderId: ticket.orderId ? ticket.orderId.toString() : null,
-        },
-      };
-      
-      // Send push notification to each admin
-      let successCount = 0;
-      let failureCount = 0;
-      
-      for (const admin of activeAdmins) {
-        try {
-          const pushResult = await sendAdminPushNotification(admin._id, notificationData);
-          if (pushResult && pushResult.success) {
-            successCount++;
-            logger.info(`Push notification sent to admin ${admin._id} for user ticket ${ticket.ticketNumber}`);
-          } else {
-            failureCount++;
-            logger.warn(`Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+      if (activeAdmins.length === 0) {
+        logger.warn('No active admins found. Skipping notification.');
+      } else {
+        // Check which admins have FCM tokens
+        const adminsWithTokens = activeAdmins.filter(admin => {
+          const hasToken = admin.fcmToken || (admin.fcmTokens && admin.fcmTokens.length > 0);
+          if (!hasToken) {
+            logger.warn(`Admin ${admin._id} (${admin.name || admin.email}) has no FCM tokens`);
           }
-        } catch (adminNotifyError) {
-          failureCount++;
-          logger.error(`Error sending push notification to admin ${admin._id}:`, adminNotifyError);
+          return hasToken;
+        });
+        
+        logger.info(`${adminsWithTokens.length} out of ${activeAdmins.length} admin(s) have FCM tokens`);
+        
+        // Prepare notification data
+        const notificationData = {
+          type: 'ticket_created',
+          title: 'New Ticket Created',
+          message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+          ticketId: ticket._id.toString(),
+          data: {
+            ticketId: ticket._id.toString(),
+            ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+            category: ticket.category,
+            status: ticket.status,
+            createdBy: 'User',
+            userName: ticket.createdBy?.userName || 'User',
+            complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+            orderId: ticket.orderId ? ticket.orderId.toString() : null,
+          },
+        };
+        
+        // Send push notification to each admin
+        let successCount = 0;
+        let failureCount = 0;
+        
+        for (const admin of activeAdmins) {
+          try {
+            logger.info(`Attempting to send notification to admin ${admin._id} (${admin.name || admin.email})`);
+            const pushResult = await sendAdminPushNotification(admin._id, notificationData);
+            if (pushResult && pushResult.success) {
+              successCount++;
+              logger.info(`✅ Push notification sent successfully to admin ${admin._id} for user ticket ${ticket.ticketNumber}. Success count: ${pushResult.successCount}, Failed: ${pushResult.failureCount}`);
+            } else {
+              failureCount++;
+              logger.warn(`❌ Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+            }
+          } catch (adminNotifyError) {
+            failureCount++;
+            logger.error(`❌ Error sending push notification to admin ${admin._id}:`, adminNotifyError);
+          }
         }
+        
+        logger.info(`📊 Notification summary for user ticket ${ticket.ticketNumber}: Total admins: ${activeAdmins.length}, Success: ${successCount}, Failed: ${failureCount}`);
       }
-      
-      logger.info(`Push notifications sent to ${activeAdmins.length} active admins for user ticket ${ticket.ticketNumber}. Success: ${successCount}, Failed: ${failureCount}`);
     } catch (notifyError) {
       // Don't fail the request if notification fails
-      logger.error('Error sending push notifications to admins for ticket creation:', notifyError);
+      logger.error('❌ Error in notification process for user ticket creation:', notifyError);
+      logger.error('Notification error stack:', notifyError.stack);
     }
 
     res.status(201).json({
@@ -1199,53 +1219,72 @@ exports.createRiderTicket = async (req, res, next) => {
 
     // Notify all active admins about new rider ticket
     try {
+      logger.info(`Starting notification process for rider ticket ${ticket.ticketNumber}`);
       const { sendAdminPushNotification } = require('../utils/firebaseNotification');
       
-      // Get all active admins
-      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email');
+      // Get all active admins with FCM token info
+      const activeAdmins = await Admin.find({ isActive: true }).select('_id name email fcmToken fcmTokens');
+      logger.info(`Found ${activeAdmins.length} active admin(s) to notify`);
       
-      // Prepare notification data
-      const notificationData = {
-        type: 'ticket_created',
-        title: 'New Ticket Created',
-        message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
-        ticketId: ticket._id.toString(),
-        data: {
-          ticketId: ticket._id.toString(),
-          ticketNumber: ticket.ticketNumber || ticket._id.toString(),
-          category: ticket.category,
-          status: ticket.status,
-          createdBy: 'Rider',
-          riderName: ticket.rider?.fullName || 'Rider',
-          complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
-          orderId: ticket.orderId ? ticket.orderId.toString() : null,
-        },
-      };
-      
-      // Send push notification to each admin
-      let successCount = 0;
-      let failureCount = 0;
-      
-      for (const admin of activeAdmins) {
-        try {
-          const pushResult = await sendAdminPushNotification(admin._id, notificationData);
-          if (pushResult && pushResult.success) {
-            successCount++;
-            logger.info(`Push notification sent to admin ${admin._id} for rider ticket ${ticket.ticketNumber}`);
-          } else {
-            failureCount++;
-            logger.warn(`Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+      if (activeAdmins.length === 0) {
+        logger.warn('No active admins found. Skipping notification.');
+      } else {
+        // Check which admins have FCM tokens
+        const adminsWithTokens = activeAdmins.filter(admin => {
+          const hasToken = admin.fcmToken || (admin.fcmTokens && admin.fcmTokens.length > 0);
+          if (!hasToken) {
+            logger.warn(`Admin ${admin._id} (${admin.name || admin.email}) has no FCM tokens`);
           }
-        } catch (adminNotifyError) {
-          failureCount++;
-          logger.error(`Error sending push notification to admin ${admin._id}:`, adminNotifyError);
+          return hasToken;
+        });
+        
+        logger.info(`${adminsWithTokens.length} out of ${activeAdmins.length} admin(s) have FCM tokens`);
+        
+        // Prepare notification data
+        const notificationData = {
+          type: 'ticket_created',
+          title: 'New Ticket Created',
+          message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+          ticketId: ticket._id.toString(),
+          data: {
+            ticketId: ticket._id.toString(),
+            ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+            category: ticket.category,
+            status: ticket.status,
+            createdBy: 'Rider',
+            riderName: ticket.rider?.fullName || 'Rider',
+            complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+            orderId: ticket.orderId ? ticket.orderId.toString() : null,
+          },
+        };
+        
+        // Send push notification to each admin
+        let successCount = 0;
+        let failureCount = 0;
+        
+        for (const admin of activeAdmins) {
+          try {
+            logger.info(`Attempting to send notification to admin ${admin._id} (${admin.name || admin.email})`);
+            const pushResult = await sendAdminPushNotification(admin._id, notificationData);
+            if (pushResult && pushResult.success) {
+              successCount++;
+              logger.info(`✅ Push notification sent successfully to admin ${admin._id} for rider ticket ${ticket.ticketNumber}. Success count: ${pushResult.successCount}, Failed: ${pushResult.failureCount}`);
+            } else {
+              failureCount++;
+              logger.warn(`❌ Failed to send push notification to admin ${admin._id}: ${pushResult?.error || 'Unknown error'}`);
+            }
+          } catch (adminNotifyError) {
+            failureCount++;
+            logger.error(`❌ Error sending push notification to admin ${admin._id}:`, adminNotifyError);
+          }
         }
+        
+        logger.info(`📊 Notification summary for rider ticket ${ticket.ticketNumber}: Total admins: ${activeAdmins.length}, Success: ${successCount}, Failed: ${failureCount}`);
       }
-      
-      logger.info(`Push notifications sent to ${activeAdmins.length} active admins for rider ticket ${ticket.ticketNumber}. Success: ${successCount}, Failed: ${failureCount}`);
     } catch (notifyError) {
       // Don't fail the request if notification fails
-      logger.error('Error sending push notifications to admins for rider ticket creation:', notifyError);
+      logger.error('❌ Error in notification process for rider ticket creation:', notifyError);
+      logger.error('Notification error stack:', notifyError.stack);
     }
 
     res.status(201).json({
