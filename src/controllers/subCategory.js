@@ -15,6 +15,36 @@ const formatResponse = (obj) => {
   }
   
   const cleaned = { ...obj };
+  const mongoose = require('mongoose');
+  
+  // Convert _id to string if it exists (handles Buffer objects and ObjectIds)
+  if (cleaned._id) {
+    if (cleaned._id.buffer && Array.isArray(cleaned._id.buffer)) {
+      // Handle Buffer object with buffer property - convert to ObjectId string
+      try {
+        const buffer = Buffer.from(cleaned._id.buffer);
+        cleaned._id = new mongoose.Types.ObjectId(buffer).toString();
+      } catch (e) {
+        // Fallback: convert buffer to hex string (24 chars for ObjectId)
+        cleaned._id = Buffer.from(cleaned._id.buffer).toString('hex');
+      }
+    } else if (cleaned._id.toString && typeof cleaned._id.toString === 'function' && cleaned._id.constructor && cleaned._id.constructor.name === 'ObjectId') {
+      // Handle Mongoose ObjectId
+      cleaned._id = cleaned._id.toString();
+    } else if (typeof cleaned._id !== 'string') {
+      // Convert any other type to string
+      try {
+        cleaned._id = String(cleaned._id);
+      } catch (e) {
+        // If conversion fails, try ObjectId conversion
+        try {
+          cleaned._id = new mongoose.Types.ObjectId(cleaned._id).toString();
+        } catch (e2) {
+          cleaned._id = cleaned._id;
+        }
+      }
+    }
+  }
   
   // Ensure code is present, keep _id for update operations
   if (cleaned._id && !cleaned.code) {
@@ -24,7 +54,8 @@ const formatResponse = (obj) => {
   
   // Recursively format nested objects (but keep _id in nested objects too for references)
   for (const key in cleaned) {
-    if (cleaned[key] && typeof cleaned[key] === 'object' && !(cleaned[key] instanceof Date)) {
+    if (cleaned[key] && typeof cleaned[key] === 'object' && !(cleaned[key] instanceof Date) && !(cleaned[key] instanceof Buffer)) {
+      // Process nested objects, but skip Buffer objects (they're handled above for _id)
       cleaned[key] = formatResponse(cleaned[key]);
     }
   }
@@ -186,6 +217,8 @@ exports.getSubCategories = async (req, res, next) => {
 
 exports.getSubCategory = async (req, res, next) => {
   try {
+    const mongoose = require('mongoose');
+    
     const subCategory = await SubCategory.findById(req.params.id)
       .populate('category', 'name code')
       .populate('createdBy', 'name email')
@@ -196,6 +229,29 @@ exports.getSubCategory = async (req, res, next) => {
         success: false,
         error: 'SubCategory not found',
       });
+    }
+
+    // Convert ObjectId buffers to strings
+    if (subCategory._id && subCategory._id.buffer && Array.isArray(subCategory._id.buffer)) {
+      subCategory._id = new mongoose.Types.ObjectId(Buffer.from(subCategory._id.buffer)).toString();
+    } else if (subCategory._id && typeof subCategory._id.toString === 'function') {
+      subCategory._id = subCategory._id.toString();
+    }
+    
+    if (subCategory.category && subCategory.category._id) {
+      if (subCategory.category._id.buffer && Array.isArray(subCategory.category._id.buffer)) {
+        subCategory.category._id = new mongoose.Types.ObjectId(Buffer.from(subCategory.category._id.buffer)).toString();
+      } else if (typeof subCategory.category._id.toString === 'function') {
+        subCategory.category._id = subCategory.category._id.toString();
+      }
+    }
+    
+    if (subCategory.createdBy && subCategory.createdBy._id) {
+      if (subCategory.createdBy._id.buffer && Array.isArray(subCategory.createdBy._id.buffer)) {
+        subCategory.createdBy._id = new mongoose.Types.ObjectId(Buffer.from(subCategory.createdBy._id.buffer)).toString();
+      } else if (typeof subCategory.createdBy._id.toString === 'function') {
+        subCategory.createdBy._id = subCategory.createdBy._id.toString();
+      }
     }
 
     // Keep _id for update operations, code for display
