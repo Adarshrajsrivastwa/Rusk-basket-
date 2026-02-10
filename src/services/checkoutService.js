@@ -881,7 +881,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     }
   }
 
-  // Add cashback to user account
+  // Add cashback to user account (ecashback)
   const totalCashback = totals.pricing?.totalCashback || 0;
   
   if (totalCashback > 0) {
@@ -895,10 +895,16 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         
         // Verify cashback was saved
         const updatedUser = await User.findById(userId).select('cashback');
+        logger.info(`Cashback added to user ${userId} for order ${orderNumber}: Previous: ₹${previousCashback}, Added: ₹${totalCashback}, New Total: ₹${updatedUser?.cashback || newCashback}`);
+      } else {
+        logger.warn(`User ${userId} not found when trying to add cashback for order ${orderNumber}`);
       }
     } catch (error) {
       // Don't throw error, just log it - order should still be created
+      logger.error(`Error adding cashback to user ${userId} for order ${orderNumber}:`, error);
     }
+  } else {
+    logger.info(`No cashback to add for order ${orderNumber} (totalCashback: ${totalCashback})`);
   }
 
   // Clear cart
@@ -1257,15 +1263,22 @@ exports.reorder = async (userId, orderId) => {
     status: 'pending',
   });
 
-  // Add cashback to user account
+  // Add cashback to user account (ecashback) for reorder
   if (totalCashback > 0) {
     try {
       const user = await User.findById(userId);
       if (user) {
-        user.cashback = (user.cashback || 0) + totalCashback;
+        const previousCashback = user.cashback || 0;
+        const newCashback = previousCashback + totalCashback;
+        user.cashback = newCashback;
         await user.save();
+        
+        logger.info(`Cashback added to user ${userId} for reorder ${orderNumber}: Previous: ₹${previousCashback}, Added: ₹${totalCashback}, New Total: ₹${newCashback}`);
+      } else {
+        logger.warn(`User ${userId} not found when trying to add cashback for reorder ${orderNumber}`);
       }
     } catch (error) {
+      logger.error(`Error adding cashback to user ${userId} for reorder ${orderNumber}:`, error);
     }
   }
 
@@ -2146,6 +2159,29 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
 
   await order.save();
 
+  // Deduct cashback from user account when order is cancelled
+  const orderCashback = order.pricing?.totalCashback || 0;
+  
+  if (orderCashback > 0) {
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        const previousCashback = user.cashback || 0;
+        const newCashback = Math.max(0, previousCashback - orderCashback); // Ensure cashback doesn't go negative
+        
+        user.cashback = newCashback;
+        await user.save();
+        
+        logger.info(`Cashback deducted from user ${userId} for cancelled order ${order.orderNumber}: Previous: ₹${previousCashback}, Deducted: ₹${orderCashback}, New Total: ₹${newCashback}`);
+      } else {
+        logger.warn(`User ${userId} not found when trying to deduct cashback for cancelled order ${order.orderNumber}`);
+      }
+    } catch (error) {
+      // Don't throw error, just log it - order cancellation should still proceed
+      logger.error(`Error deducting cashback from user ${userId} for cancelled order ${order.orderNumber}:`, error);
+    }
+  }
+
   // Send push notification to user about order cancellation
   try {
     const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
@@ -2525,7 +2561,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
 
   await order.save();
 
-  // Add cashback to user account
+  // Add cashback to user account (ecashback) when items are added to order
   if (newCashback > 0) {
     try {
       const user = await User.findById(order.user);
@@ -2534,8 +2570,13 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
         const newCashbackTotal = previousCashback + newCashback;
         user.cashback = newCashbackTotal;
         await user.save();
+        
+        logger.info(`Cashback added to user ${order.user} for items added to order ${order.orderNumber}: Previous: ₹${previousCashback}, Added: ₹${newCashback}, New Total: ₹${newCashbackTotal}`);
+      } else {
+        logger.warn(`User ${order.user} not found when trying to add cashback for items added to order ${order.orderNumber}`);
       }
     } catch (error) {
+      logger.error(`Error adding cashback to user ${order.user} for items added to order ${order.orderNumber}:`, error);
     }
   }
 
