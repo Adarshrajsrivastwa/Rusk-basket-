@@ -506,6 +506,7 @@ exports.getAdminDashboardOverview = async (req, res) => {
     // Import required models
     const Rider = require('../../models/Rider');
     const Ticket = require('../../models/Ticket');
+    const RiderJobPost = require('../../models/RiderJobPost');
 
     // 1. Total Orders
     const totalOrders = await Order.countDocuments();
@@ -682,7 +683,25 @@ exports.getAdminDashboardOverview = async (req, res) => {
     // 7. Notifications (Placeholder)
     const unreadNotifications = 15;
 
-    // 8. Support Tickets
+    // 8. Rider Job Postings Statistics
+    const totalJobPosts = await RiderJobPost.countDocuments();
+    const activeJobPosts = await RiderJobPost.countDocuments({ isActive: true });
+    const newJobPosts = await RiderJobPost.countDocuments({
+      createdAt: { $gte: monthStart },
+    });
+    
+    // Calculate job posts increase percentage
+    const thisMonthJobPosts = await RiderJobPost.countDocuments({
+      createdAt: { $gte: monthStart, $lte: now },
+    });
+    const lastMonthJobPosts = await RiderJobPost.countDocuments({
+      createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+    });
+    const jobPostsIncreasePercent = lastMonthJobPosts > 0
+      ? ((thisMonthJobPosts - lastMonthJobPosts) / lastMonthJobPosts * 100).toFixed(1)
+      : thisMonthJobPosts > 0 ? 100 : 0;
+
+    // 9. Support Tickets
     const openTickets = await Ticket.countDocuments({ status: 'active' });
     const inProgressTickets = await Ticket.countDocuments({ status: 'pending' });
     const escalatedTickets = await Ticket.countDocuments({
@@ -691,7 +710,7 @@ exports.getAdminDashboardOverview = async (req, res) => {
     });
     const resolvedTickets = await Ticket.countDocuments({ status: 'resolved' });
 
-    // 9. Recent Orders (Last 10)
+    // 10. Recent Orders (Last 10)
     const recentOrders = await Order.find()
       .sort({ createdAt: -1 })
       .limit(10)
@@ -699,7 +718,7 @@ exports.getAdminDashboardOverview = async (req, res) => {
       .populate('user', 'fullName contactNumber')
       .lean();
 
-    // 10. Top Vendors (by order count)
+    // 11. Top Vendors (by order count)
     const topVendorsData = await Order.aggregate([
       {
         $match: {
@@ -765,6 +784,12 @@ exports.getAdminDashboardOverview = async (req, res) => {
           active: activeUsers,
           new: newUsers,
           increasePercent: parseFloat(userIncreasePercent),
+        },
+        riderJobPosts: {
+          total: totalJobPosts,
+          active: activeJobPosts,
+          new: newJobPosts,
+          increasePercent: parseFloat(jobPostsIncreasePercent),
         },
       },
       inventory: {

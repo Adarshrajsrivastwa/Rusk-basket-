@@ -70,6 +70,7 @@ exports.updateProduct = async (req, res, next) => {
       salePrice,
       cashback,
       tags,
+      isActive,
     } = req.body;
 
     if (category && subCategory) {
@@ -181,6 +182,16 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
+    // Store previous isActive status before update
+    const previousIsActive = product.isActive;
+    
+    // Handle isActive status change (only admin can change this)
+    if (req.admin && isActive !== undefined) {
+      product.isActive = isActive === true || isActive === 'true';
+    }
+    
+    const isActiveChanged = req.admin && isActive !== undefined && product.isActive !== previousIsActive;
+
     if (req.admin) {
       product.updatedBy = req.admin._id;
       product.updatedByModel = 'Admin';
@@ -217,6 +228,32 @@ exports.updateProduct = async (req, res, next) => {
     };
 
     logger.info(`Product updated: ${product.productName} by ${req.admin ? 'Admin' : 'Vendor'}: ${req.admin?.email || req.vendor?.vendorName || req.vendor?.contactNumber}`);
+
+    // Notify vendor if product status (isActive) changed
+    if (isActiveChanged && product.vendor) {
+      try {
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
+        const vendorId = product.vendor._id || product.vendor;
+        const newStatus = product.isActive ? 'activated' : 'deactivated';
+        
+        await sendVendorPushNotification(vendorId, {
+          type: 'product_status_changed',
+          title: 'Product Status Updated',
+          message: `Your product "${product.productName}" has been ${newStatus} by admin`,
+          data: {
+            productId: product._id.toString(),
+            productName: product.productName,
+            productNumber: product.productNumber,
+            isActive: product.isActive,
+            previousStatus: previousIsActive,
+            updatedBy: req.admin ? 'Admin' : 'Vendor',
+          },
+        });
+      } catch (notifyError) {
+        // Don't fail the request if notification fails
+        logger.error('Error sending notification to vendor for product status change:', notifyError);
+      }
+    }
 
     res.status(200).json({
       success: true,

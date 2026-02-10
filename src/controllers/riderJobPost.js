@@ -399,24 +399,31 @@ exports.updateJobPost = async (req, res, next) => {
       });
     }
 
-    if (!req.vendor) {
+    const isAdmin = !!req.admin;
+    const isVendor = !!req.vendor;
+
+    if (!isVendor && !isAdmin) {
       return res.status(403).json({
         success: false,
-        error: 'Only vendors can update job posts',
+        error: 'Only vendors or admins can update job posts',
       });
     }
 
-    if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied. You can only update your own job posts.',
-      });
+    // If vendor, check they can only update their own posts
+    if (isVendor && !isAdmin) {
+      if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. You can only update your own job posts.',
+        });
+      }
     }
 
     const { 
       jobTitle, 
       joiningBonus, 
-      onboardingFee, 
+      onboardingFee,
+      vendor: vendorIdFromBody,
       locationLine1,
       locationLine2,
       locationPinCode,
@@ -426,11 +433,25 @@ exports.updateJobPost = async (req, res, next) => {
       locationLongitude,
     } = req.body;
 
-    if (req.body.vendor) {
-      return res.status(400).json({
-        success: false,
-        error: 'Vendor cannot be changed. It is set from your credentials.',
-      });
+    // Only admins can change vendor
+    if (vendorIdFromBody) {
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only admins can change the vendor for a job post.',
+        });
+      }
+      
+      // Validate vendor exists
+      const vendor = await Vendor.findById(vendorIdFromBody);
+      if (!vendor) {
+        return res.status(404).json({
+          success: false,
+          error: 'Vendor not found',
+        });
+      }
+      
+      jobPost.vendor = vendorIdFromBody;
     }
 
     if (jobTitle) jobPost.jobTitle = jobTitle;
@@ -472,7 +493,7 @@ exports.updateJobPost = async (req, res, next) => {
 
     const populatedJobPost = await RiderJobPost.findById(jobPost._id)
       .populate('vendor', 'vendorName storeName contactNumber email')
-      .populate('postedBy', 'vendorName storeName contactNumber email');
+      .populate('postedBy', 'vendorName storeName contactNumber email name');
 
     res.status(200).json({
       success: true,
@@ -495,18 +516,24 @@ exports.deleteJobPost = async (req, res, next) => {
       });
     }
 
-    if (!req.vendor) {
+    const isAdmin = !!req.admin;
+    const isVendor = !!req.vendor;
+
+    if (!isVendor && !isAdmin) {
       return res.status(403).json({
         success: false,
-        error: 'Only vendors can delete job posts',
+        error: 'Only vendors or admins can delete job posts',
       });
     }
 
-    if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied. You can only delete your own job posts.',
-      });
+    // If vendor, check they can only delete their own posts
+    if (isVendor && !isAdmin) {
+      if (jobPost.vendor.toString() !== req.vendor._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. You can only delete your own job posts.',
+        });
+      }
     }
 
     await RiderJobPost.findByIdAndDelete(req.params.id);
