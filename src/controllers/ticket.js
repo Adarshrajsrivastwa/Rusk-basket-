@@ -1,4 +1,5 @@
 const Ticket = require('../models/Ticket');
+const Notification = require('../models/Notification');
 const { validationResult } = require('express-validator');
 const { executeQuery } = require('../utils/queryManager');
 const User = require('../models/User');
@@ -183,6 +184,38 @@ exports.createTicket = async (req, res, next) => {
         }
         
         logger.info(`📊 Notification summary for user ticket ${ticket.ticketNumber}: Total admins: ${activeAdmins.length}, Success: ${successCount}, Failed: ${failureCount}`);
+        
+        // Create Notification documents in database for all active admins
+        try {
+          logger.info(`Creating Notification documents for ${activeAdmins.length} active admin(s)`);
+          const notificationPromises = activeAdmins.map(admin => 
+            Notification.create({
+              recipient: admin._id,
+              recipientModel: 'Admin',
+              type: 'ticket_created',
+              title: 'New Ticket Created',
+              message: `User has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+              data: {
+                ticketId: ticket._id.toString(),
+                ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+                category: ticket.category,
+                status: ticket.status,
+                createdBy: 'User',
+                userName: ticket.createdBy?.userName || 'User',
+                complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+                orderId: ticket.orderId ? ticket.orderId.toString() : null,
+              },
+              isRead: false,
+              isActive: true,
+            })
+          );
+          
+          const createdNotifications = await Promise.all(notificationPromises);
+          logger.info(`✅ Created ${createdNotifications.length} Notification documents for user ticket ${ticket.ticketNumber}`);
+        } catch (dbNotifyError) {
+          // Don't fail the request if notification creation fails
+          logger.error('❌ Error creating Notification documents for user ticket:', dbNotifyError);
+        }
       }
     } catch (notifyError) {
       // Don't fail the request if notification fails
@@ -944,6 +977,38 @@ exports.createVendorTicket = async (req, res, next) => {
         }
         
         logger.info(`📊 Notification summary for vendor ticket ${ticket.ticketNumber}: Total admins: ${activeAdmins.length}, Success: ${successCount}, Failed: ${failureCount}`);
+        
+        // Create Notification documents in database for all active admins
+        try {
+          logger.info(`Creating Notification documents for ${activeAdmins.length} active admin(s)`);
+          const notificationPromises = activeAdmins.map(admin => 
+            Notification.create({
+              recipient: admin._id,
+              recipientModel: 'Admin',
+              type: 'ticket_created',
+              title: 'New Ticket Created',
+              message: `Vendor has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+              data: {
+                ticketId: ticket._id.toString(),
+                ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+                category: ticket.category,
+                status: ticket.status,
+                createdBy: 'Vendor',
+                vendorName: ticket.vendor?.vendorName || ticket.vendor?.storeName || 'Vendor',
+                complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+                orderId: ticket.orderId ? ticket.orderId.toString() : null,
+              },
+              isRead: false,
+              isActive: true,
+            })
+          );
+          
+          const createdNotifications = await Promise.all(notificationPromises);
+          logger.info(`✅ Created ${createdNotifications.length} Notification documents for vendor ticket ${ticket.ticketNumber}`);
+        } catch (dbNotifyError) {
+          // Don't fail the request if notification creation fails
+          logger.error('❌ Error creating Notification documents for vendor ticket:', dbNotifyError);
+        }
       }
     } catch (notifyError) {
       // Don't fail the request if notification fails
@@ -1280,6 +1345,38 @@ exports.createRiderTicket = async (req, res, next) => {
         }
         
         logger.info(`📊 Notification summary for rider ticket ${ticket.ticketNumber}: Total admins: ${activeAdmins.length}, Success: ${successCount}, Failed: ${failureCount}`);
+        
+        // Create Notification documents in database for all active admins
+        try {
+          logger.info(`Creating Notification documents for ${activeAdmins.length} active admin(s)`);
+          const notificationPromises = activeAdmins.map(admin => 
+            Notification.create({
+              recipient: admin._id,
+              recipientModel: 'Admin',
+              type: 'ticket_created',
+              title: 'New Ticket Created',
+              message: `Rider has created a new ticket #${ticket.ticketNumber || ticket._id}. Category: ${ticket.category}`,
+              data: {
+                ticketId: ticket._id.toString(),
+                ticketNumber: ticket.ticketNumber || ticket._id.toString(),
+                category: ticket.category,
+                status: ticket.status,
+                createdBy: 'Rider',
+                riderName: ticket.rider?.fullName || 'Rider',
+                complaint: ticket.complaint.substring(0, 200) + (ticket.complaint.length > 200 ? '...' : ''),
+                orderId: ticket.orderId ? ticket.orderId.toString() : null,
+              },
+              isRead: false,
+              isActive: true,
+            })
+          );
+          
+          const createdNotifications = await Promise.all(notificationPromises);
+          logger.info(`✅ Created ${createdNotifications.length} Notification documents for rider ticket ${ticket.ticketNumber}`);
+        } catch (dbNotifyError) {
+          // Don't fail the request if notification creation fails
+          logger.error('❌ Error creating Notification documents for rider ticket:', dbNotifyError);
+        }
       }
     } catch (notifyError) {
       // Don't fail the request if notification fails
