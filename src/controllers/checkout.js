@@ -580,6 +580,25 @@ exports.getVendorOrder = async (req, res, next) => {
       });
     }
 
+    // If rider is assigned, include rider name, mobile number, and delivery amount
+    if (order.rider || order.riderDetails) {
+      const rider = order.rider || order.riderDetails;
+      const responseData = {
+        ...order,
+        riderInfo: {
+          name: rider?.fullName || rider?.riderName || null,
+          mobileNumber: rider?.mobileNumber || null,
+          deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
+        },
+      };
+      
+      return res.status(200).json({
+        success: true,
+        data: responseData,
+      });
+    }
+
+    // If no rider assigned, return order as is
     res.status(200).json({
       success: true,
       data: order,
