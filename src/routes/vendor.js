@@ -7,6 +7,7 @@ const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
+const { getRidersDueAmounts, updateRiderDueAmount } = require('../controllers/rider');
 const { updateInventory, getInventory, getAllInventory } = require('../controllers/inventory');
 const { toggleProductOffer, getVendorOffers, getProductOffer } = require('../controllers/productOffer');
 const { protect } = require('../middleware/adminAuth');
@@ -426,6 +427,57 @@ router.put(
 );
 
 router.get('/job-posts/:jobPostId/assigned-riders', protectVendor, getAssignedRiders);
+
+// Get all riders' due amounts for vendor
+router.get(
+  '/riders/due-amounts',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+    query('approvalStatus')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Invalid approval status'),
+  ],
+  getRidersDueAmounts
+);
+
+// Update rider due amount from vendor API
+router.put(
+  '/riders/:riderId/due-amount',
+  protectVendor,
+  [
+    param('riderId')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+    body('dueAmount')
+      .notEmpty()
+      .withMessage('Due amount (deduction amount) is required')
+      .bail()
+      .isFloat({ min: 0 })
+      .withMessage('Due amount (deduction amount) must be a number greater than or equal to 0'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Description cannot exceed 500 characters'),
+  ],
+  updateRiderDueAmount
+);
 
 router.get(
   '/inventory',

@@ -1784,3 +1784,200 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Get all riders' due amounts for a vendor
+ * This API shows all riders associated with the vendor and their due amounts
+ */
+exports.getRidersDueAmounts = async (req, res, next) => {
+  try {
+    // Check if vendor is authenticated
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Vendor authentication required',
+      });
+    }
+
+    const vendorId = req.vendor._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Find all riders associated with this vendor
+    const query = { vendor: vendorId };
+
+    // Optional filters
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true';
+    }
+
+    if (req.query.approvalStatus) {
+      query.approvalStatus = req.query.approvalStatus;
+    }
+
+    // Get riders with their due amounts
+    const riders = await Rider.find(query)
+      .select('fullName mobileNumber dueBalance pendingBalance earningWallet approvalStatus isActive assignedToVendorAt')
+      .sort({ dueBalance: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Rider.countDocuments(query);
+
+    // Calculate total due amount for all riders
+    const totalDueAmount = await Rider.aggregate([
+      { $match: query },
+      { $group: { _id: null, total: { $sum: '$dueBalance' } } }
+    ]);
+
+    const totalDue = totalDueAmount.length > 0 ? totalDueAmount[0].total : 0;
+
+    res.status(200).json({
+      success: true,
+      count: riders.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      summary: {
+        totalRiders: total,
+        totalDueAmount: totalDue.toFixed(2),
+      },
+      data: riders.map(rider => ({
+        riderId: rider._id,
+        fullName: rider.fullName,
+        mobileNumber: rider.mobileNumber,
+        dueBalance: (rider.dueBalance || 0).toFixed(2),
+        pendingBalance: (rider.pendingBalance || 0).toFixed(2),
+        earningWallet: (rider.earningWallet || 0).toFixed(2),
+        approvalStatus: rider.approvalStatus,
+        isActive: rider.isActive,
+        assignedToVendorAt: rider.assignedToVendorAt,
+      })),
+    });
+  } catch (error) {
+    logger.error('Get riders due amounts error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Update rider due amount from vendor API
+ * This API allows vendors to parse and update rider due amounts
+ */
+exports.updateRiderDueAmount = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Check if vendor is authenticated
+    if (!req.vendor) {
+      return res.status(403).json({
+        success: false,
+        error: 'Vendor authentication required',
+      });
+    }
+
+    const vendorId = req.vendor._id;
+    const { riderId } = req.params;
+    const { dueAmount, description } = req.body;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(riderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid rider ID format',
+      });
+    }
+
+    // Find the rider
+    const rider = await Rider.findById(riderId);
+
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    // Verify rider is associated with this vendor
+    if (!rider.vendor || rider.vendor.toString() !== vendorId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This rider is not associated with your vendor account',
+      });
+    }
+
+    // Validate deduction amount (amount to subtract from current due)
+    const deductionAmount = parseFloat(dueAmount);
+    if (isNaN(deductionAmount) || deductionAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Due amount must be a valid number greater than or equal to 0',
+      });
+    }
+
+    const previousDueBalance = rider.dueBalance || 0;
+    
+    // Calculate new due amount: current due - deduction amount
+    const newDueAmount = previousDueBalance - deductionAmount;
+    
+    // Ensure due amount doesn't go negative
+    if (newDueAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot deduct ₹${deductionAmount.toFixed(2)}. Current due balance is only ₹${previousDueBalance.toFixed(2)}. Maximum deduction allowed: ₹${previousDueBalance.toFixed(2)}`,
+      });
+    }
+
+    const amountDifference = newDueAmount - previousDueBalance; // This will be negative (reduction)
+
+    // Update rider's due balance
+    rider.dueBalance = newDueAmount;
+
+    // Record transaction for due reduction
+    const reducedAmount = Math.abs(amountDifference); // This is the deduction amount
+    
+    rider.walletTransactions.push({
+      type: 'debit',
+      amount: reducedAmount,
+      description: description || `Due amount deducted by vendor. Previous: ₹${previousDueBalance.toFixed(2)}, Deducted: ₹${deductionAmount.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}`,
+      createdAt: new Date(),
+    });
+
+    await rider.save();
+
+    logger.info(`Rider ${riderId} due amount updated by vendor ${vendorId}. Previous: ₹${previousDueBalance.toFixed(2)}, New: ₹${newDueAmount.toFixed(2)}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Rider due amount updated successfully',
+      data: {
+        rider: {
+          riderId: rider._id,
+          fullName: rider.fullName,
+          mobileNumber: rider.mobileNumber,
+        },
+        dueAmount: {
+          previous: previousDueBalance.toFixed(2),
+          deducted: deductionAmount.toFixed(2),
+          new: newDueAmount.toFixed(2),
+          difference: amountDifference.toFixed(2),
+        },
+        updatedAt: rider.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Update rider due amount error:', error);
+    next(error);
+  }
+};
