@@ -168,7 +168,7 @@ router.put(
       .notEmpty()
       .withMessage('Status is required')
       .bail()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
       .withMessage('Invalid status'),
     body('notes')
       .optional()

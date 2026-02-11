@@ -195,15 +195,17 @@ const OrderSchema = new mongoose.Schema({
     type: String,
     enum: [
       'pending',
+      'order_placed',
       'confirmed',
       'processing',
       'ready',
+      'rider_assign',
       'out_for_delivery',
       'delivered',
       'cancelled',
       'refunded',
     ],
-    default: 'pending',
+    default: 'order_placed',
     index: true,
   },
   rider: {
@@ -275,6 +277,22 @@ const OrderSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Delivery amount must be greater than or equal to 0'],
+  },
+  deliveryImage: {
+    url: {
+      type: String,
+    },
+    publicId: {
+      type: String,
+    },
+  },
+  deliveredImage: {
+    url: {
+      type: String,
+    },
+    publicId: {
+      type: String,
+    },
   },
   createdAt: {
     type: Date,

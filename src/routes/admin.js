@@ -175,7 +175,7 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
     query('status')
       .optional()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
       .withMessage('Invalid order status'),
     query('user')
       .optional()

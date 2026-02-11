@@ -869,7 +869,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       amount: totals.pricing.total,
     },
     notes,
-    status: 'pending',
+    status: 'order_placed',
   });
 
   // Update coupon usage count
@@ -1260,7 +1260,7 @@ exports.reorder = async (userId, orderId) => {
       amount: total,
     },
     notes: `Reordered from order ${originalOrder.orderNumber}`,
-    status: 'pending',
+    status: 'order_placed',
   });
 
   // Add cashback to user account (ecashback) for reorder
@@ -1508,7 +1508,7 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
           category: product.category?.name || null,
           subCategory: product.subCategory?.name || null,
           sellPrice: product.salePrice || item.price || null,
-          status: order.status || 'pending',
+          status: order.status || 'order_placed',
         };
       });
     
@@ -1983,7 +1983,7 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
   }
 
   // Validate status transition
-  const validStatuses = ['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'];
+  const validStatuses = ['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled'];
   if (!validStatuses.includes(status)) {
     throw new Error(`Invalid order status: ${status}`);
   }
@@ -2129,7 +2129,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     throw new Error('Order not found');
   }
 
-  if (!['pending', 'confirmed', 'processing'].includes(order.status)) {
+  if (!['pending', 'order_placed', 'confirmed', 'processing'].includes(order.status)) {
     throw new Error('Order cannot be cancelled at this stage');
   }
 

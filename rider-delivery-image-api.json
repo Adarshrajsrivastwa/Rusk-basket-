@@ -1,0 +1,332 @@
+{
+  "api": {
+    "name": "Rider Delivery Image Upload API",
+    "version": "1.0.0",
+    "endpoint": "/api/rider/orders/:orderId/upload-delivery-image",
+    "method": "POST",
+    "description": "Upload delivery image from vendor side and update order status to out_for_delivery",
+    "authentication": {
+      "required": true,
+      "type": "Bearer Token",
+      "header": "Authorization: Bearer <token>"
+    },
+    "urlParameters": {
+      "orderId": {
+        "type": "string",
+        "format": "MongoDB ObjectId",
+        "required": true,
+        "description": "Order ID for which delivery image is being uploaded"
+      }
+    },
+    "request": {
+      "contentType": "multipart/form-data",
+      "fields": {
+        "deliveryImage": {
+          "type": "file",
+          "required": true,
+          "description": "Delivery image file",
+          "constraints": {
+            "allowedTypes": ["jpeg", "jpg", "png", "webp"],
+            "maxSize": "10MB"
+          }
+        }
+      }
+    },
+    "successResponse": {
+      "statusCode": 200,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Delivery image uploaded successfully and order status updated to out_for_delivery"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "order": {
+                "type": "object",
+                "properties": {
+                  "_id": {
+                    "type": "string",
+                    "example": "507f1f77bcf86cd799439011"
+                  },
+                  "orderNumber": {
+                    "type": "string",
+                    "example": "RB12345678"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["out_for_delivery"],
+                    "example": "out_for_delivery"
+                  },
+                  "deliveryImage": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "example": "https://res.cloudinary.com/cloud/image/upload/v123/rush-basket/delivery-images/abc123.jpg"
+                      },
+                      "publicId": {
+                        "type": "string",
+                        "example": "rush-basket/delivery-images/abc123"
+                      }
+                    }
+                  },
+                  "user": {
+                    "type": "object",
+                    "properties": {
+                      "_id": { "type": "string" },
+                      "userName": { "type": "string" },
+                      "contactNumber": { "type": "string" },
+                      "email": { "type": "string" }
+                    }
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "product": {
+                          "type": "object",
+                          "properties": {
+                            "_id": { "type": "string" },
+                            "productName": { "type": "string" },
+                            "thumbnail": { "type": "object" }
+                          }
+                        },
+                        "vendor": {
+                          "type": "object",
+                          "properties": {
+                            "_id": { "type": "string" },
+                            "vendorName": { "type": "string" },
+                            "storeName": { "type": "string" }
+                          }
+                        },
+                        "quantity": { "type": "number" },
+                        "unitPrice": { "type": "number" },
+                        "salePrice": { "type": "number" },
+                        "totalPrice": { "type": "number" }
+                      }
+                    }
+                  },
+                  "rider": {
+                    "type": "object",
+                    "properties": {
+                      "_id": { "type": "string" },
+                      "fullName": { "type": "string" },
+                      "mobileNumber": { "type": "string" }
+                    }
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "deliveryImage": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "publicId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "success": true,
+        "message": "Delivery image uploaded successfully and order status updated to out_for_delivery",
+        "data": {
+          "order": {
+            "_id": "507f1f77bcf86cd799439011",
+            "orderNumber": "RB12345678",
+            "status": "out_for_delivery",
+            "deliveryImage": {
+              "url": "https://res.cloudinary.com/cloud/image/upload/v123/rush-basket/delivery-images/abc123.jpg",
+              "publicId": "rush-basket/delivery-images/abc123"
+            },
+            "user": {
+              "_id": "507f1f77bcf86cd799439012",
+              "userName": "John Doe",
+              "contactNumber": "9876543210",
+              "email": "john@example.com"
+            },
+            "items": [
+              {
+                "product": {
+                  "_id": "507f1f77bcf86cd799439013",
+                  "productName": "Product Name",
+                  "thumbnail": {
+                    "url": "https://...",
+                    "publicId": "..."
+                  }
+                },
+                "vendor": {
+                  "_id": "507f1f77bcf86cd799439014",
+                  "vendorName": "Vendor Name",
+                  "storeName": "Store Name"
+                },
+                "quantity": 2,
+                "unitPrice": 100,
+                "salePrice": 90,
+                "totalPrice": 180
+              }
+            ],
+            "rider": {
+              "_id": "507f1f77bcf86cd799439015",
+              "fullName": "Rider Name",
+              "mobileNumber": "9876543210"
+            },
+            "createdAt": "2024-01-15T10:30:00.000Z",
+            "updatedAt": "2024-01-15T11:45:00.000Z"
+          },
+          "deliveryImage": {
+            "url": "https://res.cloudinary.com/cloud/image/upload/v123/rush-basket/delivery-images/abc123.jpg",
+            "publicId": "rush-basket/delivery-images/abc123"
+          }
+        }
+      }
+    },
+    "errorResponses": [
+      {
+        "statusCode": 400,
+        "scenarios": [
+          {
+            "error": "Delivery image is required. Please upload an image file.",
+            "condition": "No image file provided"
+          },
+          {
+            "error": "Invalid order ID format",
+            "condition": "Invalid MongoDB ObjectId format"
+          },
+          {
+            "error": "Order cannot be updated. Current status: {status}. Order must be in one of these statuses: rider_assign, ready, processing, confirmed.",
+            "condition": "Order status is not valid for update"
+          },
+          {
+            "error": "File size too large. Maximum size is 10MB",
+            "condition": "File exceeds 10MB limit"
+          },
+          {
+            "error": "Only image files (jpeg, jpg, png, webp) are allowed for delivery images",
+            "condition": "Invalid file type"
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": false
+            },
+            "error": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string",
+              "optional": true
+            }
+          }
+        }
+      },
+      {
+        "statusCode": 401,
+        "error": "Authentication required",
+        "condition": "Missing or invalid authentication token"
+      },
+      {
+        "statusCode": 403,
+        "error": "This order is not assigned to you. You can only upload images for your own orders.",
+        "condition": "Order is not assigned to the authenticated rider"
+      },
+      {
+        "statusCode": 404,
+        "error": "Order not found",
+        "condition": "Order with given ID does not exist"
+      },
+      {
+        "statusCode": 500,
+        "error": "Failed to upload image to Cloudinary",
+        "condition": "Cloudinary upload failure",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": false
+            },
+            "error": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ],
+    "businessLogic": {
+      "imageUpload": {
+        "service": "Cloudinary",
+        "folder": "rush-basket/delivery-images",
+        "optimization": "Automatic"
+      },
+      "statusUpdate": {
+        "newStatus": "out_for_delivery",
+        "automatic": true
+      },
+      "oldImageCleanup": {
+        "enabled": true,
+        "description": "Old delivery image is deleted from Cloudinary if exists"
+      },
+      "notifications": {
+        "vendors": {
+          "enabled": true,
+          "title": "Order Out for Delivery",
+          "body": "Order {orderNumber} is now out for delivery. Delivery image uploaded by rider."
+        },
+        "user": {
+          "enabled": true,
+          "title": "Order Out for Delivery",
+          "body": "Your order {orderNumber} is now out for delivery!"
+        }
+      },
+      "validOrderStatuses": [
+        "rider_assign",
+        "ready",
+        "processing",
+        "confirmed"
+      ],
+      "validation": [
+        "Order must be assigned to authenticated rider",
+        "Order status must be in valid statuses list",
+        "Image file must be provided",
+        "Image file must be valid image type",
+        "Image file size must not exceed 10MB"
+      ]
+    },
+    "examples": {
+      "curl": "curl -X POST https://api.rushbaskets.com/api/rider/orders/507f1f77bcf86cd799439011/upload-delivery-image -H 'Authorization: Bearer TOKEN' -F 'deliveryImage=@image.jpg'",
+      "javascript": {
+        "fetch": "const formData = new FormData(); formData.append('deliveryImage', file); fetch('/api/rider/orders/ORDER_ID/upload-delivery-image', { method: 'POST', headers: { 'Authorization': 'Bearer TOKEN' }, body: formData });",
+        "axios": "axios.post('/api/rider/orders/ORDER_ID/upload-delivery-image', formData, { headers: { 'Authorization': 'Bearer TOKEN', 'Content-Type': 'multipart/form-data' } });"
+      }
+    }
+  }
+}

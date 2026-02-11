@@ -39,7 +39,7 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
     query('status')
       .optional()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .isIn(['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
       .withMessage('Invalid order status'),
   ],
   getVendorOrders
@@ -87,8 +87,8 @@ router.put(
       .notEmpty()
       .withMessage('Status is required')
       .bail()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'])
-      .withMessage('Status must be one of: pending, confirmed, processing, ready, out_for_delivery, delivered, cancelled'),
+      .isIn(['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled'])
+      .withMessage('Status must be one of: pending, order_placed, confirmed, processing, ready, rider_assign, out_for_delivery, delivered, cancelled'),
     body('deliveryAmount')
       .optional()
       .isFloat({ min: 0 })
@@ -322,7 +322,7 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
     query('status')
       .optional()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .isIn(['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
       .withMessage('Invalid order status'),
   ],
   getOrders

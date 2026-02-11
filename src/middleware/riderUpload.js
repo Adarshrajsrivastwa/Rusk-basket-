@@ -15,6 +15,19 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// File filter for delivery images (only images, no PDF)
+const deliveryImageFileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image files (jpeg, jpg, png, webp) are allowed for delivery images'));
+  }
+};
+
 const upload = multer({
   storage: storage,
   limits: {
@@ -31,6 +44,22 @@ const uploadRiderFiles = upload.fields([
   { name: 'drivingLicenseFront', maxCount: 1 },
   { name: 'drivingLicenseBack', maxCount: 1 },
   { name: 'cancelCheque', maxCount: 1 },
+]);
+
+// Single image upload for delivery image (only images, no PDF)
+// Accepts both 'deliveryImage' and 'deliveredImage' field names
+const uploadDeliveryImageMulter = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fileFilter: deliveryImageFileFilter,
+});
+
+// Accept either deliveryImage or deliveredImage field
+const uploadDeliveryImage = uploadDeliveryImageMulter.fields([
+  { name: 'deliveryImage', maxCount: 1 },
+  { name: 'deliveredImage', maxCount: 1 },
 ]);
 
 const uploadRiderFilesWithErrorHandling = (req, res, next) => {
@@ -73,5 +102,51 @@ const uploadRiderFilesWithErrorHandling = (req, res, next) => {
   });
 };
 
-module.exports = { uploadRiderFiles: uploadRiderFilesWithErrorHandling };
+const uploadDeliveryImageWithErrorHandling = (req, res, next) => {
+  uploadDeliveryImage(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return res.status(400).json({
+            success: false,
+            error: `Unexpected field: "${err.field}". Allowed fields are: deliveryImage, deliveredImage`,
+            receivedField: err.field,
+            allowedFields: ['deliveryImage', 'deliveredImage'],
+          });
+        }
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            success: false,
+            error: 'File size too large. Maximum size is 10MB',
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: `File upload error: ${err.message}`,
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: err.message || 'File upload error',
+      });
+    }
+    
+    // Normalize file to req.file for single file uploads
+    // Check both field names and set req.file to whichever is present
+    if (req.files) {
+      if (req.files.deliveryImage && req.files.deliveryImage[0]) {
+        req.file = req.files.deliveryImage[0];
+      } else if (req.files.deliveredImage && req.files.deliveredImage[0]) {
+        req.file = req.files.deliveredImage[0];
+      }
+    }
+    
+    next();
+  });
+};
+
+module.exports = { 
+  uploadRiderFiles: uploadRiderFilesWithErrorHandling,
+  uploadDeliveryImage: uploadDeliveryImageWithErrorHandling
+};
 

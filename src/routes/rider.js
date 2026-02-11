@@ -2,11 +2,11 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
-const { uploadRiderFiles } = require('../middleware/riderUpload');
+const { uploadRiderFiles, uploadDeliveryImage: uploadDeliveryImageMiddleware } = require('../middleware/riderUpload');
 const { createRiderTicket, getRiderTickets, getRiderTicket, addRiderTicketMessage } = require('../controllers/ticket');
 
 const router = express.Router();
@@ -300,10 +300,27 @@ router.post(
   rejectOrderAssignment
 );
 
-// Mark order as delivered
+// Upload delivery image and update order status to out_for_delivery
+router.post(
+  '/orders/:orderId/upload-delivery-image',
+  protect,
+  uploadDeliveryImageMiddleware,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  uploadDeliveryImage
+);
+
+// Mark order as delivered (with optional image upload)
 router.post(
   '/orders/:orderId/delivered',
   protect,
+  uploadDeliveryImageMiddleware,
   [
     param('orderId')
       .notEmpty()
@@ -329,7 +346,7 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
     query('status')
       .optional()
-      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'])
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled'])
       .withMessage('Invalid status'),
   ],
   getMyOrders

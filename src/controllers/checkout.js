@@ -305,7 +305,7 @@ exports.createOrder = async (req, res, next) => {
       await sendOrderStatusNotification(userId, {
         orderId: order._id,
         orderNumber: order.orderNumber,
-        status: 'pending',
+        status: 'order_placed',
       });
     } catch (pushError) {
       logger.error('Error sending push notification for order creation:', pushError);
