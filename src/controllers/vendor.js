@@ -729,7 +729,43 @@ exports.updateOrderStatus = async (req, res, next) => {
           error: 'Delivery amount must be a valid positive number',
         });
       }
-      order.deliveryAmount = deliveryAmountNum;
+      
+      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
+      // Ensure pricing object exists
+      if (!order.pricing) {
+        order.pricing = {};
+      }
+      
+      // Directly assign to pricing object
+      order.pricing.deliveryAmount = deliveryAmountNum;
+      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
+      
+      // Remove top-level deliveryAmount field if it exists (using set to ensure Mongoose tracks the change)
+      if (order.deliveryAmount !== undefined) {
+        order.set('deliveryAmount', undefined);
+      }
+      
+      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
+      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
+        const subtotal = order.pricing.subtotal || 0;
+        const discount = order.pricing.discount || 0;
+        const tax = order.pricing.tax || 0;
+        const handlingCharge = order.pricing.handlingCharge || 0;
+        const deliveryAmt = deliveryAmountNum;
+        
+        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
+        
+        // Also update payment.amount to match the new total
+        if (order.payment) {
+          order.payment.amount = order.pricing.total;
+        }
+      }
+      
+      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
+      order.markModified('pricing');
+      if (order.payment) {
+        order.markModified('payment');
+      }
     }
 
     await order.save();
@@ -757,7 +793,7 @@ exports.updateOrderStatus = async (req, res, next) => {
           orderNumber: order.orderNumber,
           status: status,
           amount: order.pricing?.total || 0,
-          deliveryAmount: order.deliveryAmount || 0,
+          deliveryAmount: order.pricing?.deliveryAmount || order.deliveryAmount || 0,
           pricing: order.pricing,
           shippingAddress: order.shippingAddress,
           location: {

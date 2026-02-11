@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -314,6 +314,22 @@ router.post(
       .withMessage('Invalid order ID format'),
   ],
   uploadDeliveryImage
+);
+
+// Upload delivered image and mark order as delivered (out_for_delivery -> delivered)
+router.post(
+  '/orders/:orderId/delivered-image',
+  protect,
+  uploadDeliveryImageMiddleware,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  uploadDeliveredImage
 );
 
 // Mark order as delivered (with optional image upload)

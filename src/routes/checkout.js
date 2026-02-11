@@ -16,6 +16,7 @@ const {
   getVendorOrders,
   getVendorOrder,
   updateOrderStatus,
+  markOutForDelivery,
   addItemsToOrder,
   getOrderInvoice,
 } = require('../controllers/checkout');
@@ -95,6 +96,34 @@ router.put(
       .withMessage('Delivery amount must be a valid positive number'),
   ],
   updateOrderStatus
+);
+
+// Mark order as out for delivery (after accept/confirmed)
+router.put(
+  '/vendor/order/:orderId/out-for-delivery',
+  protectVendor,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+    body('deliveryAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Delivery amount must be a valid positive number'),
+    body('riderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Rider ID must be a valid MongoDB ObjectId'),
+    body('notes')
+      .optional()
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Notes cannot be more than 1000 characters'),
+  ],
+  markOutForDelivery
 );
 
 router.post(

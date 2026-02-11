@@ -551,6 +551,171 @@ exports.updateOrderStatus = async (req, res, next) => {
   }
 };
 
+exports.markOutForDelivery = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderId } = req.params;
+    const { deliveryAmount, riderId, notes } = req.body;
+
+    // Get order and validate it belongs to vendor
+    const Order = require('../models/Order');
+    const order = await Order.findById(orderId)
+      .populate('items.vendor', '_id');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Check if order belongs to this vendor
+    const vendorItems = order.items.filter(item => 
+      item.vendor && item.vendor._id.toString() === req.vendor._id.toString()
+    );
+
+    if (vendorItems.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: 'Order does not belong to this vendor',
+      });
+    }
+
+    // Validate that order is in a valid state to be marked as out for delivery
+    // Order should be in 'confirmed', 'processing', or 'ready' status
+    const validStatuses = ['confirmed', 'processing', 'ready', 'rider_assign'];
+    if (!validStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Order cannot be marked as out for delivery. Current status: ${order.status}. Order must be in 'confirmed', 'processing', 'ready', or 'rider_assign' status.`,
+      });
+    }
+
+    // Update order status to out_for_delivery
+    const previousStatus = order.status;
+    order.status = 'out_for_delivery';
+
+    // Update deliveryAmount if provided
+    if (deliveryAmount !== undefined) {
+      const deliveryAmountNum = parseFloat(deliveryAmount);
+      if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Delivery amount must be a valid positive number',
+        });
+      }
+      
+      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
+      // Ensure pricing object exists
+      if (!order.pricing) {
+        order.pricing = {};
+      }
+      
+      // Directly assign to pricing object
+      order.pricing.deliveryAmount = deliveryAmountNum;
+      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
+      
+      // Remove top-level deliveryAmount field
+      order.deliveryAmount = undefined;
+      
+      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
+      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
+        const subtotal = order.pricing.subtotal || 0;
+        const discount = order.pricing.discount || 0;
+        const tax = order.pricing.tax || 0;
+        const handlingCharge = order.pricing.handlingCharge || 0;
+        const deliveryAmt = deliveryAmountNum;
+        
+        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
+        
+        // Also update payment.amount to match the new total
+        if (order.payment) {
+          order.payment.amount = order.pricing.total;
+        }
+      }
+      
+      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
+      order.markModified('pricing');
+      if (order.payment) {
+        order.markModified('payment');
+      }
+    }
+
+    // Update rider if provided
+    if (riderId) {
+      const Rider = require('../models/Rider');
+      const rider = await Rider.findById(riderId);
+      if (!rider) {
+        return res.status(400).json({
+          success: false,
+          error: 'Rider not found',
+        });
+      }
+      order.rider = riderId;
+      if (!order.assignedAt) {
+        order.assignedAt = new Date();
+      }
+      order.assignedBy = req.vendor._id;
+    }
+
+    // Add notes if provided
+    if (notes) {
+      if (order.assignmentNotes) {
+        order.assignmentNotes += `\n${notes}`;
+      } else {
+        order.assignmentNotes = notes;
+      }
+    }
+
+    await order.save();
+
+    // Send push notification to user
+    if (order.user) {
+      try {
+        const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+        await sendOrderStatusNotification(order.user, {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: 'out_for_delivery',
+        });
+      } catch (pushError) {
+        logger.error('Error sending push notification for out for delivery:', pushError);
+      }
+    }
+
+    // Get populated order for response
+    const updatedOrder = await Order.findById(order._id)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'storeName storeId')
+      .populate('coupon.couponId', 'couponName code')
+      .populate('rider', 'fullName mobileNumber');
+
+    logger.info(`Order marked as out for delivery: ${order.orderNumber} by Vendor: ${req.vendor.storeId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Order marked as out for delivery successfully',
+      data: updatedOrder,
+      previousStatus: previousStatus,
+      newStatus: 'out_for_delivery',
+    });
+  } catch (error) {
+    logger.error('Mark out for delivery error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to mark order as out for delivery',
+    });
+  }
+};
+
 exports.cancelOrder = async (req, res, next) => {
   try {
     const errors = validationResult(req);

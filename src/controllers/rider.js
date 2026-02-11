@@ -1097,8 +1097,12 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       });
     }
 
+    // Check if body has out_for_delivery flag and order is already out_for_delivery
+    const markAsDelivered = req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true || 
+                           (order.status === 'out_for_delivery' && (req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true));
+
     // Check if order is in a valid status to upload delivery image
-    const validStatuses = ['rider_assign', 'ready', 'processing', 'confirmed'];
+    const validStatuses = ['rider_assign', 'ready', 'processing', 'confirmed', 'out_for_delivery'];
     if (!validStatuses.includes(order.status)) {
       return res.status(400).json({
         success: false,
@@ -1130,12 +1134,57 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       }
     }
 
-    // Update order with delivery image and status
+    // Update order with delivery image
     order.deliveryImage = {
       url: imageResult.url,
       publicId: imageResult.publicId,
     };
-    order.status = 'out_for_delivery';
+
+    // If order is already out_for_delivery and flag is set, mark as delivered directly
+    if (markAsDelivered && order.status === 'out_for_delivery') {
+      order.status = 'delivered';
+      order.deliveredAt = new Date();
+      
+      // If COD payment, add amount to user wallet
+      if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
+        try {
+          const Wallet = require('../models/Wallet');
+          
+          // Find or create wallet for user
+          let wallet = await Wallet.findOne({ user: order.user });
+          if (!wallet) {
+            wallet = await Wallet.create({ user: order.user, balance: 0 });
+          }
+          
+          // Add COD payment amount to wallet
+          const codAmount = order.payment.amount;
+          wallet.balance += codAmount;
+          
+          // Add transaction record
+          wallet.transactions.push({
+            type: 'credit',
+            amount: codAmount,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
+          });
+          
+          await wallet.save();
+          
+          // Update order payment status
+          order.payment.status = 'completed';
+          order.payment.paidAt = new Date();
+          
+          logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
+        } catch (walletError) {
+          logger.error('Error adding COD payment to wallet:', walletError);
+          // Don't fail order status update if wallet update fails
+        }
+      }
+    } else {
+      // Normal flow: update status to out_for_delivery
+      order.status = 'out_for_delivery';
+    }
     
     await order.save();
 
@@ -1146,73 +1195,429 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
 
-    logger.info(`Delivery image uploaded and order status updated to out_for_delivery for order ${order.orderNumber} by rider ${riderId}`);
+    // Check if order was marked as delivered
+    const isDelivered = order.status === 'delivered';
 
-    // Notify vendors about the status update
+    if (isDelivered) {
+      logger.info(`Delivery image uploaded and order marked as delivered for order ${order.orderNumber} by rider ${riderId}`);
+
+      // Notify all vendors in the order about delivery
+      try {
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
+        const vendorIds = new Set();
+        
+        // Get all unique vendor IDs from order items
+        populatedOrder.items.forEach(item => {
+          const itemVendorId = item.vendor?._id || item.vendor;
+          if (itemVendorId) {
+            vendorIds.add(itemVendorId.toString());
+          }
+        });
+
+        // Notify each vendor
+        for (const vendorId of vendorIds) {
+          try {
+            await sendVendorPushNotification(vendorId, {
+              type: 'order_delivered',
+              title: 'Order Delivered',
+              message: `Order #${order.orderNumber} has been delivered successfully by rider`,
+              orderId: order._id.toString(),
+              orderNumber: order.orderNumber,
+              status: 'delivered',
+              data: {
+                orderId: order._id.toString(),
+                orderNumber: order.orderNumber,
+                status: 'delivered',
+                deliveredAt: order.deliveredAt,
+                rider: populatedOrder.rider ? {
+                  _id: populatedOrder.rider._id,
+                  fullName: populatedOrder.rider.fullName,
+                  mobileNumber: populatedOrder.rider.mobileNumber,
+                } : null,
+              },
+            });
+          } catch (vendorNotifyError) {
+            logger.error(`Error sending notification to vendor ${vendorId}:`, vendorNotifyError);
+          }
+        }
+      } catch (notifyError) {
+        logger.error('Error sending socket notifications for order delivery:', notifyError);
+      }
+
+      // Send push notification to user about delivery
+      if (populatedOrder.user) {
+        try {
+          const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+          await sendOrderStatusNotification(populatedOrder.user._id, {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            status: 'delivered',
+          });
+        } catch (pushError) {
+          logger.error('Error sending push notification for order delivery:', pushError);
+        }
+      }
+
+      // Notify user about delivery (queue for other notification types)
+      if (notificationQueue && populatedOrder.user) {
+        await notificationQueue.add({
+          userId: populatedOrder.user._id,
+          type: 'order_delivered',
+          title: 'Order Delivered',
+          message: `Your order ${order.orderNumber} has been delivered successfully`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            type: 'user',
+          },
+        });
+      }
+
+      // Notify rider via WebSocket about the delivery completion
+      try {
+        const { notifyRiderOrderUpdate } = require('../utils/socket');
+        const orderUpdateData = {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: 'delivered',
+          amount: order.pricing?.total || 0,
+          deliveryAmount: order.deliveryAmount || 0,
+          deliveredAt: order.deliveredAt,
+        };
+        
+        notifyRiderOrderUpdate(riderId, orderUpdateData);
+      } catch (socketError) {
+        logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Delivery image uploaded successfully and order marked as delivered',
+        data: {
+          order: populatedOrder,
+          deliveryImage: {
+            url: imageResult.url,
+            publicId: imageResult.publicId,
+          },
+        },
+      });
+    } else {
+      logger.info(`Delivery image uploaded and order status updated to out_for_delivery for order ${order.orderNumber} by rider ${riderId}`);
+
+      // Notify vendors about the status update
+      try {
+        const { sendVendorPushNotification } = require('../utils/firebaseNotification');
+        const vendorIds = new Set();
+        
+        // Get all unique vendor IDs from order items
+        populatedOrder.items.forEach(item => {
+          if (item.vendor && item.vendor._id) {
+            vendorIds.add(item.vendor._id.toString());
+          }
+        });
+        
+        // Send notification to each vendor
+        for (const vendorId of vendorIds) {
+          try {
+            await sendVendorPushNotification(vendorId, {
+              title: 'Order Out for Delivery',
+              body: `Order ${order.orderNumber} is now out for delivery. Delivery image uploaded by rider.`,
+              data: {
+                type: 'order_status_update',
+                orderId: order._id.toString(),
+                orderNumber: order.orderNumber,
+                status: 'out_for_delivery',
+              },
+            });
+          } catch (notifError) {
+            logger.error(`Failed to send notification to vendor ${vendorId}:`, notifError);
+          }
+        }
+      } catch (notifError) {
+        logger.error('Error sending vendor notifications:', notifError);
+        // Don't fail the request if notification fails
+      }
+
+      // Notify user about the status update
+      try {
+        const { sendUserPushNotification } = require('../utils/firebaseNotification');
+        await sendUserPushNotification(order.user._id.toString(), {
+          title: 'Order Out for Delivery',
+          body: `Your order ${order.orderNumber} is now out for delivery!`,
+          data: {
+            type: 'order_status_update',
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            status: 'out_for_delivery',
+          },
+        });
+      } catch (userNotifError) {
+        logger.error('Error sending user notification:', userNotifError);
+        // Don't fail the request if notification fails
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Delivery image uploaded successfully and order status updated to out_for_delivery',
+        data: {
+          order: populatedOrder,
+          deliveryImage: {
+            url: imageResult.url,
+            publicId: imageResult.publicId,
+          },
+        },
+      });
+    }
+  } catch (error) {
+    logger.error('Upload delivery image error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Upload delivered image and mark order as delivered
+ * This is called when rider uploads delivered image and order status is out_for_delivery
+ * Order status will change from out_for_delivery to delivered
+ */
+exports.uploadDeliveredImage = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { orderId } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID format',
+      });
+    }
+
+    // Check if image file is provided
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'Delivered image is required. Please upload an image file.',
+      });
+    }
+
+    // Find the order
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Verify order is assigned to this rider
+    if (!order.rider || order.rider.toString() !== riderId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This order is not assigned to you. You can only upload images for your own orders.',
+      });
+    }
+
+    // Check if order is in out_for_delivery status
+    if (order.status !== 'out_for_delivery') {
+      return res.status(400).json({
+        success: false,
+        error: `Order cannot be marked as delivered. Current status: ${order.status}. Order must be in 'out_for_delivery' status.`,
+      });
+    }
+
+    // Upload image to Cloudinary
+    let imageResult;
+    try {
+      imageResult = await uploadToCloudinary(req.file, 'rush-basket/delivered-images');
+    } catch (uploadError) {
+      logger.error('Cloudinary upload error:', uploadError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload image to Cloudinary',
+        message: uploadError.message,
+      });
+    }
+
+    // Delete old delivered image from Cloudinary if exists
+    if (order.deliveredImage && order.deliveredImage.publicId) {
+      try {
+        const { deleteFromCloudinary } = require('../utils/cloudinary');
+        await deleteFromCloudinary(order.deliveredImage.publicId);
+      } catch (deleteError) {
+        logger.error('Error deleting old delivered image:', deleteError);
+        // Continue even if deletion fails
+      }
+    }
+
+    // Update order with delivered image and mark as delivered
+    order.deliveredImage = {
+      url: imageResult.url,
+      publicId: imageResult.publicId,
+    };
+    order.status = 'delivered';
+    order.deliveredAt = new Date();
+    
+    // If COD payment, add amount to user wallet
+    if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
+      try {
+        const Wallet = require('../models/Wallet');
+        
+        // Find or create wallet for user
+        let wallet = await Wallet.findOne({ user: order.user });
+        if (!wallet) {
+          wallet = await Wallet.create({ user: order.user, balance: 0 });
+        }
+        
+        // Add COD payment amount to wallet
+        const codAmount = order.payment.amount;
+        wallet.balance += codAmount;
+        
+        // Add transaction record
+        wallet.transactions.push({
+          type: 'credit',
+          amount: codAmount,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
+        });
+        
+        await wallet.save();
+        
+        // Update order payment status
+        order.payment.status = 'completed';
+        order.payment.paidAt = new Date();
+        
+        logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
+      } catch (walletError) {
+        logger.error('Error adding COD payment to wallet:', walletError);
+        // Don't fail order status update if wallet update fails
+      }
+    }
+    
+    await order.save();
+
+    // Populate order details for response
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber');
+
+    // Notify all vendors in the order about delivery
     try {
       const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorIds = new Set();
       
       // Get all unique vendor IDs from order items
       populatedOrder.items.forEach(item => {
-        if (item.vendor && item.vendor._id) {
-          vendorIds.add(item.vendor._id.toString());
+        const itemVendorId = item.vendor?._id || item.vendor;
+        if (itemVendorId) {
+          vendorIds.add(itemVendorId.toString());
         }
       });
-      
-      // Send notification to each vendor
+
+      // Notify each vendor
       for (const vendorId of vendorIds) {
         try {
           await sendVendorPushNotification(vendorId, {
-            title: 'Order Out for Delivery',
-            body: `Order ${order.orderNumber} is now out for delivery. Delivery image uploaded by rider.`,
+            type: 'order_delivered',
+            title: 'Order Delivered',
+            message: `Order #${order.orderNumber} has been delivered successfully by rider`,
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            status: 'delivered',
             data: {
-              type: 'order_status_update',
               orderId: order._id.toString(),
               orderNumber: order.orderNumber,
-              status: 'out_for_delivery',
+              status: 'delivered',
+              deliveredAt: order.deliveredAt,
+              rider: populatedOrder.rider ? {
+                _id: populatedOrder.rider._id,
+                fullName: populatedOrder.rider.fullName,
+                mobileNumber: populatedOrder.rider.mobileNumber,
+              } : null,
             },
           });
-        } catch (notifError) {
-          logger.error(`Failed to send notification to vendor ${vendorId}:`, notifError);
+        } catch (vendorNotifyError) {
+          logger.error(`Error sending notification to vendor ${vendorId}:`, vendorNotifyError);
         }
       }
-    } catch (notifError) {
-      logger.error('Error sending vendor notifications:', notifError);
-      // Don't fail the request if notification fails
+    } catch (notifyError) {
+      // Don't fail the request if socket notification fails
+      logger.error('Error sending socket notifications for order delivery:', notifyError);
     }
 
-    // Notify user about the status update
-    try {
-      const { sendUserPushNotification } = require('../utils/firebaseNotification');
-      await sendUserPushNotification(order.user._id.toString(), {
-        title: 'Order Out for Delivery',
-        body: `Your order ${order.orderNumber} is now out for delivery!`,
-        data: {
-          type: 'order_status_update',
-          orderId: order._id.toString(),
+    // Send push notification to user about delivery
+    if (populatedOrder.user) {
+      try {
+        const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+        await sendOrderStatusNotification(populatedOrder.user._id, {
+          orderId: order._id,
           orderNumber: order.orderNumber,
-          status: 'out_for_delivery',
+          status: 'delivered',
+        });
+      } catch (pushError) {
+        logger.error('Error sending push notification for order delivery:', pushError);
+        // Don't fail the request if push notification fails
+      }
+    }
+
+    // Notify user about delivery (queue for other notification types)
+    if (notificationQueue && populatedOrder.user) {
+      await notificationQueue.add({
+        userId: populatedOrder.user._id,
+        type: 'order_delivered',
+        title: 'Order Delivered',
+        message: `Your order ${order.orderNumber} has been delivered successfully`,
+        data: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          type: 'user',
         },
       });
-    } catch (userNotifError) {
-      logger.error('Error sending user notification:', userNotifError);
-      // Don't fail the request if notification fails
     }
+
+    // Notify rider via WebSocket about the delivery completion
+    try {
+      const { notifyRiderOrderUpdate } = require('../utils/socket');
+      const orderUpdateData = {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: 'delivered',
+        amount: order.pricing?.total || 0,
+        deliveryAmount: order.deliveryAmount || 0,
+        deliveredAt: order.deliveredAt,
+      };
+      
+      notifyRiderOrderUpdate(riderId, orderUpdateData);
+    } catch (socketError) {
+      logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
+    }
+
+    logger.info(`Rider ${riderId} uploaded delivered image and marked order ${order.orderNumber} as delivered`);
 
     res.status(200).json({
       success: true,
-      message: 'Delivery image uploaded successfully and order status updated to out_for_delivery',
+      message: 'Delivered image uploaded successfully and order marked as delivered',
       data: {
         order: populatedOrder,
-        deliveryImage: {
+        deliveredImage: {
           url: imageResult.url,
           publicId: imageResult.publicId,
         },
       },
     });
   } catch (error) {
-    logger.error('Upload delivery image error:', error);
+    logger.error('Upload delivered image error:', error);
     next(error);
   }
 };

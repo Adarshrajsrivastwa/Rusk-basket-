@@ -1440,14 +1440,36 @@ exports.getOrderById = async (orderId, userId = null) => {
     .populate('items.product', 'productName thumbnail description')
     .populate('items.vendor', 'vendorName storeName storeId storeAddress')
     .populate('coupon.couponId', 'couponName code offerType')
-    .populate('rider', 'fullName mobileNumber')
+    .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
     .populate('assignedBy', 'vendorName storeName');
 
   if (!order) {
     return null;
   }
 
-  return order.toObject ? order.toObject() : order;
+  const orderObj = order.toObject ? order.toObject() : order;
+
+  // Add enhanced rider details
+  if (orderObj.rider) {
+    orderObj.riderDetails = {
+      riderId: orderObj.rider._id,
+      riderName: orderObj.rider.fullName || null,
+      mobileNumber: orderObj.rider.mobileNumber || null,
+      whatsappNumber: orderObj.rider.whatsappNumber || null,
+      city: orderObj.rider.city || null,
+      address: orderObj.rider.currentAddress || null,
+    };
+  } else {
+    orderObj.riderDetails = null;
+  }
+
+  // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
+  orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+  
+  // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
+  orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+
+  return orderObj;
 };
 
 /**
@@ -1473,7 +1495,7 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
     })
     .populate('items.vendor', 'storeName storeId vendorName')
     .populate('coupon.couponId', 'couponName code')
-    .populate('rider', 'fullName mobileNumber')
+    .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -1521,6 +1543,26 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
       itemsCashback: parseFloat(vendorItemsCashback.toFixed(2)),
       itemCount: orderObj.items.length,
     };
+
+    // Add enhanced rider details
+    if (orderObj.rider) {
+      orderObj.riderDetails = {
+        riderId: orderObj.rider._id,
+        riderName: orderObj.rider.fullName || null,
+        mobileNumber: orderObj.rider.mobileNumber || null,
+        whatsappNumber: orderObj.rider.whatsappNumber || null,
+        city: orderObj.rider.city || null,
+        address: orderObj.rider.currentAddress || null,
+      };
+    } else {
+      orderObj.riderDetails = null;
+    }
+
+    // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
+    orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+    
+    // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
+    orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
     return orderObj;
   });
@@ -1653,7 +1695,8 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
       .populate('items.product', 'productName thumbnail description')
       .populate('items.vendor', 'storeName storeId storeAddress')
       .populate('coupon.couponId', 'couponName code offerType')
-      .populate('rider', 'fullName mobileNumber');
+      .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
+      .populate('assignedBy', 'vendorName storeName');
   } else {
     // Search by orderNumber
     order = await Order.findOne({ orderNumber: orderId })
@@ -1661,7 +1704,8 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
       .populate('items.product', 'productName thumbnail description')
       .populate('items.vendor', 'storeName storeId storeAddress')
       .populate('coupon.couponId', 'couponName code offerType')
-      .populate('rider', 'fullName mobileNumber');
+      .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
+      .populate('assignedBy', 'vendorName storeName');
   }
 
   if (!order) {
@@ -1689,6 +1733,26 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
     itemsCashback: parseFloat(vendorItemsCashback.toFixed(2)),
     itemCount: vendorItems.length,
   };
+
+  // Add enhanced rider details
+  if (orderObj.rider) {
+    orderObj.riderDetails = {
+      riderId: orderObj.rider._id,
+      riderName: orderObj.rider.fullName || null,
+      mobileNumber: orderObj.rider.mobileNumber || null,
+      whatsappNumber: orderObj.rider.whatsappNumber || null,
+      city: orderObj.rider.city || null,
+      address: orderObj.rider.currentAddress || null,
+    };
+  } else {
+    orderObj.riderDetails = null;
+  }
+
+  // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
+  orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+  
+  // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
+  orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
   return orderObj;
 };
@@ -1805,7 +1869,7 @@ exports.notifyRidersForOrder = async (order) => {
       items: order.items,
       shippingAddress: order.shippingAddress || null,
       pricing: order.pricing || null,
-      deliveryAmount: order.deliveryAmount || null,
+      deliveryAmount: order.pricing?.deliveryAmount || order.deliveryAmount || null,
       user: userDetails,
       vendorAddresses: vendorAddresses,
       createdAt: order.createdAt,
@@ -1902,6 +1966,32 @@ exports.notifyRidersForOrder = async (order) => {
       
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
+        // Build vendor details string for notification message
+        let vendorDetailsText = '';
+        if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
+          const vendor = orderData.vendorAddresses[0]; // Use first vendor
+          const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
+          const vendorPhone = vendor.contactNumber || '';
+          const vendorAddress = vendor.storeAddress ? [
+            vendor.storeAddress.line1,
+            vendor.storeAddress.line2,
+            vendor.storeAddress.city,
+            vendor.storeAddress.state,
+            vendor.storeAddress.pinCode
+          ].filter(Boolean).join(', ') : '';
+          
+          vendorDetailsText = `\nVendor: ${vendorName}`;
+          if (vendorPhone) {
+            vendorDetailsText += `\nPhone: ${vendorPhone}`;
+          }
+          if (vendorAddress) {
+            vendorDetailsText += `\nAddress: ${vendorAddress}`;
+          }
+        }
+
+        // Rider earnings (delivery amount is what rider earns)
+        const riderEarnings = orderData.deliveryAmount || 0;
+
         for (const riderId of activeRiders) {
           const rider = await Rider.findById(riderId);
           if (rider) {
@@ -1909,7 +1999,7 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
               data: {
                 _id: orderData._id,
                 orderNumber: orderData.orderNumber,
@@ -1931,6 +2021,32 @@ exports.notifyRidersForOrder = async (order) => {
     } catch (socketError) {
       // Fallback to notification queue if WebSocket fails
       if (notificationQueue) {
+        // Build vendor details string for notification message
+        let vendorDetailsText = '';
+        if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
+          const vendor = orderData.vendorAddresses[0]; // Use first vendor
+          const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
+          const vendorPhone = vendor.contactNumber || '';
+          const vendorAddress = vendor.storeAddress ? [
+            vendor.storeAddress.line1,
+            vendor.storeAddress.line2,
+            vendor.storeAddress.city,
+            vendor.storeAddress.state,
+            vendor.storeAddress.pinCode
+          ].filter(Boolean).join(', ') : '';
+          
+          vendorDetailsText = `\nVendor: ${vendorName}`;
+          if (vendorPhone) {
+            vendorDetailsText += `\nPhone: ${vendorPhone}`;
+          }
+          if (vendorAddress) {
+            vendorDetailsText += `\nAddress: ${vendorAddress}`;
+          }
+        }
+
+        // Rider earnings (delivery amount is what rider earns)
+        const riderEarnings = orderData.deliveryAmount || 0;
+
         for (const riderId of activeRiders) {
           const rider = await Rider.findById(riderId);
           if (rider) {
@@ -1938,7 +2054,7 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}. Would you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
               data: {
                 _id: orderData._id,
                 orderNumber: orderData.orderNumber,
@@ -2000,7 +2116,41 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
     if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
       throw new Error('Delivery amount must be a valid positive number');
     }
-    order.deliveryAmount = deliveryAmountNum;
+    
+      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
+      // Ensure pricing object exists
+      if (!order.pricing) {
+        order.pricing = {};
+      }
+      
+      // Directly assign to pricing object
+      order.pricing.deliveryAmount = deliveryAmountNum;
+      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
+      
+      // Remove top-level deliveryAmount field
+      order.deliveryAmount = undefined;
+      
+      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
+      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
+        const subtotal = order.pricing.subtotal || 0;
+        const discount = order.pricing.discount || 0;
+        const tax = order.pricing.tax || 0;
+        const handlingCharge = order.pricing.handlingCharge || 0;
+        const deliveryAmt = deliveryAmountNum;
+        
+        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
+        
+        // Also update payment.amount to match the new total
+        if (order.payment) {
+          order.payment.amount = order.pricing.total;
+        }
+      }
+      
+      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
+      order.markModified('pricing');
+      if (order.payment) {
+        order.markModified('payment');
+      }
   }
 
   // Set timestamps based on status

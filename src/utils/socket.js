@@ -252,10 +252,36 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
     const socketId = connectedRiders.get(riderIdStr);
 
     if (socketId) {
+      // Build vendor details string for notification message
+      let vendorDetailsText = '';
+      if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
+        const vendor = orderData.vendorAddresses[0]; // Use first vendor
+        const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
+        const vendorPhone = vendor.contactNumber || '';
+        const vendorAddress = vendor.storeAddress ? [
+          vendor.storeAddress.line1,
+          vendor.storeAddress.line2,
+          vendor.storeAddress.city,
+          vendor.storeAddress.state,
+          vendor.storeAddress.pinCode
+        ].filter(Boolean).join(', ') : '';
+        
+        vendorDetailsText = `\nVendor: ${vendorName}`;
+        if (vendorPhone) {
+          vendorDetailsText += `\nPhone: ${vendorPhone}`;
+        }
+        if (vendorAddress) {
+          vendorDetailsText += `\nAddress: ${vendorAddress}`;
+        }
+      }
+
+      // Rider earnings (delivery amount is what rider earns)
+      const riderEarnings = orderData.deliveryAmount || 0;
+
       const notificationPayload = {
         type: 'order_assignment_request',
         title: 'New Order Assignment Available',
-        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}. Would you like to accept?`,
+        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
         data: {
           _id: orderData._id,
           orderNumber: orderData.orderNumber,

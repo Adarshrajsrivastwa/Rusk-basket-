@@ -114,6 +114,16 @@ const OrderSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Total cashback must be greater than or equal to 0'],
     },
+    deliveryAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Delivery amount must be greater than or equal to 0'],
+    },
+    riderAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Rider amount must be greater than or equal to 0'],
+    },
   },
   coupon: {
     couponId: {
