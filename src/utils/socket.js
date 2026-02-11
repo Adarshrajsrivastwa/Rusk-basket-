@@ -360,6 +360,16 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
         timestamp: new Date().toISOString(),
       };
 
+      console.log('========================================');
+      console.log('🔌 SOCKET NOTIFICATION PAYLOAD');
+      console.log('========================================');
+      console.log(`Rider ID: ${riderId}`);
+      console.log(`Socket ID: ${socketId}`);
+      console.log(`Room: rider:${riderId}`);
+      console.log('Event: order_assignment_request');
+      console.log('Notification Payload:', JSON.stringify(notificationPayload, null, 2));
+      console.log('========================================');
+
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
@@ -382,11 +392,22 @@ const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
     return 0;
   }
   
+  console.log('========================================');
+  console.log('🔌 SENDING SOCKET NOTIFICATIONS TO RIDERS');
+  console.log('========================================');
+  console.log(`Total Riders: ${riderIds.length}`);
+  console.log(`Order Number: ${orderData.orderNumber}`);
+  console.log(`Order ID: ${orderData._id}`);
+  console.log('========================================');
+  
   const results = await Promise.all(
     riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
   );
   
   const successCount = results.filter(Boolean).length;
+  console.log(`✅ Socket Notifications Sent: ${successCount}/${riderIds.length}`);
+  console.log('========================================');
+  
   return successCount;
 };
 

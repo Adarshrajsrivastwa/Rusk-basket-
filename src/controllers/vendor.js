@@ -780,6 +780,15 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     // If status changed to 'ready', notify riders
     if (status === 'ready' && previousStatus !== 'ready') {
+      console.log('========================================');
+      console.log('🚀 ORDER READY - TRIGGERING RIDER NOTIFICATIONS');
+      console.log('========================================');
+      console.log(`Order ID: ${orderId}`);
+      console.log(`Order Number: ${order.orderNumber}`);
+      console.log(`Previous Status: ${previousStatus}`);
+      console.log(`New Status: ${status}`);
+      console.log('========================================');
+      
       try {
         const checkoutService = require('../services/checkoutService');
         // Get fresh order with populated fields
@@ -788,6 +797,7 @@ exports.updateOrderStatus = async (req, res, next) => {
           await checkoutService.notifyRidersForOrder(orderForNotification);
         }
       } catch (notifyError) {
+        console.error('❌ Error sending notifications to riders:', notifyError);
         // Don't fail the request if notification fails
       }
     }
