@@ -7,7 +7,7 @@ const { getAllProductsList } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
-const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification } = require('../controllers/admin');
+const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
@@ -947,5 +947,60 @@ router.post(
 
 // Test push notification
 router.post('/test-notification', protect, testNotification);
+
+// ============ ADMIN MANAGEMENT ROUTES ============
+
+// Add new admin (Admin only)
+router.post(
+  '/add',
+  protect,
+  [
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Name is required')
+      .isLength({ min: 2, max: 100 })
+      .withMessage('Name must be between 2 and 100 characters'),
+    body('mobile')
+      .trim()
+      .notEmpty()
+      .withMessage('Mobile number is required')
+      .matches(/^[0-9]{10}$/)
+      .withMessage('Mobile number must be a valid 10-digit number'),
+    body('email')
+      .optional()
+      .trim()
+      .isEmail()
+      .withMessage('Please provide a valid email address')
+      .normalizeEmail(),
+  ],
+  addAdmin
+);
+
+// Get all admins list (Admin only)
+router.get(
+  '/list',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+  ],
+  getAllAdmins
+);
 
 module.exports = router;

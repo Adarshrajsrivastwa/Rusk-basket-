@@ -415,3 +415,136 @@ exports.testNotification = async (req, res, next) => {
     });
   }
 };
+
+/**
+ * Add new admin
+ * Allows an admin to add another admin
+ */
+exports.addAdmin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { name, mobile, email } = req.body;
+
+    // Check if admin with same mobile already exists
+    const existingAdminByMobile = await Admin.findOne({ mobile });
+    if (existingAdminByMobile) {
+      return res.status(400).json({
+        success: false,
+        error: 'Admin with this mobile number already exists',
+      });
+    }
+
+    // Check if admin with same email already exists (if email provided)
+    if (email) {
+      const existingAdminByEmail = await Admin.findOne({ email });
+      if (existingAdminByEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Admin with this email already exists',
+        });
+      }
+    }
+
+    // Create new admin
+    const newAdmin = await Admin.create({
+      name: name.trim(),
+      mobile,
+      email: email ? email.toLowerCase().trim() : undefined,
+      isActive: true,
+    });
+
+    logger.info(`New admin created: ${newAdmin.mobile} by Admin: ${req.admin.email || req.admin.mobile}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin added successfully',
+      data: newAdmin,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      // Duplicate key error
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        success: false,
+        error: `Admin with this ${field} already exists`,
+      });
+    }
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    logger.error('Add admin error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get all admins list
+ * Returns paginated list of all admins
+ */
+exports.getAllAdmins = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let query = {};
+    
+    // Optional: Filter by isActive status
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true';
+    }
+
+    // Optional: Search by name, mobile, or email
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      query.$or = [
+        { name: searchRegex },
+        { mobile: searchRegex },
+        { email: searchRegex },
+      ];
+    }
+
+    const admins = await Admin.find(query)
+      .select('-otp -fcmTokens') // Exclude sensitive data
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    const total = await Admin.countDocuments(query);
+
+    logger.info(`Admins list retrieved: ${total} total, ${admins.length} in page ${page} by Admin: ${req.admin.email || req.admin.mobile}`);
+
+    res.status(200).json({
+      success: true,
+      count: admins.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: admins,
+    });
+  } catch (error) {
+    logger.error('Get all admins error:', error);
+    next(error);
+  }
+};

@@ -58,6 +58,10 @@ const VendorSchema = new mongoose.Schema({
   age: {
     type: Number,
   },
+  profileImage: {
+    url: String,
+    publicId: String,
+  },
   storeId: {
     type: String,
     unique: true,

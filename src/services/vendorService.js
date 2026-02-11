@@ -76,6 +76,15 @@ const uploadVendorFiles = async (files) => {
     );
   }
 
+  const profileImageFile = files.profileImage || files['profileImage '] || files[' profileImage'];
+  if (profileImageFile && profileImageFile[0]) {
+    uploadPromises.push(
+      uploadToCloudinary(profileImageFile[0], 'rush-basket/vendor-profiles').then(
+        (result) => ({ field: 'profileImage', result })
+      )
+    );
+  }
+
   const uploadResults = await Promise.all(uploadPromises);
   const uploadedFiles = {};
   uploadResults.forEach(({ field, result }) => {
@@ -249,6 +258,10 @@ const createVendorData = async (vendor, data, files, adminId) => {
     vendor.bankDetails.cancelCheque = uploadedFiles.cancelCheque;
   }
 
+  if (uploadedFiles.profileImage) {
+    vendor.profileImage = uploadedFiles.profileImage;
+  }
+
   return vendor;
 };
 
@@ -364,6 +377,10 @@ const updateVendorData = async (vendor, data, files) => {
     if (uploadedFiles.cancelCheque) {
       vendor.bankDetails = vendor.bankDetails || {};
       vendor.bankDetails.cancelCheque = uploadedFiles.cancelCheque;
+    }
+
+    if (uploadedFiles.profileImage) {
+      vendor.profileImage = uploadedFiles.profileImage;
     }
   }
 

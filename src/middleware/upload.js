@@ -54,6 +54,12 @@ const uploadFields = upload.fields([
   { name: 'companyLogo[]', maxCount: 1 },
   { name: 'companyLogo[] ', maxCount: 1 },
   { name: ' companyLogo[]', maxCount: 1 },
+  { name: 'profileImage', maxCount: 1 },
+  { name: 'profileImage ', maxCount: 1 },
+  { name: ' profileImage', maxCount: 1 },
+  { name: 'profileImage[]', maxCount: 1 },
+  { name: 'profileImage[] ', maxCount: 1 },
+  { name: ' profileImage[]', maxCount: 1 },
 ]);
 
 const uploadFieldsWithErrorHandling = (req, res, next) => {
@@ -61,7 +67,7 @@ const uploadFieldsWithErrorHandling = (req, res, next) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          const allowedFields = ['storeImage', 'storeImage ', ' storeImage', 'storeImage[]', 'storeImage[] ', ' storeImage[]', 'panCardFront', 'panCardBack', 'aadharCardFront', 'aadharCardBack', 'drivingLicense', 'cancelCheque', 'companyLogo', 'companyLogo ', ' companyLogo', 'companyLogo[]', 'companyLogo[] ', ' companyLogo[]'];
+          const allowedFields = ['storeImage', 'storeImage ', ' storeImage', 'storeImage[]', 'storeImage[] ', ' storeImage[]', 'panCardFront', 'panCardBack', 'aadharCardFront', 'aadharCardBack', 'drivingLicense', 'cancelCheque', 'companyLogo', 'companyLogo ', ' companyLogo', 'companyLogo[]', 'companyLogo[] ', ' companyLogo[]', 'profileImage', 'profileImage ', ' profileImage', 'profileImage[]', 'profileImage[] ', ' profileImage[]'];
           return res.status(400).json({
             success: false,
             error: `Unexpected field: "${err.field}". Allowed fields are: ${allowedFields.join(', ')}. Please ensure field names match exactly (no extra spaces).`,

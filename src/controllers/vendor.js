@@ -335,6 +335,14 @@ exports.updateVendorDocuments = async (req, res, next) => {
       vendor.bankDetails.cancelCheque = uploadedFiles.cancelCheque;
     }
 
+    if (uploadedFiles.profileImage) {
+      // Delete old profile image if exists
+      if (vendor.profileImage?.publicId) {
+        await deleteFromCloudinary(vendor.profileImage.publicId);
+      }
+      vendor.profileImage = uploadedFiles.profileImage;
+    }
+
     await vendor.save();
 
     const populatedVendor = await Vendor.findById(vendor._id).populate('createdBy', 'name email');
