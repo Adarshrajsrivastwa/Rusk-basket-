@@ -284,17 +284,87 @@ exports.createOrder = async (req, res, next) => {
       });
     }
 
-    const { shippingAddress, paymentMethod, notes } = req.body;
+    const { shippingAddress: addressString, lat, long, paymentMethod, notes, deliveryInstruction } = req.body;
 
     // Ensure we're creating order from the authenticated user's cart only
     const userId = req.user._id;
     logger.info(`Creating order from cart for user: ${userId}`);
 
+    // Parse the address string: "C22/54 Kabir Chaura,Varanasi,221001"
+    // Format: line1, city, pinCode
+    const addressParts = addressString.split(',').map(part => part.trim());
+    
+    if (addressParts.length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid address format. Expected format: "Address Line, City, PIN Code"',
+      });
+    }
+
+    const line1 = addressParts[0];
+    const city = addressParts[1];
+    const pinCode = addressParts[2];
+
+    // Validate PIN code format
+    if (!/^[0-9]{6}$/.test(pinCode)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid PIN code format. Must be 6 digits',
+      });
+    }
+
+    // Get state from PIN code using post office API
+    const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
+    const postOfficeData = await getPostOfficeDetails(pinCode);
+    
+    if (!postOfficeData.success) {
+      return res.status(400).json({
+        success: false,
+        error: postOfficeData.error || 'Invalid PIN code. Could not fetch location details.',
+      });
+    }
+
+    // Get user's contact number
+    const User = require('../models/User');
+    const user = await User.findById(userId).select('contactNumber');
+    
+    if (!user || !user.contactNumber) {
+      return res.status(400).json({
+        success: false,
+        error: 'User contact number not found. Please update your profile.',
+      });
+    }
+
+    // Build shipping address object
+    const shippingAddress = {
+      line1: line1,
+      line2: '', // Optional, can be empty
+      pinCode: pinCode,
+      city: postOfficeData.city || city, // Use API city if available, otherwise use provided city
+      state: postOfficeData.state,
+      phone: user.contactNumber,
+      latitude: lat ? parseFloat(lat) : undefined,
+      longitude: long ? parseFloat(long) : undefined,
+    };
+
+    // Combine notes and deliveryInstruction
+    let combinedNotes = '';
+    if (notes) {
+      combinedNotes = notes.trim();
+    }
+    if (deliveryInstruction) {
+      if (combinedNotes) {
+        combinedNotes += `\n\nDelivery Instruction: ${deliveryInstruction.trim()}`;
+      } else {
+        combinedNotes = `Delivery Instruction: ${deliveryInstruction.trim()}`;
+      }
+    }
+
     const order = await checkoutService.createOrder(
       userId,
       shippingAddress,
       paymentMethod,
-      notes
+      combinedNotes || undefined
     );
 
     logger.info(`Order created: ${order.orderNumber} by User: ${req.user._id}`);

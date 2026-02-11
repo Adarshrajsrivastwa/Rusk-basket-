@@ -1961,7 +1961,63 @@ exports.notifyRidersForOrder = async (order) => {
       console.log('');
       console.log(`Total Riders: ${activeRiders.length}`);
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
-      console.log(`Notifications Sent: ${sentCount}/${activeRiders.length}`);
+      console.log(`WebSocket Notifications Sent: ${sentCount}/${activeRiders.length}`);
+      
+      // Send Firebase push notifications to riders
+      try {
+        const { sendRiderPushNotification } = require('../utils/firebaseNotification');
+        const riderEarnings = orderData.deliveryAmount || 0;
+        let vendorDetailsText = '';
+        if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
+          const vendor = orderData.vendorAddresses[0];
+          const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
+          vendorDetailsText = `\nVendor: ${vendorName}`;
+        }
+        
+        let pushNotificationCount = 0;
+        for (const riderId of activeRiders) {
+          try {
+            const pushResult = await sendRiderPushNotification(riderId, {
+              type: 'order_assignment_request',
+              title: 'New Order Available',
+              message: `Order ${orderData.orderNumber} is ready. Amount: ₹${orderData.pricing?.total || 0}, Earnings: ₹${riderEarnings}${vendorDetailsText}`,
+              orderId: orderData._id.toString(),
+              orderNumber: orderData.orderNumber,
+              status: orderData.status,
+              data: {
+                orderId: orderData._id.toString(),
+                orderNumber: orderData.orderNumber,
+                status: orderData.status,
+                amount: orderData.pricing?.total || 0,
+                deliveryAmount: orderData.deliveryAmount || 0,
+                riderEarnings: riderEarnings,
+                location: orderData.shippingAddress ? {
+                  address: [
+                    orderData.shippingAddress.line1,
+                    orderData.shippingAddress.line2,
+                    orderData.shippingAddress.city,
+                    orderData.shippingAddress.state,
+                    orderData.shippingAddress.pinCode
+                  ].filter(Boolean).join(', '),
+                  coordinates: {
+                    latitude: orderData.shippingAddress.latitude || null,
+                    longitude: orderData.shippingAddress.longitude || null,
+                  }
+                } : null,
+              },
+            });
+            if (pushResult.success) {
+              pushNotificationCount++;
+            }
+          } catch (pushError) {
+            logger.error(`Error sending push notification to rider ${riderId}:`, pushError);
+          }
+        }
+        console.log(`Push Notifications Sent: ${pushNotificationCount}/${activeRiders.length}`);
+      } catch (pushError) {
+        logger.error('Error sending push notifications to riders:', pushError);
+      }
+      
       console.log('========================================');
       
       // Also send to notification queue for offline riders (optional fallback)

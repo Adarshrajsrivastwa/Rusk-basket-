@@ -278,21 +278,83 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
       // Rider earnings (delivery amount is what rider earns)
       const riderEarnings = orderData.deliveryAmount || 0;
 
+      // Build properly formatted shipping address
+      const formattedShippingAddress = orderData.shippingAddress ? {
+        line1: orderData.shippingAddress.line1 || '',
+        line2: orderData.shippingAddress.line2 || '',
+        city: orderData.shippingAddress.city || '',
+        state: orderData.shippingAddress.state || '',
+        pinCode: orderData.shippingAddress.pinCode || '',
+        phone: orderData.shippingAddress.phone || '',
+        latitude: orderData.shippingAddress.latitude || null,
+        longitude: orderData.shippingAddress.longitude || null,
+      } : null;
+
+      // Build complete location information with formatted address string
+      const location = formattedShippingAddress ? {
+        address: [
+          formattedShippingAddress.line1,
+          formattedShippingAddress.line2,
+          formattedShippingAddress.city,
+          formattedShippingAddress.state,
+          formattedShippingAddress.pinCode
+        ].filter(Boolean).join(', '),
+        line1: formattedShippingAddress.line1,
+        line2: formattedShippingAddress.line2,
+        city: formattedShippingAddress.city,
+        state: formattedShippingAddress.state,
+        pinCode: formattedShippingAddress.pinCode,
+        phone: formattedShippingAddress.phone,
+        coordinates: {
+          latitude: formattedShippingAddress.latitude,
+          longitude: formattedShippingAddress.longitude,
+        }
+      } : null;
+
       const notificationPayload = {
         type: 'order_assignment_request',
         title: 'New Order Assignment Available',
         message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
         data: {
+          // Order Basic Info
           _id: orderData._id,
+          orderId: orderData._id,
           orderNumber: orderData.orderNumber,
           status: orderData.status,
-          items: orderData.items,
-          shippingAddress: orderData.shippingAddress,
-          pricing: orderData.pricing,
-          deliveryAmount: orderData.deliveryAmount,
-          user: orderData.user || null,
-          vendorAddresses: orderData.vendorAddresses || [],
           createdAt: orderData.createdAt,
+          
+          // Order Items
+          items: orderData.items || [],
+          itemCount: orderData.items?.length || 0,
+          
+          // Pricing Details
+          pricing: orderData.pricing || {},
+          amount: orderData.pricing?.total || 0,
+          subtotal: orderData.pricing?.subtotal || 0,
+          discount: orderData.pricing?.discount || 0,
+          tax: orderData.pricing?.tax || 0,
+          handlingCharge: orderData.pricing?.handlingCharge || 0,
+          totalCashback: orderData.pricing?.totalCashback || 0,
+          
+          // Delivery & Earnings
+          deliveryAmount: orderData.deliveryAmount || 0,
+          riderEarnings: riderEarnings,
+          
+          // Shipping Address & Location (Properly Formatted)
+          shippingAddress: formattedShippingAddress,
+          location: location,
+          
+          // User Details
+          user: orderData.user || null,
+          userName: orderData.user?.userName || null,
+          userPhone: orderData.user?.contactNumber || null,
+          userEmail: orderData.user?.email || null,
+          
+          // Vendor Details
+          vendorAddresses: orderData.vendorAddresses || [],
+          vendorCount: orderData.vendorAddresses?.length || 0,
+          
+          // Full Order Object (for backward compatibility)
           order: orderData,
         },
         timestamp: new Date().toISOString(),
@@ -340,6 +402,39 @@ const notifyRiderOrderUpdate = (riderId, orderData) => {
   try {
     const ioInstance = getIO();
     
+    // Format shipping address properly
+    const formattedShippingAddress = orderData.shippingAddress ? {
+      line1: orderData.shippingAddress.line1 || '',
+      line2: orderData.shippingAddress.line2 || '',
+      city: orderData.shippingAddress.city || '',
+      state: orderData.shippingAddress.state || '',
+      pinCode: orderData.shippingAddress.pinCode || '',
+      phone: orderData.shippingAddress.phone || '',
+      latitude: orderData.shippingAddress.latitude || null,
+      longitude: orderData.shippingAddress.longitude || null,
+    } : null;
+
+    // Build location information
+    const location = formattedShippingAddress ? {
+      address: [
+        formattedShippingAddress.line1,
+        formattedShippingAddress.line2,
+        formattedShippingAddress.city,
+        formattedShippingAddress.state,
+        formattedShippingAddress.pinCode
+      ].filter(Boolean).join(', '),
+      line1: formattedShippingAddress.line1,
+      line2: formattedShippingAddress.line2,
+      city: formattedShippingAddress.city,
+      state: formattedShippingAddress.state,
+      pinCode: formattedShippingAddress.pinCode,
+      phone: formattedShippingAddress.phone,
+      coordinates: {
+        latitude: formattedShippingAddress.latitude,
+        longitude: formattedShippingAddress.longitude,
+      }
+    } : (orderData.location || null);
+
     // Prepare update payload with amount and location
     const updatePayload = {
       type: 'order_update',
@@ -350,24 +445,9 @@ const notifyRiderOrderUpdate = (riderId, orderData) => {
       amount: orderData.amount || orderData.pricing?.total || 0,
       deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || 0,
       pricing: orderData.pricing || {},
-      // Location information
-      location: orderData.location || (orderData.shippingAddress ? {
-        address: [
-          orderData.shippingAddress?.line1,
-          orderData.shippingAddress?.line2,
-          orderData.shippingAddress?.city,
-          orderData.shippingAddress?.state,
-          orderData.shippingAddress?.pinCode
-        ].filter(Boolean).join(', '),
-        city: orderData.shippingAddress?.city || '',
-        state: orderData.shippingAddress?.state || '',
-        pinCode: orderData.shippingAddress?.pinCode || '',
-        coordinates: {
-          latitude: orderData.shippingAddress?.latitude || null,
-          longitude: orderData.shippingAddress?.longitude || null,
-        }
-      } : null),
-      shippingAddress: orderData.shippingAddress || {},
+      // Location information (Properly Formatted)
+      location: location,
+      shippingAddress: formattedShippingAddress || {},
       // Full order data
       data: orderData,
       timestamp: new Date().toISOString(),

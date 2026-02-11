@@ -3,6 +3,7 @@ const logger = require('./logger');
 const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Admin = require('../models/Admin');
+const Rider = require('../models/Rider');
 
 // Initialize Firebase Admin SDK
 let firebaseInitialized = false;
@@ -545,13 +546,153 @@ const removeInvalidAdminTokens = async (adminId, invalidTokens) => {
   }
 };
 
+/**
+ * Send push notification to rider
+ */
+const sendRiderPushNotification = async (riderId, notificationData) => {
+  try {
+    if (!firebaseInitialized) {
+      logger.warn('Firebase not initialized. Skipping push notification.');
+      return { success: false, error: 'Firebase not initialized' };
+    }
+
+    // Get rider with FCM tokens
+    const rider = await Rider.findById(riderId).select('fcmToken fcmTokens isActive fullName mobileNumber');
+    
+    if (!rider) {
+      logger.warn(`Rider ${riderId} not found for push notification`);
+      return { success: false, error: 'Rider not found' };
+    }
+
+    if (!rider.isActive) {
+      logger.info(`Rider ${riderId} is not active. Skipping push notification`);
+      return { success: false, error: 'Rider is not active' };
+    }
+
+    // Collect all FCM tokens
+    const tokens = [];
+    
+    if (rider.fcmToken) {
+      tokens.push(rider.fcmToken);
+    }
+    
+    if (rider.fcmTokens && rider.fcmTokens.length > 0) {
+      rider.fcmTokens.forEach(tokenObj => {
+        if (tokenObj.token && !tokens.includes(tokenObj.token)) {
+          tokens.push(tokenObj.token);
+        }
+      });
+    }
+
+    if (tokens.length === 0) {
+      logger.info(`No FCM tokens found for rider ${riderId}`);
+      return { success: false, error: 'No FCM tokens found' };
+    }
+
+    // Prepare notification payload
+    const message = {
+      notification: {
+        title: notificationData.title || 'Rush Baskets Rider',
+        body: notificationData.message || notificationData.body || '',
+      },
+      data: {
+        type: notificationData.type || 'general',
+        orderId: notificationData.orderId || '',
+        orderNumber: notificationData.orderNumber || '',
+        status: notificationData.status || '',
+        ...notificationData.data,
+      },
+      tokens: tokens,
+      // TTL: 4 weeks (in seconds) - ensures notification is stored for offline delivery
+      android: {
+        priority: 'high',
+        ttl: 60 * 60 * 24 * 28, // 28 days in seconds
+        notification: {
+          sound: 'default',
+          channelId: 'rider_notifications',
+          priority: 'high',
+        },
+      },
+      apns: {
+        headers: {
+          'apns-expiration': String(Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 28), // 28 days
+          'apns-priority': '10',
+        },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            priority: 10,
+            'content-available': 1, // Enable background notification
+          },
+        },
+      },
+    };
+
+    // Send notification
+    const response = await admin.messaging().sendEachForMulticast(message);
+
+    // Handle invalid tokens
+    if (response.failureCount > 0) {
+      const invalidTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          invalidTokens.push(tokens[idx]);
+        }
+      });
+
+      if (invalidTokens.length > 0) {
+        await removeInvalidRiderTokens(riderId, invalidTokens);
+      }
+    }
+
+    logger.info(`Push notification sent to rider ${riderId}. Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+    return {
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+    };
+  } catch (error) {
+    logger.error('Error sending push notification to rider:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Remove invalid FCM tokens from rider
+ */
+const removeInvalidRiderTokens = async (riderId, invalidTokens) => {
+  try {
+    const rider = await Rider.findById(riderId);
+    if (!rider) return;
+
+    if (rider.fcmToken && invalidTokens.includes(rider.fcmToken)) {
+      rider.fcmToken = undefined;
+    }
+
+    if (rider.fcmTokens && rider.fcmTokens.length > 0) {
+      rider.fcmTokens = rider.fcmTokens.filter(
+        tokenObj => !invalidTokens.includes(tokenObj.token)
+      );
+    }
+
+    await rider.save();
+    logger.info(`Removed ${invalidTokens.length} invalid FCM tokens for rider ${riderId}`);
+  } catch (error) {
+    logger.error('Error removing invalid rider tokens:', error);
+  }
+};
+
 module.exports = {
   sendPushNotification,
   sendOrderStatusNotification,
   sendVendorPushNotification,
   sendAdminPushNotification,
+  sendRiderPushNotification,
   removeInvalidTokens,
   removeInvalidVendorTokens,
   removeInvalidAdminTokens,
+  removeInvalidRiderTokens,
   initializeFirebase,
 };

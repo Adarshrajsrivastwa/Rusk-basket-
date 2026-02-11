@@ -286,54 +286,36 @@ router.delete('/cart/coupon/remove', removeCoupon);
 router.post(
   '/order/create',
   [
-    body('shippingAddress.line1')
+    body('shippingAddress')
       .trim()
       .notEmpty()
-      .withMessage('Address line 1 is required'),
-    body('shippingAddress.pinCode')
-      .trim()
-      .notEmpty()
-      .withMessage('PIN code is required')
-      .bail()
-      .matches(/^[0-9]{6}$/)
-      .withMessage('Please provide a valid 6-digit PIN code'),
-    body('shippingAddress.city')
-      .trim()
-      .notEmpty()
-      .withMessage('City is required'),
-    body('shippingAddress.state')
-      .trim()
-      .notEmpty()
-      .withMessage('State is required'),
-    body('shippingAddress.phone')
-      .trim()
-      .notEmpty()
-      .withMessage('Phone number is required')
-      .bail()
-      .matches(/^[0-9]{10}$/)
-      .withMessage('Please provide a valid 10-digit phone number'),
+      .withMessage('Shipping address is required')
+      .isLength({ min: 5, max: 500 })
+      .withMessage('Shipping address must be between 5 and 500 characters'),
+    body('lat')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be a valid number between -90 and 90'),
+    body('long')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be a valid number between -180 and 180'),
     body('paymentMethod')
       .notEmpty()
       .withMessage('Payment method is required')
       .bail()
       .isIn(['cod', 'prepaid', 'wallet', 'upi', 'card'])
       .withMessage('Payment method must be cod, prepaid, wallet, upi, or card'),
-    body('shippingAddress.line2')
-      .optional()
-      .trim(),
-    body('shippingAddress.latitude')
-      .optional()
-      .isFloat()
-      .withMessage('Latitude must be a valid number'),
-    body('shippingAddress.longitude')
-      .optional()
-      .isFloat()
-      .withMessage('Longitude must be a valid number'),
     body('notes')
       .optional()
       .trim()
       .isLength({ max: 1000 })
       .withMessage('Notes cannot be more than 1000 characters'),
+    body('deliveryInstruction')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Delivery instruction cannot be more than 500 characters'),
   ],
   createOrder
 );
