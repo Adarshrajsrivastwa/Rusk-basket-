@@ -2466,16 +2466,20 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
 
     const salePrice = unitPrice;
     const itemCashbackPerUnit = product.cashback || 0;
+    const productTaxPercentage = product.tax || 0;
 
     // If product already exists in order, update quantity instead of creating new item
     if (existingItemIndex !== -1) {
       const existingItem = order.items[existingItemIndex];
       const oldTotalPrice = existingItem.totalPrice || 0;
       const oldCashback = existingItem.cashback || 0;
+      const oldTax = existingItem.tax || 0;
       
       const newQuantity = existingItem.quantity + quantity;
       const newTotalPrice = unitPrice * newQuantity;
       const newItemCashback = itemCashbackPerUnit * newQuantity;
+      // Calculate tax amount from percentage: (itemTotal * tax%) / 100
+      const newItemTax = (newTotalPrice * productTaxPercentage) / 100;
 
       // Update existing item
       existingItem.quantity = newQuantity;
@@ -2483,9 +2487,11 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       existingItem.salePrice = salePrice;
       existingItem.totalPrice = newTotalPrice;
       existingItem.cashback = newItemCashback;
+      existingItem.tax = newItemTax;
 
-      // Calculate the difference in subtotal and cashback
+      // Calculate the difference in subtotal, cashback, and tax
       const revenueDifference = newTotalPrice - oldTotalPrice;
+      const taxDifference = newItemTax - oldTax;
       newSubtotal += revenueDifference;
       newCashback += (newItemCashback - oldCashback);
       
@@ -2504,6 +2510,8 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       // Create new order item
       const totalPrice = unitPrice * quantity;
       const itemCashback = itemCashbackPerUnit * quantity;
+      // Calculate tax amount from percentage: (itemTotal * tax%) / 100
+      const itemTax = (totalPrice * productTaxPercentage) / 100;
 
       newSubtotal += totalPrice;
       newCashback += itemCashback;
@@ -2549,6 +2557,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
         salePrice: salePrice,
         totalPrice: totalPrice,
         cashback: itemCashback,
+        tax: itemTax,
         sku: sku || undefined,
       };
 
@@ -2596,6 +2605,8 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
   // Recalculate order pricing
   const allItemsSubtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
   const allItemsCashback = order.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
+  // Calculate tax from individual product taxes (sum of all item taxes)
+  const allItemsTax = order.items.reduce((sum, item) => sum + (item.tax || 0), 0);
 
   // Apply coupon discount if exists
   let discount = order.pricing.discount || 0;
@@ -2643,8 +2654,8 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     }
   });
 
-  // Recalculate tax
-  const tax = (allItemsSubtotal - discount) * 0.05;
+  // Tax is calculated from individual product taxes (sum of all item taxes)
+  const tax = allItemsTax;
   const total = allItemsSubtotal - discount + tax + totalHandlingCharge;
 
   // Update order pricing
