@@ -440,15 +440,15 @@ exports.getVendorProductsList = async (req, res) => {
         productId: product._id,
         productName: product.productName,
         category: product.category?.name || 'N/A',
-        subCategory: product.subCategory?.name || 'N/A',
+        subCategory: currentInventory, // Inventory/Stock value
         stock: currentInventory,
         stockStatus: stockStatus,
         stockStatusLabel: stockStatusLabel,
         stockPercentage: parseFloat(stockPercentage),
         initialInventory: initialInv,
         price: product.salePrice || product.regularPrice || 0,
-        regularPrice: product.regularPrice || 0,
-        salePrice: product.salePrice || 0,
+        regularPrice: product.regularPrice || 0, // Stock price
+        salePrice: product.salePrice || 0, // Sale price
         actualPrice: product.actualPrice || 0,
         vendor: product.vendor?.vendorName || 'N/A',
         vendorId: product.vendor?._id || null,

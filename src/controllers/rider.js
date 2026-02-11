@@ -338,7 +338,7 @@ exports.getAvailableOrders = async (req, res, next) => {
       ],
     })
       .populate('user', 'userName contactNumber')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName storeAddress')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -532,7 +532,7 @@ exports.acceptOrderAssignment = async (req, res, next) => {
     // Notify user about rider assignment
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName storeAddress contactNumber')
       .populate('rider', 'fullName mobileNumber');
 
@@ -637,7 +637,7 @@ exports.getMyOrders = async (req, res, next) => {
 
     const orders = await Order.find(query)
       .populate('user', 'userName contactNumber')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName storeAddress')
       .sort({ assignedAt: -1, createdAt: -1 })
       .skip(skip)
@@ -771,7 +771,7 @@ exports.getDeliveredOrders = async (req, res, next) => {
 
     const orders = await Order.find(query)
       .populate('user', 'userName contactNumber')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName storeAddress')
       .sort({ deliveredAt: -1, createdAt: -1 })
       .skip(skip)
@@ -822,7 +822,7 @@ exports.getCurrentOrder = async (req, res, next) => {
 
     const order = await Order.findOne(query)
       .populate('user', 'userName contactNumber')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName storeAddress')
       .sort({ assignedAt: -1, createdAt: -1 })
       .lean();
@@ -938,7 +938,7 @@ exports.markOrderDelivered = async (req, res, next) => {
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
 
@@ -1191,7 +1191,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
 
@@ -1532,7 +1532,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
 
@@ -1758,7 +1758,7 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
     // Populate order for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
-      .populate('items.product', 'productName thumbnail')
+      .populate('items.product', 'productName thumbnail inventory skus')
       .populate('items.vendor', 'vendorName storeName')
       .populate('rider', 'fullName mobileNumber');
 
