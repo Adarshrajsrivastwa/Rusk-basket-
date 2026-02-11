@@ -380,6 +380,16 @@ const updateVendorData = async (vendor, data, files) => {
     }
 
     if (uploadedFiles.profileImage) {
+      // Delete old profile image if exists
+      if (vendor.profileImage && vendor.profileImage.publicId) {
+        const { deleteFromCloudinary } = require('../utils/cloudinary');
+        try {
+          await deleteFromCloudinary(vendor.profileImage.publicId);
+        } catch (deleteError) {
+          logger.error('Error deleting old vendor profile image:', deleteError);
+          // Continue even if deletion fails
+        }
+      }
       vendor.profileImage = uploadedFiles.profileImage;
     }
   }

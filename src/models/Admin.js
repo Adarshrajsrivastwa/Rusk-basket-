@@ -38,6 +38,17 @@ const AdminSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  // Profile Image
+  profileImage: {
+    url: {
+      type: String,
+      trim: true,
+    },
+    publicId: {
+      type: String,
+      trim: true,
+    },
+  },
   // Basic Information
   companyName: {
     type: String,

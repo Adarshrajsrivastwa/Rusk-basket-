@@ -108,6 +108,40 @@ exports.updateAdminProfile = async (req, res, next) => {
       }
     }
 
+    // Handle profile image upload
+    if (req.files && (req.files.profileImage || req.files['profileImage '] || req.files[' profileImage'] || req.files['profileImage[]'] || req.files['profileImage[] '] || req.files[' profileImage[]'])) {
+      try {
+        // Delete old profile image if exists
+        if (admin.profileImage && admin.profileImage.publicId) {
+          try {
+            await deleteFromCloudinary(admin.profileImage.publicId);
+          } catch (deleteError) {
+            logger.error('Error deleting old profile image:', deleteError);
+            // Continue even if deletion fails
+          }
+        }
+
+        // Get profile image file (handle various field name variations)
+        const profileImageFile = req.files.profileImage || req.files['profileImage '] || req.files[' profileImage'] || req.files['profileImage[]'] || req.files['profileImage[] '] || req.files[' profileImage[]'];
+        const imageFile = Array.isArray(profileImageFile) 
+          ? profileImageFile[0] 
+          : profileImageFile;
+        
+        // Upload new profile image
+        const imageResult = await uploadToCloudinary(imageFile, 'rush-basket/admin-profiles');
+        admin.profileImage = {
+          url: imageResult.url,
+          publicId: imageResult.public_id,
+        };
+      } catch (uploadError) {
+        logger.error('Error uploading profile image:', uploadError);
+        return res.status(400).json({
+          success: false,
+          error: 'Failed to upload profile image',
+        });
+      }
+    }
+
     // Update basic information
     const basicInfoFields = ['companyName', 'legalName'];
     basicInfoFields.forEach(field => {

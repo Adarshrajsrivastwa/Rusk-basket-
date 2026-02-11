@@ -1163,10 +1163,10 @@ exports.updateVendorProfile = async (req, res, next) => {
     }
 
     // Filter out document files from req.files before passing to updateVendorData
-    // Only allow storeImage to be updated
+    // Only allow storeImage and profileImage to be updated
     const filteredFiles = {};
     if (req.files) {
-      // Only allow storeImage
+      // Allow storeImage
       const storeImageVariations = [
         'storeImage', 'storeImage ', ' storeImage',
         'storeImage[]', 'storeImage[] ', ' storeImage[]'
@@ -1175,6 +1175,19 @@ exports.updateVendorProfile = async (req, res, next) => {
       for (const variation of storeImageVariations) {
         if (req.files[variation]) {
           filteredFiles.storeImage = req.files[variation];
+          break;
+        }
+      }
+
+      // Allow profileImage
+      const profileImageVariations = [
+        'profileImage', 'profileImage ', ' profileImage',
+        'profileImage[]', 'profileImage[] ', ' profileImage[]'
+      ];
+      
+      for (const variation of profileImageVariations) {
+        if (req.files[variation]) {
+          filteredFiles.profileImage = req.files[variation];
           break;
         }
       }
