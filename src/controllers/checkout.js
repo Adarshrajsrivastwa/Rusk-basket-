@@ -581,13 +581,16 @@ exports.getVendorOrder = async (req, res, next) => {
     }
 
     // If rider is assigned, include rider name, mobile number, and delivery amount
-    if (order.rider || order.riderDetails) {
-      const rider = order.rider || order.riderDetails;
+    // Check riderDetails first (from assignmentRequestSentTo or order.rider), then fallback to order.rider
+    if (order.riderDetails || order.rider) {
+      const riderDetails = order.riderDetails;
+      const rider = order.rider;
+      
       const responseData = {
         ...order,
         riderInfo: {
-          name: rider?.fullName || rider?.riderName || null,
-          mobileNumber: rider?.mobileNumber || null,
+          name: riderDetails?.riderName || rider?.fullName || null,
+          mobileNumber: riderDetails?.mobileNumber || rider?.mobileNumber || null,
           deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
         },
       };

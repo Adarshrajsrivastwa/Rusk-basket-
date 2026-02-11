@@ -1441,7 +1441,8 @@ exports.getOrderById = async (orderId, userId = null) => {
     .populate('items.vendor', 'vendorName storeName storeId storeAddress')
     .populate('coupon.couponId', 'couponName code offerType')
     .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
-    .populate('assignedBy', 'vendorName storeName');
+    .populate('assignedBy', 'vendorName storeName')
+    .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber whatsappNumber city currentAddress');
 
   if (!order) {
     return null;
@@ -1449,15 +1450,29 @@ exports.getOrderById = async (orderId, userId = null) => {
 
   const orderObj = order.toObject ? order.toObject() : order;
 
+  // Check for accepted rider in assignmentRequestSentTo array first
+  let assignedRider = null;
+  if (orderObj.assignmentRequestSentTo && Array.isArray(orderObj.assignmentRequestSentTo)) {
+    const acceptedRequest = orderObj.assignmentRequestSentTo.find(
+      req => req.status === 'accepted' && req.rider
+    );
+    if (acceptedRequest && acceptedRequest.rider) {
+      assignedRider = acceptedRequest.rider;
+    }
+  }
+
+  // Use assigned rider from assignmentRequestSentTo, or fallback to order.rider
+  const riderToUse = assignedRider || orderObj.rider;
+
   // Add enhanced rider details
-  if (orderObj.rider) {
+  if (riderToUse) {
     orderObj.riderDetails = {
-      riderId: orderObj.rider._id,
-      riderName: orderObj.rider.fullName || null,
-      mobileNumber: orderObj.rider.mobileNumber || null,
-      whatsappNumber: orderObj.rider.whatsappNumber || null,
-      city: orderObj.rider.city || null,
-      address: orderObj.rider.currentAddress || null,
+      riderId: riderToUse._id || riderToUse,
+      riderName: riderToUse.fullName || null,
+      mobileNumber: riderToUse.mobileNumber || null,
+      whatsappNumber: riderToUse.whatsappNumber || null,
+      city: riderToUse.city || null,
+      address: riderToUse.currentAddress || null,
     };
   } else {
     orderObj.riderDetails = null;
@@ -1696,7 +1711,8 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
       .populate('items.vendor', 'storeName storeId storeAddress')
       .populate('coupon.couponId', 'couponName code offerType')
       .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
-      .populate('assignedBy', 'vendorName storeName');
+      .populate('assignedBy', 'vendorName storeName')
+      .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber whatsappNumber city currentAddress');
   } else {
     // Search by orderNumber
     order = await Order.findOne({ orderNumber: orderId })
@@ -1705,7 +1721,8 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
       .populate('items.vendor', 'storeName storeId storeAddress')
       .populate('coupon.couponId', 'couponName code offerType')
       .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
-      .populate('assignedBy', 'vendorName storeName');
+      .populate('assignedBy', 'vendorName storeName')
+      .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber whatsappNumber city currentAddress');
   }
 
   if (!order) {
@@ -1734,15 +1751,29 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
     itemCount: vendorItems.length,
   };
 
+  // Check for accepted rider in assignmentRequestSentTo array first
+  let assignedRider = null;
+  if (orderObj.assignmentRequestSentTo && Array.isArray(orderObj.assignmentRequestSentTo)) {
+    const acceptedRequest = orderObj.assignmentRequestSentTo.find(
+      req => req.status === 'accepted' && req.rider
+    );
+    if (acceptedRequest && acceptedRequest.rider) {
+      assignedRider = acceptedRequest.rider;
+    }
+  }
+
+  // Use assigned rider from assignmentRequestSentTo, or fallback to order.rider
+  const riderToUse = assignedRider || orderObj.rider;
+
   // Add enhanced rider details
-  if (orderObj.rider) {
+  if (riderToUse) {
     orderObj.riderDetails = {
-      riderId: orderObj.rider._id,
-      riderName: orderObj.rider.fullName || null,
-      mobileNumber: orderObj.rider.mobileNumber || null,
-      whatsappNumber: orderObj.rider.whatsappNumber || null,
-      city: orderObj.rider.city || null,
-      address: orderObj.rider.currentAddress || null,
+      riderId: riderToUse._id || riderToUse,
+      riderName: riderToUse.fullName || null,
+      mobileNumber: riderToUse.mobileNumber || null,
+      whatsappNumber: riderToUse.whatsappNumber || null,
+      city: riderToUse.city || null,
+      address: riderToUse.currentAddress || null,
     };
   } else {
     orderObj.riderDetails = null;
