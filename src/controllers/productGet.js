@@ -263,7 +263,7 @@ exports.getAllProductsList = async (req, res, next) => {
       subCategory: product.subCategory?.name || null,
       salePrice: product.salePrice || null,
       status: product.approvalStatus || 'pending',
-      orderno: product.productNumber || null,
+      productno: product.productNumber || null,
     }));
 
     // Get total count for pagination
