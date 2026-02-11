@@ -237,7 +237,7 @@ exports.getAllProductsList = async (req, res, next) => {
       .populate('vendor', 'vendorName')
       .populate('category', 'name')
       .populate('subCategory', 'name')
-      .select('_id createdAt vendor category subCategory salePrice approvalStatus')
+      .select('_id createdAt vendor category subCategory salePrice approvalStatus productNumber')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -263,6 +263,7 @@ exports.getAllProductsList = async (req, res, next) => {
       subCategory: product.subCategory?.name || null,
       salePrice: product.salePrice || null,
       status: product.approvalStatus || 'pending',
+      orderno: product.productNumber || null,
     }));
 
     // Get total count for pagination
