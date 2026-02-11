@@ -1877,96 +1877,10 @@ exports.notifyRidersForOrder = async (order) => {
 
     // Send WebSocket notifications to riders
     try {
-      // Console log: All notification details
-      console.log('========================================');
-      console.log('📤 NOTIFICATION DETAILS');
-      console.log('========================================');
-      console.log('Order Information:');
-      console.log(`  Order ID: ${orderData._id}`);
-      console.log(`  Order Number: ${orderData.orderNumber}`);
-      console.log(`  Status: ${orderData.status}`);
-      if (orderData.pricing) {
-        console.log(`  Amount: ₹${orderData.pricing.total || 0}`);
-      }
-      console.log(`  Delivery Amount: ₹${orderData.deliveryAmount || 0}`);
-      console.log('');
-      console.log('Shipping Address:');
-      if (orderData.shippingAddress) {
-        console.log(`  line1: ${orderData.shippingAddress.line1 || 'N/A'}`);
-        console.log(`  line2: ${orderData.shippingAddress.line2 || 'N/A'}`);
-        console.log(`  city: ${orderData.shippingAddress.city || 'N/A'}`);
-        console.log(`  state: ${orderData.shippingAddress.state || 'N/A'}`);
-        console.log(`  pinCode: ${orderData.shippingAddress.pinCode || 'N/A'}`);
-        console.log(`  country: ${orderData.shippingAddress.country || 'N/A'}`);
-        console.log(`  latitude: ${orderData.shippingAddress.latitude || 'N/A'}`);
-        console.log(`  longitude: ${orderData.shippingAddress.longitude || 'N/A'}`);
-      } else {
-        console.log('  N/A');
-      }
-      console.log('');
-      console.log('User Details:');
-      if (orderData.user) {
-        console.log(`  userName: ${orderData.user.userName || 'N/A'}`);
-        console.log(`  contactNumber: ${orderData.user.contactNumber || 'N/A'}`);
-        console.log(`  email: ${orderData.user.email || 'N/A'}`);
-        if (orderData.user.address) {
-          console.log(`  address:`);
-          console.log(`    line1: ${orderData.user.address.line1 || 'N/A'}`);
-          console.log(`    line2: ${orderData.user.address.line2 || 'N/A'}`);
-          console.log(`    city: ${orderData.user.address.city || 'N/A'}`);
-          console.log(`    state: ${orderData.user.address.state || 'N/A'}`);
-          console.log(`    pinCode: ${orderData.user.address.pinCode || 'N/A'}`);
-          console.log(`    latitude: ${orderData.user.address.latitude || 'N/A'}`);
-          console.log(`    longitude: ${orderData.user.address.longitude || 'N/A'}`);
-        }
-        if (orderData.user.addresses && orderData.user.addresses.length > 0) {
-          console.log(`  addresses: ${orderData.user.addresses.length} address(es)`);
-        }
-      } else {
-        console.log('  N/A');
-      }
-      console.log('');
-      console.log('Vendor Addresses:');
-      if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
-        orderData.vendorAddresses.forEach((vendor, index) => {
-          console.log(`  Vendor ${index + 1}:`);
-          console.log(`    _id: ${vendor._id || 'N/A'}`);
-          console.log(`    vendorName: ${vendor.vendorName || 'N/A'}`);
-          console.log(`    storeName: ${vendor.storeName || 'N/A'}`);
-          console.log(`    contactNumber: ${vendor.contactNumber || 'N/A'}`);
-          if (vendor.storeAddress) {
-            console.log(`    storeAddress:`);
-            console.log(`      line1: ${vendor.storeAddress.line1 || 'N/A'}`);
-            console.log(`      line2: ${vendor.storeAddress.line2 || 'N/A'}`);
-            console.log(`      city: ${vendor.storeAddress.city || 'N/A'}`);
-            console.log(`      state: ${vendor.storeAddress.state || 'N/A'}`);
-            console.log(`      pinCode: ${vendor.storeAddress.pinCode || 'N/A'}`);
-            console.log(`      latitude: ${vendor.storeAddress.latitude || 'N/A'}`);
-            console.log(`      longitude: ${vendor.storeAddress.longitude || 'N/A'}`);
-          }
-        });
-      } else {
-        console.log('  N/A');
-      }
-      console.log('');
-      console.log('Pricing Details:');
-      if (orderData.pricing) {
-        console.log(`  Subtotal: ₹${orderData.pricing.subtotal || 0}`);
-        console.log(`  Discount: ₹${orderData.pricing.discount || 0}`);
-        console.log(`  Tax: ₹${orderData.pricing.tax || 0}`);
-        console.log(`  Handling Charge: ₹${orderData.pricing.handlingCharge || 0}`);
-        console.log(`  Total: ₹${orderData.pricing.total || 0}`);
-        console.log(`  Total Cashback: ₹${orderData.pricing.totalCashback || 0}`);
-      }
-      console.log('');
-      console.log(`Total Riders: ${activeRiders.length}`);
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
-      console.log(`WebSocket Notifications Sent: ${sentCount}/${activeRiders.length}`);
       
       // Firebase push notifications removed - using socket notifications only
       // Socket notifications are sent via sendOrderAssignmentRequestToRiders above
-      
-      console.log('========================================');
       
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
@@ -2019,13 +1933,6 @@ exports.notifyRidersForOrder = async (order) => {
                 order: orderData,
               },
             };
-            
-            console.log('========================================');
-            console.log('📬 NOTIFICATION QUEUE PAYLOAD');
-            console.log('========================================');
-            console.log(`Rider ID: ${riderId}`);
-            console.log('Queue Notification Payload:', JSON.stringify(queueNotificationPayload, null, 2));
-            console.log('========================================');
             
             await notificationQueue.add(queueNotificationPayload);
           }

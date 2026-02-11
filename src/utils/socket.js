@@ -72,86 +72,50 @@ const initializeSocket = (server) => {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
         
         if (!token) {
-          console.log('❌ SOCKET AUTH: Token not found in handshake');
           return next(new Error('Authentication token required'));
         }
 
-        console.log('🔑 SOCKET AUTH: Token received, verifying...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        console.log('✅ SOCKET AUTH: Token decoded successfully');
-        console.log('   - Decoded ID:', decoded.id);
-        console.log('   - Decoded Role:', decoded.role);
-        console.log('   - Token Expires:', decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'N/A');
         
         // Handle different roles
         if (decoded.role === 'rider') {
           // Verify rider exists and is active
-          console.log(`🔍 SOCKET AUTH: Looking up rider with ID: ${decoded.id}`);
           const rider = await Rider.findById(decoded.id);
           if (!rider) {
-            console.log(`❌ SOCKET AUTH: Rider not found with ID: ${decoded.id}`);
             return next(new Error('Rider not found'));
           }
 
-          console.log('✅ SOCKET AUTH: Rider found');
-          console.log('   - Rider Name:', rider.fullName || 'N/A');
-          console.log('   - Mobile:', rider.mobileNumber || 'N/A');
-          console.log('   - Is Active:', rider.isActive);
-          console.log('   - Approval Status:', rider.approvalStatus);
-
           if (!rider.isActive) {
-            console.log('❌ SOCKET AUTH: Rider account is inactive');
             return next(new Error('Rider account is inactive'));
           }
 
           if (rider.approvalStatus !== 'approved') {
-            console.log(`❌ SOCKET AUTH: Rider not approved. Status: ${rider.approvalStatus}`);
             return next(new Error('Rider account is not approved'));
           }
 
           socket.riderId = decoded.id;
           socket.rider = rider;
           socket.role = 'rider';
-          console.log('✅ SOCKET AUTH: Rider authentication successful!');
-          console.log('   - Rider ID:', socket.riderId);
-          console.log('========================================');
           next();
         } else if (decoded.role === 'user') {
           // Verify user exists and is active
-          console.log(`🔍 SOCKET AUTH: Looking up user with ID: ${decoded.id}`);
           const user = await User.findById(decoded.id);
           if (!user) {
-            console.log(`❌ SOCKET AUTH: User not found with ID: ${decoded.id}`);
             return next(new Error('User not found'));
           }
 
           if (!user.isActive) {
-            console.log('❌ SOCKET AUTH: User account is inactive');
             return next(new Error('User account is inactive'));
           }
 
           socket.userId = decoded.id;
           socket.user = user;
           socket.role = 'user';
-          console.log('✅ SOCKET AUTH: User authentication successful!');
-          console.log('   - User ID:', socket.userId);
-          console.log('========================================');
           next();
         } else {
-          console.log(`❌ SOCKET AUTH: Invalid role. Got '${decoded.role}'`);
           return next(new Error('Invalid role for socket connection'));
         }
       } catch (error) {
-        console.log('❌ SOCKET AUTH ERROR:', error.message);
-        console.log('   - Error Type:', error.name);
-        if (error.name === 'JsonWebTokenError') {
-          console.log('   - Issue: Invalid token format or signature');
-        } else if (error.name === 'TokenExpiredError') {
-          console.log('   - Issue: Token has expired');
-        } else if (error.name === 'JsonWebTokenError') {
-          console.log('   - Issue: Token verification failed');
-        }
         logger.error('Socket authentication error:', error);
         next(new Error('Authentication failed'));
       }
@@ -360,16 +324,6 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
         timestamp: new Date().toISOString(),
       };
 
-      console.log('========================================');
-      console.log('🔌 SOCKET NOTIFICATION PAYLOAD');
-      console.log('========================================');
-      console.log(`Rider ID: ${riderId}`);
-      console.log(`Socket ID: ${socketId}`);
-      console.log(`Room: rider:${riderId}`);
-      console.log('Event: order_assignment_request');
-      console.log('Notification Payload:', JSON.stringify(notificationPayload, null, 2));
-      console.log('========================================');
-
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
@@ -392,21 +346,11 @@ const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
     return 0;
   }
   
-  console.log('========================================');
-  console.log('🔌 SENDING SOCKET NOTIFICATIONS TO RIDERS');
-  console.log('========================================');
-  console.log(`Total Riders: ${riderIds.length}`);
-  console.log(`Order Number: ${orderData.orderNumber}`);
-  console.log(`Order ID: ${orderData._id}`);
-  console.log('========================================');
-  
   const results = await Promise.all(
     riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
   );
   
   const successCount = results.filter(Boolean).length;
-  console.log(`✅ Socket Notifications Sent: ${successCount}/${riderIds.length}`);
-  console.log('========================================');
   
   return successCount;
 };

@@ -209,6 +209,48 @@ const RiderSchema = new mongoose.Schema({
       default: Date.now,
     },
   }],
+  dueBalance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Due balance cannot be negative'],
+  },
+  pendingBalance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Pending balance cannot be negative'],
+  },
+  earningWallet: {
+    type: Number,
+    default: 0,
+    min: [0, 'Earning wallet cannot be negative'],
+  },
+  walletTransactions: [{
+    type: {
+      type: String,
+      enum: ['credit', 'debit', 'reset'],
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: [0, 'Amount must be greater than or equal to 0'],
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+    },
+    orderNumber: {
+      type: String,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   createdAt: {
     type: Date,
     default: Date.now,

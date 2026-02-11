@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -499,6 +499,21 @@ router.post(
       .withMessage('Message must be between 1 and 2000 characters'),
   ],
   addRiderTicketMessage
+);
+
+// Mark order payment as cash and add to rider due wallet
+router.post(
+  '/order/:orderId/mark-payment-cash',
+  protect,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  markOrderPaymentAsCash
 );
 
 module.exports = router;

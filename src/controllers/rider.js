@@ -1505,6 +1505,30 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     
     await order.save();
 
+    // Add delivery amount to rider's earning wallet
+    const deliveryAmount = order.deliveryAmount || order.pricing?.deliveryAmount || 0;
+    if (deliveryAmount > 0) {
+      try {
+        const updatedRider = await Rider.findOneAndUpdate(
+          { _id: riderId },
+          {
+            $inc: { earningWallet: deliveryAmount },
+          },
+          {
+            new: true,
+            runValidators: true,
+          }
+        );
+
+        if (updatedRider) {
+          logger.info(`Delivery amount ₹${deliveryAmount} added to rider ${riderId} earning wallet for order ${order.orderNumber}`);
+        }
+      } catch (earningWalletError) {
+        logger.error('Error adding delivery amount to rider earning wallet:', earningWalletError);
+        // Don't fail the request if earning wallet update fails
+      }
+    }
+
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
@@ -1618,6 +1642,145 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Upload delivered image error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Mark order payment as cash and add amount to rider's due wallet
+ * This API updates order payment method to cash, marks payment as completed, and adds order total to rider's due wallet
+ */
+exports.markOrderPaymentAsCash = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderId } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID format',
+      });
+    }
+
+    // Find the order
+    const order = await Order.findById(orderId)
+      .populate('rider', 'fullName mobileNumber');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Check if order has a rider assigned
+    if (!order.rider) {
+      return res.status(400).json({
+        success: false,
+        error: 'Order does not have a rider assigned. Please assign a rider first.',
+      });
+    }
+
+    // Check if payment method is already cash
+    if (order.payment.method === 'cash') {
+      return res.status(400).json({
+        success: false,
+        error: 'Order payment method is already set to cash',
+      });
+    }
+
+    // Get order total amount (only total, not including delivery)
+    const orderTotalAmount = order.pricing?.total || order.payment?.amount || 0;
+    const deliveryAmount = order.deliveryAmount || order.pricing?.deliveryAmount || 0;
+
+    if (orderTotalAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Order total amount is invalid or zero',
+      });
+    }
+
+    // Update order payment method to cash and mark payment as completed
+    order.payment.method = 'cash';
+    order.payment.status = 'completed';
+    order.payment.paidAt = new Date();
+    await order.save();
+
+    // Update rider's due balance directly in Rider model
+    const riderId = order.rider._id || order.rider;
+    
+    // Get current rider to check previous balance
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    const previousDueBalance = rider.dueBalance || 0;
+
+    // Use findOneAndUpdate for atomic operation to ensure it saves
+    const updatedRider = await Rider.findOneAndUpdate(
+      { _id: riderId },
+      {
+        $inc: { dueBalance: orderTotalAmount },
+        $push: {
+          walletTransactions: {
+            type: 'credit',
+            amount: orderTotalAmount,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            description: `Cash payment for order ${order.orderNumber} - Total amount: ₹${orderTotalAmount}`,
+            createdAt: new Date(),
+          }
+        },
+        $setOnInsert: {
+          pendingBalance: 0,
+        }
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    logger.info(`Order ${order.orderNumber} payment method set to cash and status completed. Amount ₹${orderTotalAmount} added to rider ${order.rider._id} due balance.`);
+
+    // Populate order for response
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'vendorName storeName')
+      .populate('rider', 'fullName mobileNumber');
+
+    res.status(200).json({
+      success: true,
+      message: 'Order payment method set to cash, payment status completed, and amount added to rider due wallet successfully',
+      data: {
+        order: populatedOrder,
+        rider: {
+          riderId: order.rider._id,
+          riderName: updatedRider.fullName || updatedRider.mobileNumber,
+          previousDueBalance: previousDueBalance.toFixed(2),
+          newDueBalance: updatedRider.dueBalance.toFixed(2),
+          pendingBalance: (updatedRider.pendingBalance || 0).toFixed(2),
+          orderTotalAmount: orderTotalAmount.toFixed(2),
+          deliveryAmount: deliveryAmount.toFixed(2),
+          addedAmount: orderTotalAmount.toFixed(2),
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Mark order payment as cash error:', error);
     next(error);
   }
 };

@@ -180,7 +180,7 @@ const OrderSchema = new mongoose.Schema({
   payment: {
     method: {
       type: String,
-      enum: ['cod', 'prepaid', 'wallet', 'upi', 'card'],
+      enum: ['cod', 'cash', 'prepaid', 'wallet', 'upi', 'card'],
       required: true,
     },
     status: {
