@@ -195,11 +195,7 @@ exports.updateProduct = async (req, res, next) => {
     if (req.admin) {
       product.updatedBy = req.admin._id;
       product.updatedByModel = 'Admin';
-      // When admin updates product, reset to pending status for re-approval
-      product.approvalStatus = 'pending';
-      product.approvedBy = undefined;
-      product.approvedAt = undefined;
-      product.rejectionReason = undefined;
+      // Admin updates product - status remains unchanged
     } else if (req.vendor) {
       product.updatedBy = req.vendor._id;
       product.updatedByModel = 'Vendor';

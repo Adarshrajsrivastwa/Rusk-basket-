@@ -5,6 +5,7 @@ const router = express.Router();
 // Controllers
 const { getAllProductsList } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
+const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
@@ -158,6 +159,124 @@ router.post(
       }),
   ],
   addProduct
+);
+
+// Update product (Admin only)
+router.put(
+  '/products/:id',
+  protect,
+  uploadMultiple,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid product ID format'),
+    body('productName')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Product name cannot be empty')
+      .bail()
+      .isLength({ max: 200 })
+      .withMessage('Product name cannot exceed 200 characters'),
+    body('productType')
+      .optional()
+      .isIn(['quantity', 'weight', 'volume'])
+      .withMessage('Product type must be quantity, weight, or volume'),
+    body('productTypeValue')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Product type value must be a number greater than or equal to 0'),
+    body('productTypeUnit')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Product type unit cannot be empty'),
+    body('category')
+      .optional()
+      .isMongoId()
+      .withMessage('Category must be a valid MongoDB ObjectId'),
+    body('subCategory')
+      .optional()
+      .isMongoId()
+      .withMessage('SubCategory must be a valid MongoDB ObjectId'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 5000 })
+      .withMessage('Description cannot exceed 5000 characters'),
+    body('skuHsn')
+      .optional()
+      .trim()
+      .isLength({ max: 50 })
+      .withMessage('SKU/HSN code cannot exceed 50 characters'),
+    body('inventory')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Inventory must be a number greater than or equal to 0'),
+    body('actualPrice')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Actual price must be a number greater than or equal to 0'),
+    body('regularPrice')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Regular price must be a number greater than or equal to 0'),
+    body('salePrice')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Sale price must be a number greater than or equal to 0'),
+    body('cashback')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Cashback must be a number greater than or equal to 0'),
+    body('tax')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Tax must be a percentage between 0 and 100'),
+    body('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+    body('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    body('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    body('tags')
+      .optional()
+      .trim()
+      .custom((value) => {
+        if (typeof value === 'string') {
+          const tags = value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+          if (tags.length > 20) {
+            throw new Error('Maximum 20 tags allowed');
+          }
+        }
+        return true;
+      }),
+    body('skus')
+      .optional()
+      .custom((value) => {
+        if (typeof value === 'string') {
+          try {
+            const parsed = JSON.parse(value);
+            if (!Array.isArray(parsed)) {
+              throw new Error('SKUs must be an array');
+            }
+          } catch (e) {
+            throw new Error('Invalid SKUs format. Must be a valid JSON array');
+          }
+        }
+        return true;
+      }),
+  ],
+  updateProduct
 );
 
 // Get all orders (Admin only)
