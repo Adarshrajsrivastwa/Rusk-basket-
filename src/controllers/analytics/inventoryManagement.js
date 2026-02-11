@@ -415,36 +415,48 @@ exports.getVendorProductsList = async (req, res) => {
 
     // Calculate stock status and format data for table
     const tableData = products.map((product, index) => {
-      const currentInventory = product.inventory || 0;
-      const initialInv = product.initialInventory || currentInventory;
+      // Use inventory directly from product schema
+      const inventory = product.inventory !== undefined && product.inventory !== null ? product.inventory : 0;
+      const initialInv = product.initialInventory !== undefined && product.initialInventory !== null ? product.initialInventory : inventory;
 
       let stockStatus = 'in_stock';
       let stockStatusLabel = 'In Stock';
       
-      if (currentInventory === 0) {
+      if (inventory === 0) {
         stockStatus = 'out_of_stock';
         stockStatusLabel = 'Out of Stock';
-      } else if (initialInv > 0 && currentInventory < (initialInv * 0.2)) {
+      } else if (initialInv > 0 && inventory < (initialInv * 0.2)) {
         stockStatus = 'low_stock';
         stockStatusLabel = 'Low Stock';
       }
 
       const stockPercentage = initialInv > 0 
-        ? ((currentInventory / initialInv) * 100).toFixed(2)
+        ? ((inventory / initialInv) * 100).toFixed(2)
         : 0;
 
       // Format approval status
       let statusLabel = product.approvalStatus || 'pending';
       statusLabel = statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1);
 
+      // Get subcategory name from populated subCategory reference
+      // subCategory is an ObjectId reference that gets populated with 'name' field
+      let subCategoryName = 'N/A';
+      if (product.subCategory) {
+        // After populate('subCategory', 'name'), it should be an object like { _id: ObjectId, name: 'SubCategoryName' }
+        if (product.subCategory && typeof product.subCategory === 'object' && product.subCategory.name) {
+          subCategoryName = product.subCategory.name;
+        }
+        // If subCategory is null, undefined, or not populated properly, it will remain 'N/A'
+      }
+
       return {
         n: skip + index + 1, // Row number
         productId: product._id,
         productName: product.productName,
         category: product.category?.name || 'N/A',
-        subCategory: product.subCategory?.name || 'N/A', // Subcategory name
-        inventory: currentInventory, // Inventory/Stock value
-        stock: currentInventory,
+        subCategory: subCategoryName, // Subcategory name
+        inventory: inventory, // Inventory from product schema
+        stock: inventory,
         stockStatus: stockStatus,
         stockStatusLabel: stockStatusLabel,
         stockPercentage: parseFloat(stockPercentage),
