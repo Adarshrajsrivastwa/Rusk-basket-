@@ -1778,6 +1778,10 @@ exports.getMyWithdrawalRequests = async (req, res, next) => {
       query.status = req.query.status;
     }
 
+    // Get vendor's current earning wallet balance
+    const vendor = await Vendor.findById(vendorId).select('earningWallet');
+    const currentEarningWallet = vendor ? (vendor.earningWallet || 0) : 0;
+
     // Get withdrawal requests
     const withdrawalRequests = await VendorEarningWalletWithdrawal.find(query)
       .populate('approvedBy', 'name email')
@@ -1797,6 +1801,9 @@ exports.getMyWithdrawalRequests = async (req, res, next) => {
         limit,
         total,
         pages: Math.ceil(total / limit),
+      },
+      earningWallet: {
+        currentBalance: currentEarningWallet.toFixed(2),
       },
       data: withdrawalRequests.map(request => ({
         requestId: request._id,
