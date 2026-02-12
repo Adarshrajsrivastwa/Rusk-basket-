@@ -1679,6 +1679,14 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       date: formatDate(order.createdAt),
       vendor: vendors.length > 0 ? vendors.join(', ') : 'N/A',
       userName: order.user ? (order.user.userName || 'N/A') : 'N/A',
+      username: order.user ? (order.user.userName || 'N/A') : 'N/A', // Alias for userName
+      user: order.user ? {
+        _id: order.user._id,
+        userName: order.user.userName || 'N/A',
+        username: order.user.userName || 'N/A', // Alias for userName
+        contactNumber: order.user.contactNumber || 'N/A',
+        email: order.user.email || 'N/A',
+      } : null,
       cartValue: order.pricing ? order.pricing.total : 0,
       paymentStatus: order.payment ? order.payment.status : 'pending',
       status: order.status || 'pending',
