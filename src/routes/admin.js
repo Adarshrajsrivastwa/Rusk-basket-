@@ -634,6 +634,69 @@ router.get(
   getVendors
 );
 
+// ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
+// NOTE: These routes must be defined BEFORE /vendors/:id to avoid route matching conflicts
+
+// Get all vendor withdrawal requests (admin only)
+router.get(
+  '/vendors/withdrawal-requests',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+    query('vendorId')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+  ],
+  getVendorWithdrawalRequests
+);
+
+// Approve vendor withdrawal request (admin only)
+router.put(
+  '/vendors/withdrawal-requests/:requestId/approve',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+  ],
+  approveVendorWithdrawalRequest
+);
+
+// Reject vendor withdrawal request (admin only)
+router.put(
+  '/vendors/withdrawal-requests/:requestId/reject',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  rejectVendorWithdrawalRequest
+);
+
 // Get single vendor (admin only)
 router.get(
   '/vendors/:id',
@@ -733,68 +796,6 @@ router.delete(
       .withMessage('Invalid vendor ID format'),
   ],
   deleteVendor
-);
-
-// ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
-
-// Get all vendor withdrawal requests (admin only)
-router.get(
-  '/vendors/withdrawal-requests',
-  protect,
-  [
-    query('page')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('Page must be a positive integer'),
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 100 })
-      .withMessage('Limit must be between 1 and 100'),
-    query('status')
-      .optional()
-      .isIn(['pending', 'approved', 'rejected'])
-      .withMessage('Status must be pending, approved, or rejected'),
-    query('vendorId')
-      .optional()
-      .isMongoId()
-      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
-  ],
-  getVendorWithdrawalRequests
-);
-
-// Approve vendor withdrawal request (admin only)
-router.put(
-  '/vendors/withdrawal-requests/:requestId/approve',
-  protect,
-  [
-    param('requestId')
-      .notEmpty()
-      .withMessage('Request ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid request ID format'),
-  ],
-  approveVendorWithdrawalRequest
-);
-
-// Reject vendor withdrawal request (admin only)
-router.put(
-  '/vendors/withdrawal-requests/:requestId/reject',
-  protect,
-  [
-    param('requestId')
-      .notEmpty()
-      .withMessage('Request ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid request ID format'),
-    body('rejectionReason')
-      .optional()
-      .trim()
-      .isLength({ max: 500 })
-      .withMessage('Rejection reason cannot be more than 500 characters'),
-  ],
-  rejectVendorWithdrawalRequest
 );
 
 // ============ RIDER MANAGEMENT ROUTES (Admin only) ============
