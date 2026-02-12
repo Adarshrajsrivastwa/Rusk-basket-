@@ -216,6 +216,43 @@ const VendorSchema = new mongoose.Schema({
     min: [0, 'Handling charge percentage must be greater than or equal to 0'],
     max: [100, 'Handling charge percentage cannot exceed 100'],
   },
+  // Commission System - Vendor-wise commission settings
+  commission: {
+    type: {
+      type: String,
+      enum: ['percentage', 'fixed', 'hybrid', 'subscription'],
+      default: 'percentage',
+    },
+    percentage: {
+      type: Number,
+      default: 10,
+      min: [0, 'Commission percentage must be greater than or equal to 0'],
+      max: [100, 'Commission percentage cannot exceed 100'],
+    },
+    fixedAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Fixed commission amount must be greater than or equal to 0'],
+    },
+    subscriptionAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Subscription amount must be greater than or equal to 0'],
+    },
+    subscriptionPeriod: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      default: 'monthly',
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
   revenue: {
     type: Map,
     of: Number,

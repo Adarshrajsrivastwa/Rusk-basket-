@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin, sendEarningWalletAmount, getMyWithdrawalRequests } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin, sendEarningWalletAmount, getMyWithdrawalRequests, getVendorCommission, updateVendorCommission } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
@@ -863,6 +863,55 @@ router.put(
 );
 
 router.put('/:id/suspend', protect, suspendVendor);
+
+// Commission Management Routes
+router.get(
+  '/:id/commission',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+  ],
+  getVendorCommission
+);
+
+router.put(
+  '/:id/commission',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+    body('type')
+      .optional()
+      .isIn(['percentage', 'fixed', 'hybrid', 'subscription'])
+      .withMessage('Commission type must be one of: percentage, fixed, hybrid, subscription'),
+    body('percentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Commission percentage must be between 0 and 100'),
+    body('fixedAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Fixed commission amount must be greater than or equal to 0'),
+    body('subscriptionAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Subscription amount must be greater than or equal to 0'),
+    body('subscriptionPeriod')
+      .optional()
+      .isIn(['monthly', 'yearly'])
+      .withMessage('Subscription period must be either monthly or yearly'),
+  ],
+  updateVendorCommission
+);
 
 router.delete('/:id', protect, deleteVendor);
 

@@ -1707,6 +1707,23 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
         fssaiNumber: vendor.fssaiNumber || null,
         serviceRadius: vendor.serviceRadius || null,
         handlingChargePercentage: vendor.handlingChargePercentage || null,
+        commission: vendor.commission ? {
+          type: vendor.commission.type || 'percentage',
+          percentage: vendor.commission.percentage || 10,
+          fixedAmount: vendor.commission.fixedAmount || 0,
+          subscriptionAmount: vendor.commission.subscriptionAmount || 0,
+          subscriptionPeriod: vendor.commission.subscriptionPeriod || 'monthly',
+          updatedBy: vendor.commission.updatedBy || null,
+          updatedAt: vendor.commission.updatedAt || null,
+        } : {
+          type: 'percentage',
+          percentage: 10,
+          fixedAmount: 0,
+          subscriptionAmount: 0,
+          subscriptionPeriod: 'monthly',
+          updatedBy: null,
+          updatedAt: null,
+        },
         isActive: vendor.isActive !== undefined ? vendor.isActive : true,
         createdBy: vendor.createdBy ? {
           _id: vendor.createdBy._id ? vendor.createdBy._id.toString() : null,
@@ -2232,6 +2249,214 @@ exports.rejectVendorWithdrawalRequest = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Reject vendor withdrawal request error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get vendor commission settings
+ * GET /api/vendor/:id/commission
+ */
+exports.getVendorCommission = async (req, res, next) => {
+  try {
+    const vendorId = req.params.id;
+
+    if (!vendorId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor ID is required',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendor = await Vendor.findById(vendorId).select('commission vendorName storeName');
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    // Default commission if not set
+    const commission = vendor.commission || {
+      type: 'percentage',
+      percentage: 10,
+      fixedAmount: 0,
+      subscriptionAmount: 0,
+      subscriptionPeriod: 'monthly',
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        vendorId: vendor._id,
+        vendorName: vendor.vendorName,
+        storeName: vendor.storeName,
+        commission: {
+          type: commission.type || 'percentage',
+          percentage: commission.percentage || 10,
+          fixedAmount: commission.fixedAmount || 0,
+          subscriptionAmount: commission.subscriptionAmount || 0,
+          subscriptionPeriod: commission.subscriptionPeriod || 'monthly',
+          updatedBy: commission.updatedBy || null,
+          updatedAt: commission.updatedAt || null,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Get vendor commission error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Update vendor commission settings
+ * PUT /api/vendor/:id/commission
+ */
+exports.updateVendorCommission = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const vendorId = req.params.id;
+    const { type, percentage, fixedAmount, subscriptionAmount, subscriptionPeriod } = req.body;
+    const adminId = req.admin._id;
+
+    if (!vendorId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor ID is required',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendor = await Vendor.findById(vendorId);
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    // Validate commission type
+    const validTypes = ['percentage', 'fixed', 'hybrid', 'subscription'];
+    if (type && !validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid commission type. Must be one of: ${validTypes.join(', ')}`,
+      });
+    }
+
+    // Initialize commission object if it doesn't exist
+    if (!vendor.commission) {
+      vendor.commission = {
+        type: 'percentage',
+        percentage: 10,
+        fixedAmount: 0,
+        subscriptionAmount: 0,
+        subscriptionPeriod: 'monthly',
+      };
+    }
+
+    // Update commission fields
+    if (type !== undefined) {
+      vendor.commission.type = type;
+    }
+
+    if (percentage !== undefined) {
+      const percentageValue = parseFloat(percentage);
+      if (isNaN(percentageValue) || percentageValue < 0 || percentageValue > 100) {
+        return res.status(400).json({
+          success: false,
+          error: 'Commission percentage must be between 0 and 100',
+        });
+      }
+      vendor.commission.percentage = percentageValue;
+    }
+
+    if (fixedAmount !== undefined) {
+      const fixedValue = parseFloat(fixedAmount);
+      if (isNaN(fixedValue) || fixedValue < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Fixed commission amount must be greater than or equal to 0',
+        });
+      }
+      vendor.commission.fixedAmount = fixedValue;
+    }
+
+    if (subscriptionAmount !== undefined) {
+      const subscriptionValue = parseFloat(subscriptionAmount);
+      if (isNaN(subscriptionValue) || subscriptionValue < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription amount must be greater than or equal to 0',
+        });
+      }
+      vendor.commission.subscriptionAmount = subscriptionValue;
+    }
+
+    if (subscriptionPeriod !== undefined) {
+      if (!['monthly', 'yearly'].includes(subscriptionPeriod)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription period must be either "monthly" or "yearly"',
+        });
+      }
+      vendor.commission.subscriptionPeriod = subscriptionPeriod;
+    }
+
+    // Update metadata
+    vendor.commission.updatedBy = adminId;
+    vendor.commission.updatedAt = new Date();
+
+    await vendor.save();
+
+    const populatedVendor = await Vendor.findById(vendor._id)
+      .populate('commission.updatedBy', 'name email')
+      .select('commission vendorName storeName');
+
+    logger.info(`Admin ${adminId} updated commission for vendor ${vendorId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor commission updated successfully',
+      data: {
+        vendorId: populatedVendor._id,
+        vendorName: populatedVendor.vendorName,
+        storeName: populatedVendor.storeName,
+        commission: {
+          type: populatedVendor.commission.type,
+          percentage: populatedVendor.commission.percentage,
+          fixedAmount: populatedVendor.commission.fixedAmount,
+          subscriptionAmount: populatedVendor.commission.subscriptionAmount,
+          subscriptionPeriod: populatedVendor.commission.subscriptionPeriod,
+          updatedBy: populatedVendor.commission.updatedBy || null,
+          updatedAt: populatedVendor.commission.updatedAt,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Update vendor commission error:', error);
     next(error);
   }
 };
