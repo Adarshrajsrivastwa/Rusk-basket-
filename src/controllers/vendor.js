@@ -975,14 +975,6 @@ exports.assignRiderToOrder = async (req, res, next) => {
     const { orderId } = req.params;
     const { riderId, assignmentNotes, updateStatus } = req.body;
 
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(orderId)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid order ID format',
-      });
-    }
-
     if (!mongoose.Types.ObjectId.isValid(riderId)) {
       return res.status(400).json({
         success: false,
@@ -990,16 +982,33 @@ exports.assignRiderToOrder = async (req, res, next) => {
       });
     }
 
-    // Find order and verify it belongs to this vendor using MongoDB query
-    // This ensures we only get orders that have items from this vendor
-    const order = await Order.findOne({
-      _id: orderId,
-      'items.vendor': req.vendor._id,
-    }).populate('items.vendor', '_id vendorName storeName');
+    // Find order by ObjectId or orderNumber and verify it belongs to this vendor
+    // Check if orderId is a valid ObjectId, otherwise search by orderNumber
+    let orderQuery;
+    if (mongoose.Types.ObjectId.isValid(orderId)) {
+      orderQuery = {
+        _id: orderId,
+        'items.vendor': req.vendor._id,
+      };
+    } else {
+      // Search by orderNumber
+      orderQuery = {
+        orderNumber: orderId,
+        'items.vendor': req.vendor._id,
+      };
+    }
+
+    const order = await Order.findOne(orderQuery).populate('items.vendor', '_id vendorName storeName');
 
     if (!order) {
-      // Check if order exists at all
-      const orderExists = await Order.findById(orderId);
+      // Check if order exists at all (by ObjectId or orderNumber)
+      let orderExists;
+      if (mongoose.Types.ObjectId.isValid(orderId)) {
+        orderExists = await Order.findById(orderId);
+      } else {
+        orderExists = await Order.findOne({ orderNumber: orderId });
+      }
+      
       if (orderExists) {
         return res.status(403).json({
           success: false,
@@ -1102,9 +1111,10 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     // Use atomic update with arrayFilters to update assignmentRequestSentTo
+    // Use order._id (MongoDB ObjectId) for the update query
     const updateResult = await Order.findOneAndUpdate(
       {
-        _id: orderId,
+        _id: order._id,
         rider: null, // CRITICAL: Only update if no rider assigned yet (atomic check)
       },
       {
@@ -1128,7 +1138,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
 
     // If updateResult is null, another process already assigned a rider (race condition handled)
     if (!updateResult) {
-      const currentOrder = await Order.findById(orderId).populate('rider', 'fullName mobileNumber');
+      const currentOrder = await Order.findById(order._id).populate('rider', 'fullName mobileNumber');
       if (currentOrder && currentOrder.rider) {
         return res.status(400).json({
           success: false,
@@ -1243,7 +1253,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     // Populate order for notifications
-    const populatedOrder = await Order.findById(orderId)
+    const populatedOrder = await Order.findById(order._id)
       .populate('user', 'userName contactNumber email _id')
       .populate('items.product', 'productName description')
       .populate('items.vendor', 'vendorName storeName storeAddress contactNumber')
