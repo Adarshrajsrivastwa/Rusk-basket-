@@ -1041,7 +1041,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     // Check if order is in a state where rider can be assigned
-    const assignableStatuses = ['ready', 'processing', 'confirmed'];
+    const assignableStatuses = ['ready', 'processing', 'confirmed', 'order_placed'];
     if (!assignableStatuses.includes(order.status)) {
       return res.status(400).json({
         success: false,
@@ -1054,6 +1054,14 @@ exports.assignRiderToOrder = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'A rider has already been assigned to this order',
+      });
+    }
+
+    // Verify rider is associated with this vendor
+    if (rider.vendor && rider.vendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This rider is not associated with your vendor account',
       });
     }
 
@@ -1080,17 +1088,83 @@ exports.assignRiderToOrder = async (req, res, next) => {
       });
     }
 
-    // Assign rider to order
-    order.rider = riderId;
-    order.assignedBy = req.vendor._id;
-    order.assignedAt = new Date();
-    if (assignmentNotes) {
-      order.assignmentNotes = assignmentNotes;
+    // Verify rider is associated with this vendor
+    if (rider.vendor && rider.vendor.toString() !== req.vendor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: 'This rider is not associated with your vendor account',
+      });
     }
 
-    // Optionally update order status to 'out_for_delivery'
+    // Use atomic update to prevent race condition (same as rider accept function)
+    // Update assignmentRequestSentTo array: mark this rider as accepted, others as expired
+    const updateData = {
+      rider: riderId,
+      assignedBy: req.vendor._id,
+      assignedAt: new Date(),
+    };
+
+    if (assignmentNotes) {
+      updateData.assignmentNotes = assignmentNotes;
+    }
+
+    // Automatically update order status to 'rider_assign' when rider is assigned
+    // If updateStatus is true, set to 'out_for_delivery' instead
     if (updateStatus === true || updateStatus === 'true') {
-      order.status = 'out_for_delivery';
+      updateData.status = 'out_for_delivery';
+    } else {
+      updateData.status = 'rider_assign';
+    }
+
+    // Use atomic update with arrayFilters to update assignmentRequestSentTo
+    const updateResult = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        rider: null, // CRITICAL: Only update if no rider assigned yet (atomic check)
+      },
+      {
+        $set: {
+          ...updateData,
+          'assignmentRequestSentTo.$[acceptedElem].status': 'accepted',
+          'assignmentRequestSentTo.$[acceptedElem].respondedAt': new Date(),
+          'assignmentRequestSentTo.$[expiredElem].status': 'expired',
+          'assignmentRequestSentTo.$[expiredElem].respondedAt': new Date(),
+        }
+      },
+      {
+        arrayFilters: [
+          { 'acceptedElem.rider': riderId }, // This rider's request
+          { 'expiredElem.rider': { $ne: riderId }, 'expiredElem.status': 'pending' } // Other pending requests
+        ],
+        new: true, // Return updated document
+        runValidators: true,
+      }
+    );
+
+    // If updateResult is null, another process already assigned a rider (race condition handled)
+    if (!updateResult) {
+      const currentOrder = await Order.findById(orderId).populate('rider', 'fullName mobileNumber');
+      if (currentOrder && currentOrder.rider) {
+        return res.status(400).json({
+          success: false,
+          error: 'This order has already been assigned to another rider',
+          assignedRider: {
+            name: currentOrder.rider.fullName,
+            mobile: currentOrder.rider.mobileNumber
+          }
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        error: 'Order assignment conflict. Please try again.',
+      });
+    }
+
+    // Use the updated order from atomic operation
+    const order = updateResult;
+
+    // If updateStatus is true, handle earning wallet update for out_for_delivery
+    if (updateStatus === true || updateStatus === 'true') {
       
       // Add vendor's order amount to earningWallet when order goes out for delivery
       try {
@@ -1183,9 +1257,15 @@ exports.assignRiderToOrder = async (req, res, next) => {
       }
     }
 
-    await order.save();
+    // Populate order for notifications
+    const populatedOrder = await Order.findById(orderId)
+      .populate('user', 'userName contactNumber email _id')
+      .populate('items.product', 'productName description')
+      .populate('items.vendor', 'vendorName storeName storeAddress contactNumber')
+      .populate('rider', 'fullName mobileNumber')
+      .populate('assignedBy', 'vendorName storeName contactNumber');
 
-    // Notify vendor via socket about rider assignment
+    // Notify vendor via push notification about rider assignment
     try {
       const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorId = req.vendor._id;
@@ -1211,12 +1291,114 @@ exports.assignRiderToOrder = async (req, res, next) => {
       logger.error('Error sending push notification to vendor for rider assignment:', notifyError);
     }
 
-    const populatedOrder = await Order.findById(orderId)
-      .populate('user', 'name email contactNumber')
-      .populate('items.product', 'productName description')
-      .populate('items.vendor', 'vendorName storeName')
-      .populate('rider', 'fullName mobileNumber')
-      .populate('assignedBy', 'vendorName storeName contactNumber');
+    // Notify user about rider assignment
+    if (populatedOrder.user) {
+      try {
+        const { notificationQueue } = require('../utils/queue');
+        const firstVendor = populatedOrder.items?.[0]?.vendor;
+        const vendorName = firstVendor?.vendorName || firstVendor?.storeName || 'Vendor';
+        const vendorContact = firstVendor?.contactNumber || '';
+        const storeAddress = firstVendor?.storeAddress ? [
+          firstVendor.storeAddress.line1,
+          firstVendor.storeAddress.line2,
+          firstVendor.storeAddress.city,
+          firstVendor.storeAddress.state,
+          firstVendor.storeAddress.pinCode
+        ].filter(Boolean).join(', ') : '';
+
+        if (notificationQueue) {
+          await notificationQueue.add({
+            userId: populatedOrder.user._id,
+            type: 'rider_assigned',
+            title: 'Rider Assigned to Your Order',
+            message: `Rider ${populatedOrder.rider?.fullName || populatedOrder.rider?.mobileNumber} has been assigned to your order ${order.orderNumber}`,
+            data: {
+              orderId: order._id,
+              orderNumber: order.orderNumber,
+              rider: {
+                name: populatedOrder.rider?.fullName,
+                mobileNumber: populatedOrder.rider?.mobileNumber,
+              },
+              vendor: {
+                name: vendorName,
+                storeAddress: storeAddress,
+                contactNumber: vendorContact,
+              },
+              status: order.status,
+              type: 'user',
+            },
+          });
+        }
+
+        // Notify user via WebSocket
+        const { notifyUserOrderUpdate } = require('../utils/socket');
+        const orderUpdateData = {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          rider: {
+            name: populatedOrder.rider?.fullName,
+            mobileNumber: populatedOrder.rider?.mobileNumber,
+          },
+        };
+        notifyUserOrderUpdate(populatedOrder.user._id.toString(), orderUpdateData);
+      } catch (userNotifyError) {
+        logger.error('Error sending notification to user for rider assignment:', userNotifyError);
+      }
+    }
+
+    // Notify rider via push notification and WebSocket
+    try {
+      const { sendRiderPushNotification } = require('../utils/firebaseNotification');
+      const { notifyRiderOrderUpdate } = require('../utils/socket');
+      
+      // Send push notification to rider
+      await sendRiderPushNotification(riderId, {
+        type: 'order_assigned',
+        title: 'New Order Assigned',
+        message: `You have been assigned to order #${order.orderNumber}`,
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        status: order.status,
+        data: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: order.status,
+        },
+      });
+
+      // Notify rider via WebSocket
+      const orderUpdateData = {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        amount: order.pricing?.total || 0,
+        deliveryAmount: order.deliveryAmount || 0,
+        pricing: order.pricing,
+        shippingAddress: order.shippingAddress,
+        location: {
+          address: [
+            order.shippingAddress?.line1,
+            order.shippingAddress?.line2,
+            order.shippingAddress?.city,
+            order.shippingAddress?.state,
+            order.shippingAddress?.pinCode
+          ].filter(Boolean).join(', '),
+          city: order.shippingAddress?.city || '',
+          state: order.shippingAddress?.state || '',
+          pinCode: order.shippingAddress?.pinCode || '',
+          coordinates: {
+            latitude: order.shippingAddress?.latitude || null,
+            longitude: order.shippingAddress?.longitude || null,
+          }
+        },
+        rider: populatedOrder.rider,
+      };
+      
+      notifyRiderOrderUpdate(riderId.toString(), orderUpdateData);
+    } catch (riderNotifyError) {
+      logger.error('Error sending notification to rider for assignment:', riderNotifyError);
+    }
 
     res.status(200).json({
       success: true,

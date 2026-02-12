@@ -14,6 +14,7 @@ const {
   getProductInventory,
   getAllInventory,
   getVendorProductsList,
+  getVendorsWithRidersNoOrders,
 } = require('../controllers/analytics');
 const { protect } = require('../middleware/adminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -292,6 +293,13 @@ router.get(
       .withMessage('Sort order must be one of: asc, desc'),
   ],
   getVendorProductsList
+);
+
+// Get vendors with associated riders who have no current orders
+router.get(
+  '/vendor/riders/no-orders',
+  protectVendor,
+  getVendorsWithRidersNoOrders
 );
 
 module.exports = router;

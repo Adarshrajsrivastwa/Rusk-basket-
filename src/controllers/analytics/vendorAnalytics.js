@@ -1,6 +1,8 @@
 const { validationResult } = require('express-validator');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
+const Vendor = require('../../models/Vendor');
+const Rider = require('../../models/Rider');
 const logger = require('../../utils/logger');
 const { getDateRange } = require('./analyticsUtils');
 
@@ -626,6 +628,105 @@ exports.getVendorOverview = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch vendor overview',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Get vendors with associated riders who have no current orders
+ * Returns list of vendors with their riders that currently have no orders ingested
+ */
+exports.getVendorsWithRidersNoOrders = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    // Get vendor ID from request (if vendor is making the request, show only their data)
+    const vendorId = req.vendor ? req.vendor._id : null;
+
+    // Build query for vendors
+    const vendorQuery = {
+      isActive: true,
+      storeId: { $exists: true, $ne: null },
+    };
+
+    // If vendor is making request, filter to their own data
+    if (vendorId) {
+      vendorQuery._id = vendorId;
+    }
+
+    // Get all active vendors
+    const vendors = await Vendor.find(vendorQuery)
+      .select('_id vendorName storeId storeName contactNumber email')
+      .lean();
+
+    const result = [];
+
+    // For each vendor, get associated riders and check for orders
+    for (const vendor of vendors) {
+      // Get all riders associated with this vendor
+      const riders = await Rider.find({
+        vendor: vendor._id,
+        isActive: true,
+        approvalStatus: 'approved',
+      })
+        .select('_id fullName mobileNumber')
+        .lean();
+
+      const ridersWithNoOrders = [];
+
+      // Check each rider for current orders
+      for (const rider of riders) {
+        // Check if rider has any active orders (not cancelled or refunded)
+        const hasActiveOrders = await Order.exists({
+          rider: rider._id,
+          status: { $nin: ['cancelled', 'refunded'] },
+        });
+
+        // If rider has no active orders, add to list
+        if (!hasActiveOrders) {
+          ridersWithNoOrders.push({
+            riderId: rider._id,
+            fullName: rider.fullName || 'N/A',
+            mobileNumber: rider.mobileNumber || 'N/A',
+          });
+        }
+      }
+
+      // Only include vendor if they have riders with no orders
+      if (ridersWithNoOrders.length > 0) {
+        result.push({
+          vendorId: vendor._id,
+          vendorName: vendor.vendorName || 'N/A',
+          storeId: vendor.storeId || 'N/A',
+          storeName: vendor.storeName || 'N/A',
+          contactNumber: vendor.contactNumber || 'N/A',
+          email: vendor.email || 'N/A',
+          riders: ridersWithNoOrders,
+          totalRidersWithNoOrders: ridersWithNoOrders.length,
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        vendors: result,
+        totalVendors: result.length,
+        totalRidersWithNoOrders: result.reduce((sum, vendor) => sum + vendor.totalRidersWithNoOrders, 0),
+      },
+    });
+  } catch (error) {
+    logger.error('Get vendors with riders no orders error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch vendors with riders having no orders',
       message: error.message,
     });
   }

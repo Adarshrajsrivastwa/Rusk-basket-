@@ -9,6 +9,7 @@ exports.getVendorDashboard = vendorAnalytics.getVendorDashboard;
 exports.getVendorSales = vendorAnalytics.getVendorSales;
 exports.getVendorProductPerformance = vendorAnalytics.getVendorProductPerformance;
 exports.getVendorOverview = vendorAnalytics.getVendorOverview;
+exports.getVendorsWithRidersNoOrders = vendorAnalytics.getVendorsWithRidersNoOrders;
 
 // Re-export admin analytics
 const adminAnalytics = require('./analytics/adminAnalytics');
