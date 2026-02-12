@@ -1026,13 +1026,6 @@ exports.assignRiderToOrder = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
-      });
-    }
-
-    if (!hasVendorItems) {
-      return res.status(403).json({
-        success: false,
-        error: 'You do not have permission to assign riders to this order. This order does not contain items from your store.',
         debug: process.env.NODE_ENV === 'development' ? {
           orderVendors: order.items.map(item => item.vendor?.toString() || item.vendor),
           yourVendorId: req.vendor._id.toString(),
@@ -1054,14 +1047,6 @@ exports.assignRiderToOrder = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'A rider has already been assigned to this order',
-      });
-    }
-
-    // Verify rider is associated with this vendor
-    if (rider.vendor && rider.vendor.toString() !== req.vendor._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        error: 'This rider is not associated with your vendor account',
       });
     }
 
@@ -1161,7 +1146,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
     }
 
     // Use the updated order from atomic operation
-    const order = updateResult;
+    order = updateResult;
 
     // If updateStatus is true, handle earning wallet update for out_for_delivery
     if (updateStatus === true || updateStatus === 'true') {
