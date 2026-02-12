@@ -580,31 +580,29 @@ exports.getVendorOrder = async (req, res, next) => {
       });
     }
 
+    // Ensure deliveryImage and deliveredImage are included in response
+    const responseData = {
+      ...order,
+      deliveryImage: order.deliveryImage || null,
+      deliveredImage: order.deliveredImage || null,
+    };
+
     // If rider is assigned, include rider name, mobile number, and delivery amount
     // Check riderDetails first (from assignmentRequestSentTo or order.rider), then fallback to order.rider
     if (order.riderDetails || order.rider) {
       const riderDetails = order.riderDetails;
       const rider = order.rider;
       
-      const responseData = {
-        ...order,
-        riderInfo: {
-          name: riderDetails?.riderName || rider?.fullName || null,
-          mobileNumber: riderDetails?.mobileNumber || rider?.mobileNumber || null,
-          deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
-        },
+      responseData.riderInfo = {
+        name: riderDetails?.riderName || rider?.fullName || null,
+        mobileNumber: riderDetails?.mobileNumber || rider?.mobileNumber || null,
+        deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
       };
-      
-      return res.status(200).json({
-        success: true,
-        data: responseData,
-      });
     }
 
-    // If no rider assigned, return order as is
     res.status(200).json({
       success: true,
-      data: order,
+      data: responseData,
     });
   } catch (error) {
     logger.error('Get vendor order error:', error);
