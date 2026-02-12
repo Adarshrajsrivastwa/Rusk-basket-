@@ -1672,21 +1672,32 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       return null;
     }).filter(Boolean))];
 
+    // Extract user information safely
+    const user = order.user;
+    const userName = user ? (user.userName || user.username || 'N/A') : 'N/A';
+    const username = userName; // Same as userName
+
     return {
       _id: order._id,
       orderId: order._id,
       orderNumber: order.orderNumber,
       date: formatDate(order.createdAt),
       vendor: vendors.length > 0 ? vendors.join(', ') : 'N/A',
-      userName: order.user ? (order.user.userName || 'N/A') : 'N/A',
-      username: order.user ? (order.user.userName || 'N/A') : 'N/A', // Alias for userName
-      user: order.user ? {
-        _id: order.user._id,
-        userName: order.user.userName || 'N/A',
-        username: order.user.userName || 'N/A', // Alias for userName
-        contactNumber: order.user.contactNumber || 'N/A',
-        email: order.user.email || 'N/A',
-      } : null,
+      userName: userName,
+      username: username,
+      user: user ? {
+        _id: user._id,
+        userName: user.userName || user.username || 'N/A',
+        username: user.userName || user.username || 'N/A',
+        contactNumber: user.contactNumber || 'N/A',
+        email: user.email || 'N/A',
+      } : {
+        _id: null,
+        userName: 'N/A',
+        username: 'N/A',
+        contactNumber: 'N/A',
+        email: 'N/A',
+      },
       cartValue: order.pricing ? order.pricing.total : 0,
       paymentStatus: order.payment ? order.payment.status : 'pending',
       status: order.status || 'pending',
