@@ -630,6 +630,11 @@ router.put(
       .optional()
       .isFloat({ min: 0, max: 100 })
       .withMessage('Handling charge percentage must be between 0 and 100'),
+    body('fssaiNumber')
+      .optional()
+      .trim()
+      .matches(/^[0-9]{14,17}$/)
+      .withMessage('Please provide a valid FSSAI number (14-17 digits)'),
     body('contactNumber')
       .custom((value) => {
         if (value !== undefined) {

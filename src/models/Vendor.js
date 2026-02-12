@@ -159,6 +159,11 @@ const VendorSchema = new mongoose.Schema({
       publicId: String,
     },
   },
+  fssaiNumber: {
+    type: String,
+    trim: true,
+    match: [/^[0-9]{14,17}$/, 'Please provide a valid FSSAI number (14-17 digits)'],
+  },
   permissions: {
     canManageProducts: {
       type: Boolean,

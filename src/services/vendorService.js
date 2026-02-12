@@ -285,6 +285,7 @@ const updateVendorData = async (vendor, data, files) => {
     permissions,
     handlingChargePercentage,
     serviceRadius,
+    fssaiNumber,
   } = data;
 
   if (vendorName !== undefined) {
@@ -361,6 +362,10 @@ const updateVendorData = async (vendor, data, files) => {
 
   if (handlingChargePercentage !== undefined) {
     vendor.handlingChargePercentage = parseFloat(handlingChargePercentage);
+  }
+
+  if (fssaiNumber !== undefined) {
+    vendor.fssaiNumber = fssaiNumber.trim();
   }
 
   if (files) {
