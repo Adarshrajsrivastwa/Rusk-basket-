@@ -1718,17 +1718,31 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       },
       orderOverview: {
         totalAttendance: totalOrders,
+        totalOrders: totalOrders,
         statusDistribution: {
-          completed: orderStatusDistribution.completed.percentage,
-          in_progress: orderStatusDistribution.in_progress.percentage,
-          pending: orderStatusDistribution.pending.percentage,
-          cancelled: orderStatusDistribution.cancelled.percentage,
+          completed: {
+            count: orderStatusDistribution.completed.count,
+            percentage: orderStatusDistribution.completed.percentage,
+          },
+          in_progress: {
+            count: orderStatusDistribution.in_progress.count,
+            percentage: orderStatusDistribution.in_progress.percentage,
+          },
+          pending: {
+            count: orderStatusDistribution.pending.count,
+            percentage: orderStatusDistribution.pending.percentage,
+          },
+          cancelled: {
+            count: orderStatusDistribution.cancelled.count,
+            percentage: orderStatusDistribution.cancelled.percentage,
+          },
         },
         orderList: orderList,
       },
       metrics: {
         categoryUse: categoryUsage.length,
         subCategoryUse: subCategoryUsage.length,
+        totalProducts: totalProducts,
         productPublished: publishedProducts,
         productInReview: productsInReview,
         totalOrder: totalOrders,
