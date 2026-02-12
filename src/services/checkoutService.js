@@ -1651,19 +1651,41 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
 
   const total = await Order.countDocuments(query);
 
-  // Get all unique user IDs from orders
-  const userIds = [...new Set(orders.map(order => order.user).filter(Boolean))];
+  // Get all unique user IDs from orders (handle both populated and ObjectId formats)
+  const userIds = [];
+  orders.forEach(order => {
+    if (order.user) {
+      // If user is populated object, get _id
+      if (order.user._id) {
+        userIds.push(order.user._id);
+      } 
+      // If user is just ObjectId string
+      else if (typeof order.user === 'string') {
+        userIds.push(order.user);
+      }
+      // If user is ObjectId object
+      else if (order.user.toString) {
+        userIds.push(order.user.toString());
+      }
+    }
+  });
   
-  // Fetch all users in one query if user populate failed
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+  
+  // Fetch all users in one query
   const usersMap = {};
-  if (userIds.length > 0) {
-    const users = await User.find({ _id: { $in: userIds } })
-      .select('userName contactNumber email')
-      .lean();
-    
-    users.forEach(user => {
-      usersMap[user._id.toString()] = user;
-    });
+  if (uniqueUserIds.length > 0) {
+    try {
+      const users = await User.find({ _id: { $in: uniqueUserIds } })
+        .select('userName contactNumber email')
+        .lean();
+      
+      users.forEach(user => {
+        usersMap[user._id.toString()] = user;
+      });
+    } catch (error) {
+      logger.error('Error fetching users for orders:', error);
+    }
   }
 
   // Helper function to format date to DD/MM/YYYY
@@ -1689,19 +1711,34 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
 
     // Extract user information - check populated user first, then fetch from map
     let user = order.user;
+    let userId = null;
     
-    // If user is not populated (just ObjectId) or is null, try to get from usersMap
-    if (!user || typeof user === 'string' || (user._id && !user.userName)) {
-      const userId = user?._id?.toString() || user?.toString() || order.user?.toString();
-      if (userId && usersMap[userId]) {
-        user = usersMap[userId];
-      } else if (userId) {
-        // If still not found, user might be deleted, set to null
-        user = null;
+    // Extract user ID from order
+    if (user) {
+      if (user._id) {
+        userId = user._id.toString();
+      } else if (typeof user === 'string') {
+        userId = user;
+      } else if (user.toString) {
+        userId = user.toString();
       }
     }
+    
+    // If user is not populated (just ObjectId) or missing userName, fetch from usersMap
+    if (userId) {
+      if (!user || typeof user === 'string' || !user.userName) {
+        if (usersMap[userId]) {
+          user = usersMap[userId];
+        } else {
+          // User not found in map, might be deleted or not fetched
+          user = null;
+        }
+      }
+    } else {
+      user = null;
+    }
 
-    const userName = user ? (user.userName || user.username || 'N/A') : 'N/A';
+    const userName = user ? (user.userName || 'N/A') : 'N/A';
     const username = userName; // Same as userName
 
     return {
@@ -1713,18 +1750,24 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       userName: userName,
       username: username,
       user: user ? {
-        _id: user._id,
-        userName: user.userName || user.username || 'N/A',
-        username: user.userName || user.username || 'N/A',
+        _id: user._id || userId || null,
+        userName: user.userName || 'N/A',
+        username: user.userName || 'N/A',
         contactNumber: user.contactNumber || 'N/A',
         email: user.email || 'N/A',
+      } : (userId ? {
+        _id: userId,
+        userName: 'N/A',
+        username: 'N/A',
+        contactNumber: 'N/A',
+        email: 'N/A',
       } : {
         _id: null,
         userName: 'N/A',
         username: 'N/A',
         contactNumber: 'N/A',
         email: 'N/A',
-      },
+      }),
       cartValue: order.pricing ? order.pricing.total : 0,
       paymentStatus: order.payment ? order.payment.status : 'pending',
       status: order.status || 'pending',
