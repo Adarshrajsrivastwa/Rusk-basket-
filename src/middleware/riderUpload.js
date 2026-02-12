@@ -17,11 +17,16 @@ const fileFilter = (req, file, cb) => {
 
 // File filter for delivery images (only images, no PDF)
 const deliveryImageFileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|webp/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedExtensions = /\.(jpeg|jpg|png|webp)$/i;
+  // Allow image/jpeg, image/jpg, image/png, image/webp
+  const allowedMimeTypes = /^image\/(jpeg|jpg|png|webp|x-png)$/i;
+  
+  const extname = allowedExtensions.test(file.originalname);
+  const mimetype = allowedMimeTypes.test(file.mimetype);
 
-  if (mimetype && extname) {
+  // Accept if either mimetype or extension matches (more lenient)
+  // This handles cases where mimetype might not be set correctly
+  if (mimetype || extname) {
     return cb(null, true);
   } else {
     cb(new Error('Only image files (jpeg, jpg, png, webp) are allowed for delivery images'));
