@@ -2197,17 +2197,16 @@ exports.getWithdrawalRequests = async (req, res, next) => {
         total,
         pages: Math.ceil(total / limit),
       },
-      data: withdrawalRequests.map(request => ({
-        requestId: request._id,
-        rider: {
-          riderId: request.rider?._id || request.rider,
-          fullName: request.rider?.fullName,
-          mobileNumber: request.rider?.mobileNumber,
-          currentEarningWallet: (request.rider?.earningWallet || 0).toFixed(2),
-        },
-        amount: request.amount.toFixed(2),
-        currentBalance: request.currentBalance.toFixed(2),
-        description: request.description,
+      data: withdrawalRequests.map((request, index) => ({
+        sNo: skip + index + 1, // Serial Number based on pagination
+        requestId: request._id?.toString() || 'N/A',
+        riderName: request.rider?.fullName || 'N/A',
+        riderMobile: request.rider?.mobileNumber || 'N/A',
+        requestAmount: `₹${parseFloat(request.amount || 0).toFixed(2)}`,
+        // Additional fields for reference (can be used if needed)
+        riderId: request.rider?._id?.toString() || request.rider?.toString() || null,
+        currentBalance: request.currentBalance ? `₹${parseFloat(request.currentBalance).toFixed(2)}` : null,
+        description: request.description || null,
         status: request.status,
         requestedAt: request.requestedAt,
         approvedBy: request.approvedBy ? {
