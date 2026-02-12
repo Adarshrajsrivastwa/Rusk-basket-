@@ -859,7 +859,7 @@ exports.updateOrderStatus = async (req, res, next) => {
           await checkoutService.notifyRidersForOrder(orderForNotification);
         }
       } catch (notifyError) {
-        console.error('❌ Error sending notifications to riders:', notifyError);
+        logger.error('Error sending notifications to riders:', notifyError);
         // Don't fail the request if notification fails
       }
     }
@@ -1091,6 +1091,96 @@ exports.assignRiderToOrder = async (req, res, next) => {
     // Optionally update order status to 'out_for_delivery'
     if (updateStatus === true || updateStatus === 'true') {
       order.status = 'out_for_delivery';
+      
+      // Add vendor's order amount to earningWallet when order goes out for delivery
+      try {
+        // Get all unique vendors from order items
+        const vendorIds = new Set();
+        order.items.forEach(item => {
+          const itemVendorId = item.vendor?._id || item.vendor;
+          if (itemVendorId) {
+            vendorIds.add(itemVendorId.toString());
+          }
+        });
+        
+        // Credit amount to each vendor
+        for (const vendorIdStr of vendorIds) {
+          try {
+            const vendor = await Vendor.findById(vendorIdStr);
+            if (vendor) {
+              // Check if already credited for out_for_delivery status
+              const alreadyCredited = vendor.walletTransactions?.some(
+                txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
+                       txn.type === 'credit' && 
+                       txn.description && txn.description.includes('out for delivery')
+              );
+              
+              if (!alreadyCredited) {
+                // Calculate vendor's share from order items
+                const vendorItems = order.items.filter(item => {
+                  const itemVendorId = item.vendor?._id || item.vendor;
+                  return itemVendorId && itemVendorId.toString() === vendorIdStr;
+                });
+                
+                if (vendorItems.length > 0) {
+                  // Calculate total amount for this vendor's items
+                  let vendorOrderAmount = 0;
+                  vendorItems.forEach(item => {
+                    // Use totalPrice if available, otherwise calculate from unitPrice/price
+                    const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
+                    vendorOrderAmount += itemTotal;
+                  });
+                  
+                  // Add handling charge if applicable (proportional to vendor's items)
+                  if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+                    const vendorSubtotal = vendorItems.reduce((sum, item) => {
+                      const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
+                      return sum + itemTotal;
+                    }, 0);
+                    const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
+                    const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
+                    vendorOrderAmount += vendorHandlingCharge;
+                  }
+                  
+                  if (vendorOrderAmount > 0) {
+                    // Update vendor's earning wallet
+                    const updatedVendor = await Vendor.findOneAndUpdate(
+                      { _id: vendorIdStr },
+                      {
+                        $inc: { earningWallet: vendorOrderAmount },
+                        $push: {
+                          walletTransactions: {
+                            type: 'credit',
+                            amount: vendorOrderAmount,
+                            orderId: order._id,
+                            orderNumber: order.orderNumber,
+                            description: `Order ${order.orderNumber} out for delivery. Amount credited to earning wallet.`,
+                            createdAt: new Date(),
+                          }
+                        }
+                      },
+                      {
+                        new: true,
+                        runValidators: true,
+                      }
+                    );
+                    
+                    if (updatedVendor) {
+                      logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber} (out for delivery via rider assignment)`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (vendorError) {
+            logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
+            // Continue with other vendors even if one fails
+          }
+        }
+      } catch (earningWalletError) {
+        logger.error('Error adding order amount to vendor earning wallet (out for delivery):', earningWalletError);
+        // Don't fail the request if earning wallet update fails
+      }
     }
 
     await order.save();

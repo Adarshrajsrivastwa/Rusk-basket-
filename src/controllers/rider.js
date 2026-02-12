@@ -1273,6 +1273,96 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     } else {
       // Normal flow: update status to out_for_delivery
       order.status = 'out_for_delivery';
+      
+      // Add vendor's order amount to earningWallet when order goes out for delivery
+      try {
+        // Get all unique vendors from order items
+        const vendorIds = new Set();
+        order.items.forEach(item => {
+          const itemVendorId = item.vendor?._id || item.vendor;
+          if (itemVendorId) {
+            vendorIds.add(itemVendorId.toString());
+          }
+        });
+        
+        // Credit amount to each vendor
+        for (const vendorIdStr of vendorIds) {
+          try {
+            const vendor = await Vendor.findById(vendorIdStr);
+            if (vendor) {
+              // Check if already credited for out_for_delivery status
+              const alreadyCredited = vendor.walletTransactions?.some(
+                txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
+                       txn.type === 'credit' && 
+                       txn.description && txn.description.includes('out for delivery')
+              );
+              
+              if (!alreadyCredited) {
+                // Calculate vendor's share from order items
+                const vendorItems = order.items.filter(item => {
+                  const itemVendorId = item.vendor?._id || item.vendor;
+                  return itemVendorId && itemVendorId.toString() === vendorIdStr;
+                });
+                
+                if (vendorItems.length > 0) {
+                  // Calculate total amount for this vendor's items
+                  let vendorOrderAmount = 0;
+                  vendorItems.forEach(item => {
+                    // Use totalPrice if available, otherwise calculate from unitPrice/price
+                    const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
+                    vendorOrderAmount += itemTotal;
+                  });
+                  
+                  // Add handling charge if applicable (proportional to vendor's items)
+                  if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+                    const vendorSubtotal = vendorItems.reduce((sum, item) => {
+                      const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
+                      return sum + itemTotal;
+                    }, 0);
+                    const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
+                    const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
+                    vendorOrderAmount += vendorHandlingCharge;
+                  }
+                  
+                  if (vendorOrderAmount > 0) {
+                    // Update vendor's earning wallet
+                    const updatedVendor = await Vendor.findOneAndUpdate(
+                      { _id: vendorIdStr },
+                      {
+                        $inc: { earningWallet: vendorOrderAmount },
+                        $push: {
+                          walletTransactions: {
+                            type: 'credit',
+                            amount: vendorOrderAmount,
+                            orderId: order._id,
+                            orderNumber: order.orderNumber,
+                            description: `Order ${order.orderNumber} out for delivery. Amount credited to earning wallet.`,
+                            createdAt: new Date(),
+                          }
+                        }
+                      },
+                      {
+                        new: true,
+                        runValidators: true,
+                      }
+                    );
+                    
+                    if (updatedVendor) {
+                      logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber} (out for delivery by rider)`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (vendorError) {
+            logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
+            // Continue with other vendors even if one fails
+          }
+        }
+      } catch (earningWalletError) {
+        logger.error('Error adding order amount to vendor earning wallet (out for delivery):', earningWalletError);
+        // Don't fail the request if earning wallet update fails
+      }
     }
     
     await order.save();
@@ -1956,7 +2046,10 @@ exports.getRidersDueAmounts = async (req, res, next) => {
 
 /**
  * Update rider due amount from vendor API
- * This API allows vendors to parse and update rider due amounts
+ * This API allows vendors to update rider due amounts and deduct from earning wallet
+ * Deducts: dueAmount + order's delivery charge from earningWallet
+ * Also reduces dueBalance by dueAmount
+ * Wallet can go negative
  */
 exports.updateRiderDueAmount = async (req, res, next) => {
   try {
@@ -1978,13 +2071,21 @@ exports.updateRiderDueAmount = async (req, res, next) => {
 
     const vendorId = req.vendor._id;
     const { riderId } = req.params;
-    const { dueAmount, description } = req.body;
+    const { dueAmount, orderId, description } = req.body;
 
     // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(riderId)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid rider ID format',
+      });
+    }
+
+    // Validate orderId if provided
+    if (orderId && !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order ID format',
       });
     }
 
@@ -2015,54 +2116,109 @@ exports.updateRiderDueAmount = async (req, res, next) => {
       });
     }
 
+    // Get delivery charge from order if orderId is provided
+    let deliveryCharge = 0;
+    let orderNumber = null;
+    if (orderId) {
+      const order = await Order.findById(orderId);
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found',
+        });
+      }
+
+      // Verify order is assigned to this rider
+      if (!order.rider || order.rider.toString() !== riderId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'This order is not assigned to the specified rider',
+        });
+      }
+
+      // Get delivery charge from order
+      deliveryCharge = order.pricing?.deliveryAmount || order.deliveryAmount || 0;
+      orderNumber = order.orderNumber;
+    }
+
     const previousDueBalance = rider.dueBalance || 0;
+    const previousEarningWallet = rider.earningWallet || 0;
     
     // Calculate new due amount: current due - deduction amount
+    // Allow negative due balance
     const newDueAmount = previousDueBalance - deductionAmount;
     
-    // Ensure due amount doesn't go negative
-    if (newDueAmount < 0) {
-      return res.status(400).json({
+    // Calculate total amount to deduct from earning wallet: dueAmount + delivery charge
+    const totalWalletDeduction = deductionAmount + deliveryCharge;
+    
+    // Calculate new earning wallet balance (can go negative)
+    const newEarningWallet = previousEarningWallet - totalWalletDeduction;
+
+    // Update rider's due balance and earning wallet
+    // Use findOneAndUpdate with runValidators: false to allow negative values
+    const updatedRider = await Rider.findOneAndUpdate(
+      { _id: riderId },
+      {
+        $set: {
+          dueBalance: newDueAmount,
+          earningWallet: newEarningWallet,
+        },
+        $push: {
+          walletTransactions: {
+            type: 'debit',
+            amount: totalWalletDeduction,
+            ...(orderId && { orderId: orderId }),
+            ...(orderNumber && { orderNumber: orderNumber }),
+            description: description || `Due amount (₹${deductionAmount.toFixed(2)})${deliveryCharge > 0 ? ` + Delivery charge (₹${deliveryCharge.toFixed(2)})` : ''} deducted by vendor. Previous Due: ₹${previousDueBalance.toFixed(2)}, Previous Wallet: ₹${previousEarningWallet.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}, New Wallet: ₹${newEarningWallet.toFixed(2)}`,
+            createdAt: new Date(),
+          }
+        }
+      },
+      {
+        new: true,
+        runValidators: false, // Allow negative values
+      }
+    );
+
+    if (!updatedRider) {
+      return res.status(500).json({
         success: false,
-        error: `Cannot deduct ₹${deductionAmount.toFixed(2)}. Current due balance is only ₹${previousDueBalance.toFixed(2)}. Maximum deduction allowed: ₹${previousDueBalance.toFixed(2)}`,
+        error: 'Failed to update rider',
       });
     }
 
-    const amountDifference = newDueAmount - previousDueBalance; // This will be negative (reduction)
-
-    // Update rider's due balance
-    rider.dueBalance = newDueAmount;
-
-    // Record transaction for due reduction
-    const reducedAmount = Math.abs(amountDifference); // This is the deduction amount
-    
-    rider.walletTransactions.push({
-      type: 'debit',
-      amount: reducedAmount,
-      description: description || `Due amount deducted by vendor. Previous: ₹${previousDueBalance.toFixed(2)}, Deducted: ₹${deductionAmount.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}`,
-      createdAt: new Date(),
-    });
-
-    await rider.save();
-
-    logger.info(`Rider ${riderId} due amount updated by vendor ${vendorId}. Previous: ₹${previousDueBalance.toFixed(2)}, New: ₹${newDueAmount.toFixed(2)}`);
+    logger.info(`Rider ${riderId} due amount updated by vendor ${vendorId}. Previous Due: ₹${previousDueBalance.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}, Previous Wallet: ₹${previousEarningWallet.toFixed(2)}, New Wallet: ₹${newEarningWallet.toFixed(2)}, Total Deduction: ₹${totalWalletDeduction.toFixed(2)}`);
 
     res.status(200).json({
       success: true,
-      message: 'Rider due amount updated successfully',
+      message: 'Rider due amount and wallet updated successfully',
       data: {
         rider: {
-          riderId: rider._id,
-          fullName: rider.fullName,
-          mobileNumber: rider.mobileNumber,
+          riderId: updatedRider._id,
+          fullName: updatedRider.fullName,
+          mobileNumber: updatedRider.mobileNumber,
         },
+        order: orderId ? {
+          orderId: orderId,
+          orderNumber: orderNumber,
+          deliveryCharge: deliveryCharge.toFixed(2),
+        } : null,
         dueAmount: {
           previous: previousDueBalance.toFixed(2),
           deducted: deductionAmount.toFixed(2),
           new: newDueAmount.toFixed(2),
-          difference: amountDifference.toFixed(2),
         },
-        updatedAt: rider.updatedAt,
+        earningWallet: {
+          previous: previousEarningWallet.toFixed(2),
+          deducted: totalWalletDeduction.toFixed(2),
+          new: newEarningWallet.toFixed(2),
+        },
+        breakdown: {
+          dueAmountDeducted: deductionAmount.toFixed(2),
+          deliveryChargeDeducted: deliveryCharge.toFixed(2),
+          totalDeducted: totalWalletDeduction.toFixed(2),
+        },
+        updatedAt: updatedRider.updatedAt,
       },
     });
   } catch (error) {

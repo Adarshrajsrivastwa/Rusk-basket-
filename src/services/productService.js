@@ -114,7 +114,6 @@ const parseTags = (tags) => {
   } catch (error) {
     // If all else fails, return empty array instead of throwing
     // This prevents the tags.split error from crashing the server
-    console.error('Error parsing tags:', error, 'Tags value:', tags, 'Type:', typeof tags);
     return [];
   }
 };

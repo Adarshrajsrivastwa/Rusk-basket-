@@ -454,6 +454,9 @@ router.get(
 );
 
 // Update rider due amount from vendor API
+// Deducts dueAmount + order's delivery charge from earningWallet
+// Also reduces dueBalance by dueAmount
+// Wallet can go negative
 router.put(
   '/riders/:riderId/due-amount',
   protectVendor,
@@ -470,6 +473,10 @@ router.put(
       .bail()
       .isFloat({ min: 0 })
       .withMessage('Due amount (deduction amount) must be a number greater than or equal to 0'),
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Order ID must be a valid MongoDB ObjectId'),
     body('description')
       .optional()
       .trim()

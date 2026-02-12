@@ -255,8 +255,6 @@ exports.getAllInventory = async (req, res) => {
       .limit(limitNum)
       .lean();
 
-      console.log(products);
-
     // Calculate stock status for each product
     const inventoryData = products.map((product) => {
       const currentInventory = product.inventory || 0;
