@@ -173,7 +173,10 @@ exports.getInvoiceById = async (req, res, next) => {
     const { invoiceId } = req.params;
 
     const invoice = await Invoice.findById(invoiceId)
-      .populate('order', 'orderNumber status')
+      .populate({
+        path: 'order',
+        select: 'orderNumber status items pricing',
+      })
       .populate('user', 'userName contactNumber email shippingAddress')
       .populate('vendor', 'vendorName storeName contactNumber email storeAddress')
       .populate('items.product', 'productName description thumbnail skuHsn skus');
@@ -187,17 +190,70 @@ exports.getInvoiceById = async (req, res, next) => {
 
     // Format invoice data with all details - keep _id for operations, code for display
     const invoiceData = invoice.toObject ? invoice.toObject() : invoice;
+    
+    // Format user shipping address
+    let formattedUser = invoiceData.user;
+    if (formattedUser && formattedUser.shippingAddress) {
+      const shippingAddr = formattedUser.shippingAddress;
+      formattedUser = {
+        ...formattedUser,
+        shippingAddress: {
+          addressLine1: shippingAddr.addressLine1 || shippingAddr.line1 || '',
+          addressLine2: shippingAddr.addressLine2 || shippingAddr.line2 || '',
+          city: shippingAddr.city || '',
+          state: shippingAddr.state || '',
+          pinCode: shippingAddr.pinCode || shippingAddr.pincode || '',
+        }
+      };
+    }
+
+    // Format vendor store address
+    let formattedVendor = invoiceData.vendor;
+    if (formattedVendor && formattedVendor.storeAddress) {
+      const storeAddr = formattedVendor.storeAddress;
+      formattedVendor = {
+        ...formattedVendor,
+        storeAddress: {
+          addressLine1: storeAddr.addressLine1 || storeAddr.line1 || '',
+          addressLine2: storeAddr.addressLine2 || storeAddr.line2 || '',
+          city: storeAddr.city || '',
+          state: storeAddr.state || '',
+          pinCode: storeAddr.pinCode || storeAddr.pincode || '',
+        }
+      };
+    }
+
+    // Format order to include _id, items (name, quantity), and total amount
+    let formattedOrder = invoiceData.order;
+    if (formattedOrder) {
+      // Format items to include productName and quantity
+      const formattedItems = (formattedOrder.items || []).map(item => ({
+        productName: item.productName || '',
+        quantity: item.quantity || 0,
+        totalPrice: item.totalPrice || 0,
+      }));
+
+      formattedOrder = {
+        _id: formattedOrder._id || invoice.order?._id || invoice.order,
+        orderNumber: formattedOrder.orderNumber || invoice.orderNumber,
+        status: formattedOrder.status || '',
+        items: formattedItems,
+        totalAmount: formattedOrder.pricing?.total || invoice.amount || 0,
+      };
+    }
+
     const formattedInvoice = formatResponse({
       ...invoiceData,
       code: invoice.code,
+      order: formattedOrder,
+      user: formattedUser,
+      vendor: formattedVendor,
       // Ensure pricing is included
       pricing: invoice.pricing || {
         subtotal: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
         discount: 0,
         itemCost: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
-        cgst: 0,
-        sgst: 0,
-        totalGst: 0,
+        tax: 0,
         handlingCharge: 0,
         totalAmount: invoice.amount,
         totalCashback: 0,
@@ -230,18 +286,99 @@ exports.getInvoicesByOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
 
+    // Get order details with items and pricing
+    const order = await Order.findById(orderId).select('orderNumber status items pricing').lean();
+
     const invoices = await Invoice.find({ order: orderId })
-      .populate('vendor', 'vendorName storeName')
-      .populate('user', 'userName')
+      .populate({
+        path: 'order',
+        select: 'orderNumber status items pricing',
+      })
+      .populate('user', 'userName contactNumber email shippingAddress')
+      .populate('vendor', 'vendorName storeName contactNumber email storeAddress')
       .populate('items.product', 'productName description thumbnail skuHsn skus')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Format invoices - keep _id for operations, code for display
-    const formattedInvoices = invoices.map(invoice => formatResponse({
-      ...invoice,
-      code: invoice.code,
-    }));
+    // Format invoices with complete details
+    const formattedInvoices = invoices.map(invoice => {
+      const invoiceData = invoice;
+
+      // Format user shipping address
+      let formattedUser = invoiceData.user;
+      if (formattedUser && formattedUser.shippingAddress) {
+        const shippingAddr = formattedUser.shippingAddress;
+        formattedUser = {
+          ...formattedUser,
+          shippingAddress: {
+            addressLine1: shippingAddr.addressLine1 || shippingAddr.line1 || '',
+            addressLine2: shippingAddr.addressLine2 || shippingAddr.line2 || '',
+            city: shippingAddr.city || '',
+            state: shippingAddr.state || '',
+            pinCode: shippingAddr.pinCode || shippingAddr.pincode || '',
+          }
+        };
+      }
+
+      // Format vendor store address
+      let formattedVendor = invoiceData.vendor;
+      if (formattedVendor && formattedVendor.storeAddress) {
+        const storeAddr = formattedVendor.storeAddress;
+        formattedVendor = {
+          ...formattedVendor,
+          storeAddress: {
+            addressLine1: storeAddr.addressLine1 || storeAddr.line1 || '',
+            addressLine2: storeAddr.addressLine2 || storeAddr.line2 || '',
+            city: storeAddr.city || '',
+            state: storeAddr.state || '',
+            pinCode: storeAddr.pinCode || storeAddr.pincode || '',
+          }
+        };
+      }
+
+      // Format order to include _id, items (name, quantity), and total amount
+      let formattedOrder = invoiceData.order || order;
+      if (formattedOrder) {
+        // Format items to include productName and quantity
+        const formattedItems = (formattedOrder.items || []).map(item => ({
+          productName: item.productName || '',
+          quantity: item.quantity || 0,
+          totalPrice: item.totalPrice || 0,
+        }));
+
+        formattedOrder = {
+          _id: formattedOrder._id || orderId,
+          orderNumber: formattedOrder.orderNumber || invoice.orderNumber,
+          status: formattedOrder.status || '',
+          items: formattedItems,
+          totalAmount: formattedOrder.pricing?.total || invoice.amount || 0,
+        };
+      }
+
+      return formatResponse({
+        ...invoiceData,
+        code: invoice.code,
+        order: formattedOrder,
+        user: formattedUser,
+        vendor: formattedVendor,
+        // Ensure pricing is included
+        pricing: invoice.pricing || {
+          subtotal: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
+          discount: 0,
+          itemCost: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
+          tax: 0,
+          handlingCharge: 0,
+          totalAmount: invoice.amount,
+          totalCashback: 0,
+        },
+        // Ensure due date is set
+        dueDate: invoice.dueDate || (() => {
+          const dueDate = new Date(invoice.date);
+          dueDate.setDate(dueDate.getDate() + 30);
+          return dueDate;
+        })(),
+      });
+    });
 
     res.status(200).json({
       success: true,
