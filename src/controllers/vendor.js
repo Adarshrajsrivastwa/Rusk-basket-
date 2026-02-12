@@ -1423,16 +1423,18 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
     const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
 
     // Get vendor details - ensure all fields including walletTransactions are included
-    const vendor = await Vendor.findById(vendorObjectId)
-      .populate('createdBy', 'name email')
-      .lean(false); // Keep as mongoose document to access all fields
+    const vendorDoc = await Vendor.findById(vendorObjectId)
+      .populate('createdBy', 'name email');
     
-    if (!vendor) {
+    if (!vendorDoc) {
       return res.status(404).json({
         success: false,
         error: 'Vendor not found',
       });
     }
+    
+    // Convert to plain object to avoid mongoose document serialization issues
+    const vendor = vendorDoc.toObject ? vendorDoc.toObject() : vendorDoc;
 
     // Get all orders for this vendor
     const allOrders = await Order.find({ 'items.vendor': vendorObjectId });
@@ -1777,13 +1779,26 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
         totalTransactions: Array.isArray(walletTransactions) ? walletTransactions.length : 0,
         recentTransactions: Array.isArray(recentWalletTransactions) ? recentWalletTransactions : [],
       },
-      deliveryPartners: deliveryPartners,
-      invoices: invoices,
+      deliveryPartners: Array.isArray(deliveryPartners) ? deliveryPartners : [],
+      invoices: Array.isArray(invoices) ? invoices : [],
     };
+
+    // Log for debugging (remove in production)
+    logger.debug('Dashboard data structure:', {
+      hasVendor: !!dashboardData.vendor,
+      hasWallet: !!dashboardData.wallet,
+      hasMetrics: !!dashboardData.metrics,
+      walletKeys: dashboardData.wallet ? Object.keys(dashboardData.wallet) : [],
+      metricsKeys: dashboardData.metrics ? Object.keys(dashboardData.metrics) : [],
+    });
+
+    // Ensure dashboardData is a plain object, not a mongoose document
+    // Convert to JSON and back to ensure all mongoose documents are serialized
+    const responseData = JSON.parse(JSON.stringify(dashboardData));
 
     res.status(200).json({
       success: true,
-      data: dashboardData,
+      data: responseData,
     });
   } catch (error) {
     next(error);
