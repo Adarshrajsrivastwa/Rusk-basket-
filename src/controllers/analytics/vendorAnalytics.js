@@ -683,10 +683,11 @@ exports.getVendorsWithRidersNoOrders = async (req, res) => {
 
       // Check each rider for current orders
       for (const rider of riders) {
-        // Check if rider has any active orders (not cancelled or refunded)
+        // Check if rider has any active orders (not cancelled, refunded, or delivered)
+        // If rider only has delivered orders, they are considered available
         const hasActiveOrders = await Order.exists({
           rider: rider._id,
-          status: { $nin: ['cancelled', 'refunded'] },
+          status: { $nin: ['cancelled', 'refunded', 'delivered'] },
         });
 
         // If rider has no active orders, add to list
