@@ -1651,6 +1651,21 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
 
   const total = await Order.countDocuments(query);
 
+  // Get all unique user IDs from orders
+  const userIds = [...new Set(orders.map(order => order.user).filter(Boolean))];
+  
+  // Fetch all users in one query if user populate failed
+  const usersMap = {};
+  if (userIds.length > 0) {
+    const users = await User.find({ _id: { $in: userIds } })
+      .select('userName contactNumber email')
+      .lean();
+    
+    users.forEach(user => {
+      usersMap[user._id.toString()] = user;
+    });
+  }
+
   // Helper function to format date to DD/MM/YYYY
   const formatDate = (date) => {
     if (!date) return null;
@@ -1672,8 +1687,20 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       return null;
     }).filter(Boolean))];
 
-    // Extract user information safely
-    const user = order.user;
+    // Extract user information - check populated user first, then fetch from map
+    let user = order.user;
+    
+    // If user is not populated (just ObjectId) or is null, try to get from usersMap
+    if (!user || typeof user === 'string' || (user._id && !user.userName)) {
+      const userId = user?._id?.toString() || user?.toString() || order.user?.toString();
+      if (userId && usersMap[userId]) {
+        user = usersMap[userId];
+      } else if (userId) {
+        // If still not found, user might be deleted, set to null
+        user = null;
+      }
+    }
+
     const userName = user ? (user.userName || user.username || 'N/A') : 'N/A';
     const username = userName; // Same as userName
 
