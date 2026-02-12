@@ -216,6 +216,38 @@ const VendorSchema = new mongoose.Schema({
     of: Number,
     default: {},
   },
+  earningWallet: {
+    type: Number,
+    default: 0,
+    min: [0, 'Earning wallet cannot be negative'],
+  },
+  walletTransactions: [{
+    type: {
+      type: String,
+      enum: ['credit', 'debit', 'reset'],
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: [0, 'Amount must be greater than or equal to 0'],
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+    },
+    orderNumber: {
+      type: String,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   productSales: [{
     product: {
       type: mongoose.Schema.Types.ObjectId,

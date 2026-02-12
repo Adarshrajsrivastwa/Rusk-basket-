@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -514,6 +514,47 @@ router.post(
       .withMessage('Invalid order ID format'),
   ],
   markOrderPaymentAsCash
+);
+
+// Send/Transfer amount from rider's earningWallet (creates withdrawal request)
+router.post(
+  '/wallet/earning/send',
+  protect,
+  [
+    body('amount')
+      .notEmpty()
+      .withMessage('Amount is required')
+      .bail()
+      .isFloat({ min: 0.01 })
+      .withMessage('Amount must be a positive number greater than 0'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Description cannot be more than 500 characters'),
+  ],
+  sendEarningWalletAmount
+);
+
+// Get rider's own withdrawal requests
+router.get(
+  '/wallet/earning/withdrawal-requests',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+  ],
+  getMyWithdrawalRequests
 );
 
 module.exports = router;

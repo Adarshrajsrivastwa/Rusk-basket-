@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
-const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin } = require('../controllers/vendor');
+const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin, sendEarningWalletAmount, getMyWithdrawalRequests } = require('../controllers/vendor');
 const { addItemsToOrder } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
@@ -904,6 +904,49 @@ router.get(
 );
 
 router.get('/products/:productId/offer', protectVendor, getProductOffer);
+
+// ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES ============
+
+// Send/Transfer amount from vendor's earningWallet (creates withdrawal request)
+router.post(
+  '/wallet/earning/send',
+  protectVendor,
+  [
+    body('amount')
+      .notEmpty()
+      .withMessage('Amount is required')
+      .bail()
+      .isFloat({ min: 0.01 })
+      .withMessage('Amount must be a positive number greater than 0'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Description cannot be more than 500 characters'),
+  ],
+  sendEarningWalletAmount
+);
+
+// Get vendor's own withdrawal requests
+router.get(
+  '/wallet/earning/withdrawal-requests',
+  protectVendor,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+  ],
+  getMyWithdrawalRequests
+);
 
 // Logout route (protected)
 router.post('/logout', protectVendor, vendorLogout);

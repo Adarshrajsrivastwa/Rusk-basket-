@@ -9,8 +9,8 @@ const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
-const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor } = require('../controllers/vendor');
-const { getRiders, getRider, approveRider, suspendRider, getPendingRiders } = require('../controllers/rider');
+const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest } = require('../controllers/vendor');
+const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest } = require('../controllers/rider');
 const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
 
 // Middleware
@@ -735,6 +735,68 @@ router.delete(
   deleteVendor
 );
 
+// ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
+
+// Get all vendor withdrawal requests (admin only)
+router.get(
+  '/vendors/withdrawal-requests',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+    query('vendorId')
+      .optional()
+      .isMongoId()
+      .withMessage('Vendor ID must be a valid MongoDB ObjectId'),
+  ],
+  getVendorWithdrawalRequests
+);
+
+// Approve vendor withdrawal request (admin only)
+router.put(
+  '/vendors/withdrawal-requests/:requestId/approve',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+  ],
+  approveVendorWithdrawalRequest
+);
+
+// Reject vendor withdrawal request (admin only)
+router.put(
+  '/vendors/withdrawal-requests/:requestId/reject',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  rejectVendorWithdrawalRequest
+);
+
 // ============ RIDER MANAGEMENT ROUTES (Admin only) ============
 
 // Get all riders (admin only)
@@ -842,6 +904,68 @@ router.put(
       .withMessage('Invalid rider ID format'),
   ],
   suspendRider
+);
+
+// ============ RIDER EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
+
+// Get all withdrawal requests (admin only)
+router.get(
+  '/riders/withdrawal-requests',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+    query('riderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Rider ID must be a valid MongoDB ObjectId'),
+  ],
+  getWithdrawalRequests
+);
+
+// Approve withdrawal request (admin only)
+router.put(
+  '/riders/withdrawal-requests/:requestId/approve',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+  ],
+  approveWithdrawalRequest
+);
+
+// Reject withdrawal request (admin only)
+router.put(
+  '/riders/withdrawal-requests/:requestId/reject',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  rejectWithdrawalRequest
 );
 
 // ============ ADMIN NOTIFICATION ROUTES ============

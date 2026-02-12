@@ -2,6 +2,8 @@ const Rider = require('../models/Rider');
 const Order = require('../models/Order');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const RiderJobPost = require('../models/RiderJobPost');
+const RiderEarningWalletWithdrawal = require('../models/RiderEarningWalletWithdrawal');
+const Vendor = require('../models/Vendor');
 const { notificationQueue } = require('../utils/queue');
 const { notifyRiderOrderUpdate } = require('../utils/socket');
 const logger = require('../utils/logger');
@@ -895,6 +897,92 @@ exports.markOrderDelivered = async (req, res, next) => {
     const previousStatus = order.status;
     order.status = 'delivered';
     order.deliveredAt = new Date();
+    
+    // Add vendor's order amount to earningWallet when order is delivered
+    try {
+      // Get all unique vendors from order items
+      const vendorIds = new Set();
+      order.items.forEach(item => {
+        const itemVendorId = item.vendor?._id || item.vendor;
+        if (itemVendorId) {
+          vendorIds.add(itemVendorId.toString());
+        }
+      });
+      
+      // Credit amount to each vendor
+      for (const vendorIdStr of vendorIds) {
+        try {
+          const vendor = await Vendor.findById(vendorIdStr);
+          if (vendor) {
+            // Check if already credited
+            const alreadyCredited = vendor.walletTransactions?.some(
+              txn => txn.orderId && txn.orderId.toString() === order._id.toString() && txn.type === 'credit'
+            );
+            
+            if (!alreadyCredited) {
+              // Calculate vendor's share from order items
+              const vendorItems = order.items.filter(item => {
+                const itemVendorId = item.vendor?._id || item.vendor;
+                return itemVendorId && itemVendorId.toString() === vendorIdStr;
+              });
+              
+              if (vendorItems.length > 0) {
+                // Calculate total amount for this vendor's items
+                let vendorOrderAmount = 0;
+                vendorItems.forEach(item => {
+                  const itemTotal = (item.price || 0) * (item.quantity || 0);
+                  vendorOrderAmount += itemTotal;
+                });
+                
+                // Add handling charge if applicable (proportional to vendor's items)
+                if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+                  const vendorSubtotal = vendorItems.reduce((sum, item) => {
+                    return sum + ((item.price || 0) * (item.quantity || 0));
+                  }, 0);
+                  const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
+                  const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
+                  vendorOrderAmount += vendorHandlingCharge;
+                }
+                
+                if (vendorOrderAmount > 0) {
+                  // Update vendor's earning wallet
+                  const updatedVendor = await Vendor.findOneAndUpdate(
+                    { _id: vendorIdStr },
+                    {
+                      $inc: { earningWallet: vendorOrderAmount },
+                      $push: {
+                        walletTransactions: {
+                          type: 'credit',
+                          amount: vendorOrderAmount,
+                          orderId: order._id,
+                          orderNumber: order.orderNumber,
+                          description: `Order ${order.orderNumber} delivered by rider. Amount credited to earning wallet.`,
+                          createdAt: new Date(),
+                        }
+                      }
+                    },
+                    {
+                      new: true,
+                      runValidators: true,
+                    }
+                  );
+                  
+                  if (updatedVendor) {
+                    logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber}`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (vendorError) {
+          logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
+          // Continue with other vendors even if one fails
+        }
+      }
+    } catch (earningWalletError) {
+      logger.error('Error adding order amount to vendor earning wallet:', earningWalletError);
+      // Don't fail the request if earning wallet update fails
+    }
     
     // If COD payment, add amount to user wallet
     if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
@@ -1978,6 +2066,424 @@ exports.updateRiderDueAmount = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Update rider due amount error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Request withdrawal from rider's earningWallet
+ * This API creates a withdrawal request that requires admin approval
+ */
+exports.sendEarningWalletAmount = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { amount, description } = req.body;
+
+    // Validate amount
+    const transferAmount = parseFloat(amount);
+    if (isNaN(transferAmount) || transferAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Amount must be a valid positive number',
+      });
+    }
+
+    // Find the rider
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    // Check if rider has sufficient balance
+    const currentBalance = rider.earningWallet || 0;
+    if (transferAmount > currentBalance) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient balance. Your current earning wallet balance is ₹${currentBalance.toFixed(2)}. You cannot request ₹${transferAmount.toFixed(2)}`,
+        currentBalance: currentBalance.toFixed(2),
+        requestedAmount: transferAmount.toFixed(2),
+      });
+    }
+
+    // Create withdrawal request
+    const withdrawalRequest = await RiderEarningWalletWithdrawal.create({
+      rider: riderId,
+      amount: transferAmount,
+      description: description || `Withdrawal request for ₹${transferAmount.toFixed(2)}`,
+      status: 'pending',
+      currentBalance: currentBalance,
+      requestedAt: new Date(),
+    });
+
+    logger.info(`Rider ${riderId} created withdrawal request for ₹${transferAmount.toFixed(2)}. Request ID: ${withdrawalRequest._id}`);
+
+    res.status(200).json({
+      success: true,
+      message: `Withdrawal request of ₹${transferAmount.toFixed(2)} submitted successfully. It will be processed after admin approval.`,
+      data: {
+        requestId: withdrawalRequest._id,
+        rider: {
+          riderId: rider._id,
+          fullName: rider.fullName,
+          mobileNumber: rider.mobileNumber,
+        },
+        withdrawalRequest: {
+          amount: transferAmount.toFixed(2),
+          currentBalance: currentBalance.toFixed(2),
+          status: 'pending',
+          description: description || `Withdrawal request for ₹${transferAmount.toFixed(2)}`,
+          requestedAt: withdrawalRequest.requestedAt,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Create earning wallet withdrawal request error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get all withdrawal requests (Admin only)
+ * Admin can view all withdrawal requests with filters
+ */
+exports.getWithdrawalRequests = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let query = {};
+
+    // Filter by status
+    if (req.query.status) {
+      query.status = req.query.status;
+    }
+
+    // Filter by rider
+    if (req.query.riderId) {
+      query.rider = req.query.riderId;
+    }
+
+    // Get withdrawal requests with rider details
+    const withdrawalRequests = await RiderEarningWalletWithdrawal.find(query)
+      .populate('rider', 'fullName mobileNumber earningWallet')
+      .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .sort({ requestedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await RiderEarningWalletWithdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count: withdrawalRequests.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: withdrawalRequests.map(request => ({
+        requestId: request._id,
+        rider: {
+          riderId: request.rider?._id || request.rider,
+          fullName: request.rider?.fullName,
+          mobileNumber: request.rider?.mobileNumber,
+          currentEarningWallet: (request.rider?.earningWallet || 0).toFixed(2),
+        },
+        amount: request.amount.toFixed(2),
+        currentBalance: request.currentBalance.toFixed(2),
+        description: request.description,
+        status: request.status,
+        requestedAt: request.requestedAt,
+        approvedBy: request.approvedBy ? {
+          adminId: request.approvedBy._id,
+          name: request.approvedBy.name,
+          email: request.approvedBy.email,
+        } : null,
+        approvedAt: request.approvedAt,
+        rejectedBy: request.rejectedBy ? {
+          adminId: request.rejectedBy._id,
+          name: request.rejectedBy.name,
+          email: request.rejectedBy.email,
+        } : null,
+        rejectedAt: request.rejectedAt,
+        rejectionReason: request.rejectionReason,
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt,
+      })),
+    });
+  } catch (error) {
+    logger.error('Get withdrawal requests error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Approve withdrawal request (Admin only)
+ * This will deduct the amount from rider's earningWallet and create transaction
+ */
+exports.approveWithdrawalRequest = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { requestId } = req.params;
+    const adminId = req.admin._id;
+
+    // Find the withdrawal request
+    const withdrawalRequest = await RiderEarningWalletWithdrawal.findById(requestId)
+      .populate('rider', 'fullName mobileNumber earningWallet');
+
+    if (!withdrawalRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Withdrawal request not found',
+      });
+    }
+
+    // Check if already processed
+    if (withdrawalRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        error: `This withdrawal request has already been ${withdrawalRequest.status}`,
+        currentStatus: withdrawalRequest.status,
+      });
+    }
+
+    const rider = withdrawalRequest.rider;
+    const currentBalance = rider.earningWallet || 0;
+    const withdrawalAmount = withdrawalRequest.amount;
+
+    // Double check balance (in case it changed since request was created)
+    if (withdrawalAmount > currentBalance) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot approve. Rider's current balance (₹${currentBalance.toFixed(2)}) is less than requested amount (₹${withdrawalAmount.toFixed(2)})`,
+        riderBalance: currentBalance.toFixed(2),
+        requestedAmount: withdrawalAmount.toFixed(2),
+      });
+    }
+
+    // Calculate new balance
+    const newBalance = currentBalance - withdrawalAmount;
+
+    // Use atomic update to deduct amount and create transaction
+    const updatedRider = await Rider.findOneAndUpdate(
+      { _id: rider._id },
+      {
+        $inc: { earningWallet: -withdrawalAmount },
+        $push: {
+          walletTransactions: {
+            type: 'debit',
+            amount: withdrawalAmount,
+            description: withdrawalRequest.description || `Withdrawal approved by admin. Previous balance: ₹${currentBalance.toFixed(2)}, Withdrawn: ₹${withdrawalAmount.toFixed(2)}, New balance: ₹${newBalance.toFixed(2)}`,
+            createdAt: new Date(),
+          }
+        }
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!updatedRider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Failed to update rider wallet',
+      });
+    }
+
+    // Update withdrawal request status
+    withdrawalRequest.status = 'approved';
+    withdrawalRequest.approvedBy = adminId;
+    withdrawalRequest.approvedAt = new Date();
+    withdrawalRequest.transactionId = updatedRider._id;
+    await withdrawalRequest.save();
+
+    logger.info(`Admin ${adminId} approved withdrawal request ${requestId} for rider ${rider._id}. Amount: ₹${withdrawalAmount.toFixed(2)}`);
+
+    res.status(200).json({
+      success: true,
+      message: `Withdrawal request approved successfully. Amount ₹${withdrawalAmount.toFixed(2)} deducted from rider's earning wallet`,
+      data: {
+        requestId: withdrawalRequest._id,
+        rider: {
+          riderId: rider._id,
+          fullName: rider.fullName,
+          mobileNumber: rider.mobileNumber,
+        },
+        withdrawal: {
+          amount: withdrawalAmount.toFixed(2),
+          previousBalance: currentBalance.toFixed(2),
+          newBalance: updatedRider.earningWallet.toFixed(2),
+          status: 'approved',
+          approvedBy: adminId,
+          approvedAt: withdrawalRequest.approvedAt,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Approve withdrawal request error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Reject withdrawal request (Admin only)
+ */
+exports.rejectWithdrawalRequest = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { requestId } = req.params;
+    const { rejectionReason } = req.body;
+    const adminId = req.admin._id;
+
+    // Find the withdrawal request
+    const withdrawalRequest = await RiderEarningWalletWithdrawal.findById(requestId)
+      .populate('rider', 'fullName mobileNumber');
+
+    if (!withdrawalRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Withdrawal request not found',
+      });
+    }
+
+    // Check if already processed
+    if (withdrawalRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        error: `This withdrawal request has already been ${withdrawalRequest.status}`,
+        currentStatus: withdrawalRequest.status,
+      });
+    }
+
+    // Update withdrawal request status
+    withdrawalRequest.status = 'rejected';
+    withdrawalRequest.rejectedBy = adminId;
+    withdrawalRequest.rejectedAt = new Date();
+    if (rejectionReason) {
+      withdrawalRequest.rejectionReason = rejectionReason;
+    }
+    await withdrawalRequest.save();
+
+    logger.info(`Admin ${adminId} rejected withdrawal request ${requestId} for rider ${withdrawalRequest.rider._id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawal request rejected successfully',
+      data: {
+        requestId: withdrawalRequest._id,
+        rider: {
+          riderId: withdrawalRequest.rider._id,
+          fullName: withdrawalRequest.rider.fullName,
+          mobileNumber: withdrawalRequest.rider.mobileNumber,
+        },
+        withdrawal: {
+          amount: withdrawalRequest.amount.toFixed(2),
+          status: 'rejected',
+          rejectedBy: adminId,
+          rejectedAt: withdrawalRequest.rejectedAt,
+          rejectionReason: withdrawalRequest.rejectionReason,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Reject withdrawal request error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get rider's own withdrawal requests
+ */
+exports.getMyWithdrawalRequests = async (req, res, next) => {
+  try {
+    const riderId = req.rider._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let query = { rider: riderId };
+
+    // Filter by status
+    if (req.query.status) {
+      query.status = req.query.status;
+    }
+
+    // Get withdrawal requests
+    const withdrawalRequests = await RiderEarningWalletWithdrawal.find(query)
+      .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .sort({ requestedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await RiderEarningWalletWithdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count: withdrawalRequests.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: withdrawalRequests.map(request => ({
+        requestId: request._id,
+        amount: request.amount.toFixed(2),
+        currentBalance: request.currentBalance.toFixed(2),
+        description: request.description,
+        status: request.status,
+        requestedAt: request.requestedAt,
+        approvedBy: request.approvedBy ? {
+          adminId: request.approvedBy._id,
+          name: request.approvedBy.name,
+          email: request.approvedBy.email,
+        } : null,
+        approvedAt: request.approvedAt,
+        rejectedBy: request.rejectedBy ? {
+          adminId: request.rejectedBy._id,
+          name: request.rejectedBy.name,
+          email: request.rejectedBy.email,
+        } : null,
+        rejectedAt: request.rejectedAt,
+        rejectionReason: request.rejectionReason,
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt,
+      })),
+    });
+  } catch (error) {
+    logger.error('Get my withdrawal requests error:', error);
     next(error);
   }
 };
