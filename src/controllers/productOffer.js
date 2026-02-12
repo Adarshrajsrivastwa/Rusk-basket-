@@ -3,6 +3,51 @@ const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 
+/**
+ * Extract date and time from Date object
+ */
+const extractDateAndTime = (dateObj) => {
+  if (!dateObj) {
+    return {
+      date: null,
+      time: null,
+      dateTime: null
+    };
+  }
+  
+  const date = new Date(dateObj);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  
+  return {
+    date: `${year}-${month}-${day}`,
+    time: `${hours}:${minutes}:${seconds}`,
+    dateTime: date.toISOString()
+  };
+};
+
+/**
+ * Add date and time fields to product object
+ */
+const addDateTimeFields = (product) => {
+  const startDateTime = extractDateAndTime(product.offerStartDate);
+  const endDateTime = extractDateAndTime(product.offerEndDate);
+  
+  return {
+    ...product,
+    offerStartDate: product.offerStartDate,
+    offerStartDateOnly: startDateTime.date,
+    offerStartTime: startDateTime.time,
+    offerEndDate: product.offerEndDate,
+    offerEndDateOnly: endDateTime.date,
+    offerEndTime: endDateTime.time,
+  };
+};
+
 exports.toggleProductOffer = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -15,7 +60,15 @@ exports.toggleProductOffer = async (req, res, next) => {
 
     const vendorId = req.vendor._id;
     const { productId } = req.params;
-    const { offerEnabled, offerDiscountPercentage, offerStartDate, offerEndDate, isDailyOffer } = req.body;
+    const { 
+      offerEnabled, 
+      offerDiscountPercentage, 
+      offerStartDate, 
+      offerStartTime,
+      offerEndDate, 
+      offerEndTime,
+      isDailyOffer 
+    } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(productId)) {
       return res.status(400).json({
@@ -63,12 +116,62 @@ exports.toggleProductOffer = async (req, res, next) => {
     }
 
     if (offerEnabled !== false) {
+      // Handle start date and time
       if (offerStartDate !== undefined) {
-        product.offerStartDate = offerStartDate ? new Date(offerStartDate) : null;
+        if (offerStartDate === null || offerStartDate === '') {
+          product.offerStartDate = null;
+        } else {
+          let startDateTime = new Date(offerStartDate);
+          
+          // If time is provided separately, combine with date
+          if (offerStartTime) {
+            const timeParts = offerStartTime.split(':');
+            if (timeParts.length >= 2) {
+              const hours = parseInt(timeParts[0]) || 0;
+              const minutes = parseInt(timeParts[1]) || 0;
+              const seconds = parseInt(timeParts[2]) || 0;
+              
+              startDateTime.setHours(hours, minutes, seconds, 0);
+            }
+          } else {
+            // If no time provided and date is ISO format with time, keep it as is
+            // Otherwise set to start of day (00:00:00)
+            if (!offerStartDate.includes('T') && !offerStartDate.includes(' ')) {
+              startDateTime.setHours(0, 0, 0, 0);
+            }
+          }
+          
+          product.offerStartDate = startDateTime;
+        }
       }
 
+      // Handle end date and time
       if (offerEndDate !== undefined) {
-        product.offerEndDate = offerEndDate ? new Date(offerEndDate) : null;
+        if (offerEndDate === null || offerEndDate === '') {
+          product.offerEndDate = null;
+        } else {
+          let endDateTime = new Date(offerEndDate);
+          
+          // If time is provided separately, combine with date
+          if (offerEndTime) {
+            const timeParts = offerEndTime.split(':');
+            if (timeParts.length >= 2) {
+              const hours = parseInt(timeParts[0]) || 0;
+              const minutes = parseInt(timeParts[1]) || 0;
+              const seconds = parseInt(timeParts[2]) || 0;
+              
+              endDateTime.setHours(hours, minutes, seconds, 0);
+            }
+          } else {
+            // If no time provided and date is ISO format with time, keep it as is
+            // Otherwise set to end of day (23:59:59)
+            if (!offerEndDate.includes('T') && !offerEndDate.includes(' ')) {
+              endDateTime.setHours(23, 59, 59, 999);
+            }
+          }
+          
+          product.offerEndDate = endDateTime;
+        }
       }
     }
 
@@ -79,7 +182,7 @@ exports.toggleProductOffer = async (req, res, next) => {
     if (product.offerStartDate && product.offerEndDate && product.offerEndDate <= product.offerStartDate) {
       return res.status(400).json({
         success: false,
-        error: 'End date must be after start date',
+        error: 'End date and time must be after start date and time',
       });
     }
 
@@ -189,10 +292,13 @@ exports.toggleProductOffer = async (req, res, next) => {
 
     logger.info(`Product offer updated for ${product.productName} by vendor ${req.vendor.storeId || req.vendor._id}`);
 
+    const updatedProductObj = updatedProduct.toObject ? updatedProduct.toObject() : updatedProduct;
+    const productWithDateTime = addDateTimeFields(updatedProductObj);
+
     res.status(200).json({
       success: true,
       message: product.offerEnabled ? 'Product offer enabled successfully' : 'Product offer disabled successfully',
-      data: updatedProduct,
+      data: productWithDateTime,
     });
   } catch (error) {
     logger.error('Toggle product offer error:', error);
@@ -252,16 +358,22 @@ exports.getVendorOffers = async (req, res, next) => {
 
     const total = await Product.countDocuments(query);
 
+    // Add date and time fields to each product
+    const productsWithDateTime = products.map(product => {
+      const productObj = product.toObject ? product.toObject() : product;
+      return addDateTimeFields(productObj);
+    });
+
     res.status(200).json({
       success: true,
-      count: products.length,
+      count: productsWithDateTime.length,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
         pages: Math.ceil(total / parseInt(limit)),
       },
-      data: products,
+      data: productsWithDateTime,
     });
   } catch (error) {
     logger.error('Get vendor offers error:', error);
@@ -294,15 +406,22 @@ exports.getProductOffer = async (req, res, next) => {
       });
     }
 
+    const productObj = product.toObject ? product.toObject() : product;
+    const productWithDateTime = addDateTimeFields(productObj);
+    
     res.status(200).json({
       success: true,
       data: {
         offerEnabled: product.offerEnabled,
         offerDiscountPercentage: product.offerDiscountPercentage,
         offerStartDate: product.offerStartDate,
+        offerStartDateOnly: productWithDateTime.offerStartDateOnly,
+        offerStartTime: productWithDateTime.offerStartTime,
         offerEndDate: product.offerEndDate,
+        offerEndDateOnly: productWithDateTime.offerEndDateOnly,
+        offerEndTime: productWithDateTime.offerEndTime,
         isDailyOffer: product.isDailyOffer,
-        product: product,
+        product: productWithDateTime,
       },
     });
   } catch (error) {
@@ -359,16 +478,22 @@ exports.getVendorDailyOffers = async (req, res, next) => {
 
     const total = await Product.countDocuments(query);
 
+    // Add date and time fields to each product
+    const productsWithDateTime = products.map(product => {
+      const productObj = product.toObject ? product.toObject() : product;
+      return addDateTimeFields(productObj);
+    });
+
     res.status(200).json({
       success: true,
-      count: products.length,
+      count: productsWithDateTime.length,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
         pages: Math.ceil(total / parseInt(limit)),
       },
-      data: products,
+      data: productsWithDateTime,
     });
   } catch (error) {
     logger.error('Get vendor daily offers error:', error);
@@ -538,8 +663,9 @@ exports.getAllDailyOffers = async (req, res, next) => {
             return null;
           }
 
+          const productWithDateTime = addDateTimeFields(product);
           return {
-            ...product,
+            ...productWithDateTime,
             distance: parseFloat(displayDistance.toFixed(2)),
             discountPercentage: product.offerDiscountPercentage || 0,
           };
@@ -551,10 +677,13 @@ exports.getAllDailyOffers = async (req, res, next) => {
       finalProducts = productsWithDistance;
     } else {
       finalProducts = products
-        .map(product => ({
-          ...product,
-          discountPercentage: product.offerDiscountPercentage || 0,
-        }))
+        .map(product => {
+          const productWithDateTime = addDateTimeFields(product);
+          return {
+            ...productWithDateTime,
+            discountPercentage: product.offerDiscountPercentage || 0,
+          };
+        })
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       total = finalProducts.length;
     }

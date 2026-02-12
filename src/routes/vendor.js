@@ -930,12 +930,28 @@ router.put(
       .withMessage('Discount percentage must be between 0 and 100'),
     body('offerStartDate')
       .optional()
-      .isISO8601()
-      .withMessage('Start date must be a valid date'),
+      .custom((value) => {
+        if (value === null || value === '') return true;
+        const date = new Date(value);
+        return !isNaN(date.getTime());
+      })
+      .withMessage('Start date must be a valid date (ISO8601 or YYYY-MM-DD)'),
+    body('offerStartTime')
+      .optional()
+      .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/)
+      .withMessage('Start time must be in HH:MM or HH:MM:SS format (24-hour)'),
     body('offerEndDate')
       .optional()
-      .isISO8601()
-      .withMessage('End date must be a valid date'),
+      .custom((value) => {
+        if (value === null || value === '') return true;
+        const date = new Date(value);
+        return !isNaN(date.getTime());
+      })
+      .withMessage('End date must be a valid date (ISO8601 or YYYY-MM-DD)'),
+    body('offerEndTime')
+      .optional()
+      .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/)
+      .withMessage('End time must be in HH:MM or HH:MM:SS format (24-hour)'),
     body('isDailyOffer')
       .optional()
       .isBoolean()
