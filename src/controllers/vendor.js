@@ -1568,12 +1568,12 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       }
 
       return {
-        id: rider._id,
+        id: rider._id ? rider._id.toString() : null,
         name: rider.fullName || 'Unknown',
-        mobileNumber: rider.mobileNumber,
+        mobileNumber: rider.mobileNumber || null,
         status: status,
         statusColor: statusColor,
-        joinedDate: rider.createdAt,
+        joinedDate: rider.createdAt || null,
       };
     });
 
@@ -1586,13 +1586,13 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       .lean();
 
     const invoices = recentInvoices.map(invoice => ({
-      id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber,
-      orderNumber: invoice.orderNumber,
+      id: invoice._id ? invoice._id.toString() : null,
+      invoiceNumber: invoice.invoiceNumber || null,
+      orderNumber: invoice.orderNumber || null,
       customerName: invoice.user?.fullName || 'Unknown',
-      amount: invoice.amount,
-      status: invoice.status,
-      date: invoice.date,
+      amount: invoice.amount || 0,
+      status: invoice.status || null,
+      date: invoice.date || null,
     }));
 
     // Get recent orders (for order list)
@@ -1603,12 +1603,12 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       .lean();
 
     const orderList = recentOrders.map(order => ({
-      id: order._id,
-      orderNumber: order.orderNumber,
+      id: order._id ? order._id.toString() : null,
+      orderNumber: order.orderNumber || null,
       customerName: order.user?.fullName || 'Unknown',
-      status: order.status,
+      status: order.status || null,
       total: order.pricing?.total || 0,
-      createdAt: order.createdAt,
+      createdAt: order.createdAt || null,
     }));
 
     // Get wallet information - ensure proper defaults
@@ -1637,7 +1637,7 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
             id: transaction._id ? transaction._id.toString() : null,
             type: transaction.type || 'credit', // 'credit', 'debit', 'reset'
             amount: transaction.amount || 0,
-            orderId: transaction.orderId ? transaction.orderId.toString() : null,
+            orderId: transaction.orderId ? (typeof transaction.orderId === 'object' && transaction.orderId.toString ? transaction.orderId.toString() : String(transaction.orderId)) : null,
             orderNumber: transaction.orderNumber || null,
             description: transaction.description || '',
             createdAt: transaction.createdAt || new Date(),
@@ -1656,7 +1656,7 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
     const dashboardData = {
       // Complete vendor information
       vendor: {
-        id: vendor._id,
+        id: vendor._id ? vendor._id.toString() : null,
         vendorName: vendor.vendorName || null,
         contactNumber: vendor.contactNumber || null,
         contactNumberVerified: vendor.contactNumberVerified || false,
@@ -1708,7 +1708,11 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
         serviceRadius: vendor.serviceRadius || null,
         handlingChargePercentage: vendor.handlingChargePercentage || null,
         isActive: vendor.isActive !== undefined ? vendor.isActive : true,
-        createdBy: vendor.createdBy || null,
+        createdBy: vendor.createdBy ? {
+          _id: vendor.createdBy._id ? vendor.createdBy._id.toString() : null,
+          name: vendor.createdBy.name || null,
+          email: vendor.createdBy.email || null,
+        } : null,
         createdAt: vendor.createdAt || null,
         updatedAt: vendor.updatedAt || null,
       },
