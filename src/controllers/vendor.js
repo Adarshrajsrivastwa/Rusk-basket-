@@ -998,7 +998,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
       };
     }
 
-    const order = await Order.findOne(orderQuery).populate('items.vendor', '_id vendorName storeName');
+    let order = await Order.findOne(orderQuery).populate('items.vendor', '_id vendorName storeName');
 
     if (!order) {
       // Check if order exists at all (by ObjectId or orderNumber)
