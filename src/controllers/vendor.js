@@ -1422,8 +1422,10 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
 
     const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
 
-    // Get vendor details
-    const vendor = await Vendor.findById(vendorObjectId).populate('createdBy', 'name email');
+    // Get vendor details - ensure all fields including walletTransactions are included
+    const vendor = await Vendor.findById(vendorObjectId)
+      .populate('createdBy', 'name email')
+      .lean(false); // Keep as mongoose document to access all fields
     
     if (!vendor) {
       return res.status(404).json({
@@ -1607,23 +1609,38 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       createdAt: order.createdAt,
     }));
 
-    // Get wallet information
-    const earningWallet = vendor.earningWallet || 0;
-    const walletTransactions = vendor.walletTransactions || [];
+    // Get wallet information - ensure proper defaults
+    // Access vendor properties - mongoose documents support direct property access
+    const earningWalletValue = vendor.earningWallet;
+    const earningWallet = (earningWalletValue !== undefined && earningWalletValue !== null) 
+      ? Number(earningWalletValue) 
+      : 0;
+    
+    const walletTransactionsValue = vendor.walletTransactions;
+    const walletTransactions = Array.isArray(walletTransactionsValue) 
+      ? walletTransactionsValue 
+      : (walletTransactionsValue ? [walletTransactionsValue] : []);
     
     // Get recent wallet transactions (last 10)
-    const recentWalletTransactions = walletTransactions
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 10)
-      .map(transaction => ({
-        id: transaction._id,
-        type: transaction.type, // 'credit', 'debit', 'reset'
-        amount: transaction.amount,
-        orderId: transaction.orderId,
-        orderNumber: transaction.orderNumber,
-        description: transaction.description || '',
-        createdAt: transaction.createdAt,
-      }));
+    const recentWalletTransactions = walletTransactions.length > 0
+      ? walletTransactions
+          .filter(t => t && (t.createdAt || t._id)) // Filter out invalid transactions
+          .sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+            const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+            return dateB - dateA;
+          })
+          .slice(0, 10)
+          .map(transaction => ({
+            id: transaction._id ? transaction._id.toString() : null,
+            type: transaction.type || 'credit', // 'credit', 'debit', 'reset'
+            amount: transaction.amount || 0,
+            orderId: transaction.orderId ? transaction.orderId.toString() : null,
+            orderNumber: transaction.orderNumber || null,
+            description: transaction.description || '',
+            createdAt: transaction.createdAt || new Date(),
+          }))
+      : [];
 
     // Format date of birth
     const formatDate = (date) => {
@@ -1740,25 +1757,25 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
         orderList: orderList,
       },
       metrics: {
-        categoryUse: categoryUsage.length,
-        subCategoryUse: subCategoryUsage.length,
-        totalProducts: totalProducts,
-        productPublished: publishedProducts,
-        productInReview: productsInReview,
-        totalOrder: totalOrders,
-        totalDeliveredOrder: totalDeliveredOrders,
-        totalCanceledOrder: totalCancelledOrders,
-        totalRiders: riders.length,
-        ratings: ratings,
-        inventory: totalInventory,
-        amount: totalRevenue,
-        ticket: ticketCount,
+        categoryUse: Array.isArray(categoryUsage) ? categoryUsage.length : 0,
+        subCategoryUse: Array.isArray(subCategoryUsage) ? subCategoryUsage.length : 0,
+        totalProducts: totalProducts || 0,
+        productPublished: publishedProducts || 0,
+        productInReview: productsInReview || 0,
+        totalOrder: totalOrders || 0,
+        totalDeliveredOrder: totalDeliveredOrders || 0,
+        totalCanceledOrder: totalCancelledOrders || 0,
+        totalRiders: Array.isArray(riders) ? riders.length : 0,
+        ratings: ratings || 0,
+        inventory: totalInventory || 0,
+        amount: totalRevenue || 0,
+        ticket: ticketCount || 0,
       },
       wallet: {
-        earningWallet: earningWallet,
-        formattedEarningWallet: `₹${earningWallet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        totalTransactions: walletTransactions.length,
-        recentTransactions: recentWalletTransactions,
+        earningWallet: Number(earningWallet) || 0,
+        formattedEarningWallet: `₹${(Number(earningWallet) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        totalTransactions: Array.isArray(walletTransactions) ? walletTransactions.length : 0,
+        recentTransactions: Array.isArray(recentWalletTransactions) ? recentWalletTransactions : [],
       },
       deliveryPartners: deliveryPartners,
       invoices: invoices,
