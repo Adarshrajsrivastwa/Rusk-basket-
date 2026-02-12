@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const RiderJobPost = require('../models/RiderJobPost');
 const RiderEarningWalletWithdrawal = require('../models/RiderEarningWalletWithdrawal');
+const RiderDueAmountRequest = require('../models/RiderDueAmountRequest');
 const Vendor = require('../models/Vendor');
 const { notificationQueue } = require('../utils/queue');
 const { notifyRiderOrderUpdate } = require('../utils/socket');
@@ -2484,6 +2485,89 @@ exports.getMyWithdrawalRequests = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get my withdrawal requests error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Create rider amount request (for due balance)
+ * This API creates a request for payment from rider's due balance that requires admin approval
+ */
+exports.createDueAmountRequest = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.rider._id;
+    const { amount, description } = req.body;
+
+    // Validate amount
+    const requestAmount = parseFloat(amount);
+    if (isNaN(requestAmount) || requestAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Amount must be a valid positive number',
+      });
+    }
+
+    // Find the rider
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    // Check if rider has sufficient due balance
+    const currentDueBalance = rider.dueBalance || 0;
+    if (requestAmount > currentDueBalance) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient due balance. Your current due balance is ₹${currentDueBalance.toFixed(2)}. You cannot request ₹${requestAmount.toFixed(2)}`,
+        currentDueBalance: currentDueBalance.toFixed(2),
+        requestedAmount: requestAmount.toFixed(2),
+      });
+    }
+
+    // Create amount request
+    const amountRequest = await RiderDueAmountRequest.create({
+      rider: riderId,
+      amount: requestAmount,
+      description: description || `Amount request for ₹${requestAmount.toFixed(2)} from due balance`,
+      status: 'pending',
+      currentDueBalance: currentDueBalance,
+      requestedAt: new Date(),
+    });
+
+    logger.info(`Rider ${riderId} created amount request for ₹${requestAmount.toFixed(2)}. Request ID: ${amountRequest._id}`);
+
+    res.status(200).json({
+      success: true,
+      message: `Amount request of ₹${requestAmount.toFixed(2)} submitted successfully. It will be processed after admin approval.`,
+      data: {
+        requestId: amountRequest._id,
+        rider: {
+          riderId: rider._id,
+          fullName: rider.fullName,
+          mobileNumber: rider.mobileNumber,
+        },
+        amountRequest: {
+          amount: requestAmount.toFixed(2),
+          currentDueBalance: currentDueBalance.toFixed(2),
+          status: 'pending',
+          description: description || `Amount request for ₹${requestAmount.toFixed(2)} from due balance`,
+          requestedAt: amountRequest.requestedAt,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Create rider amount request error:', error);
     next(error);
   }
 };

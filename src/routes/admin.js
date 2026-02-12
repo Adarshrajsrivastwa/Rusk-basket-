@@ -841,6 +841,69 @@ router.get(
   getPendingRiders
 );
 
+// ============ RIDER EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
+// NOTE: These routes must be defined BEFORE /riders/:id to avoid route matching conflicts
+
+// Get all withdrawal requests (admin only)
+router.get(
+  '/riders/withdrawal-requests',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('Status must be pending, approved, or rejected'),
+    query('riderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Rider ID must be a valid MongoDB ObjectId'),
+  ],
+  getWithdrawalRequests
+);
+
+// Approve withdrawal request (admin only)
+router.put(
+  '/riders/withdrawal-requests/:requestId/approve',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+  ],
+  approveWithdrawalRequest
+);
+
+// Reject withdrawal request (admin only)
+router.put(
+  '/riders/withdrawal-requests/:requestId/reject',
+  protect,
+  [
+    param('requestId')
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid request ID format'),
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  rejectWithdrawalRequest
+);
+
 // Get single rider (admin only)
 router.get(
   '/riders/:id',
@@ -904,68 +967,6 @@ router.put(
       .withMessage('Invalid rider ID format'),
   ],
   suspendRider
-);
-
-// ============ RIDER EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
-
-// Get all withdrawal requests (admin only)
-router.get(
-  '/riders/withdrawal-requests',
-  protect,
-  [
-    query('page')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('Page must be a positive integer'),
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 100 })
-      .withMessage('Limit must be between 1 and 100'),
-    query('status')
-      .optional()
-      .isIn(['pending', 'approved', 'rejected'])
-      .withMessage('Status must be pending, approved, or rejected'),
-    query('riderId')
-      .optional()
-      .isMongoId()
-      .withMessage('Rider ID must be a valid MongoDB ObjectId'),
-  ],
-  getWithdrawalRequests
-);
-
-// Approve withdrawal request (admin only)
-router.put(
-  '/riders/withdrawal-requests/:requestId/approve',
-  protect,
-  [
-    param('requestId')
-      .notEmpty()
-      .withMessage('Request ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid request ID format'),
-  ],
-  approveWithdrawalRequest
-);
-
-// Reject withdrawal request (admin only)
-router.put(
-  '/riders/withdrawal-requests/:requestId/reject',
-  protect,
-  [
-    param('requestId')
-      .notEmpty()
-      .withMessage('Request ID is required')
-      .bail()
-      .isMongoId()
-      .withMessage('Invalid request ID format'),
-    body('rejectionReason')
-      .optional()
-      .trim()
-      .isLength({ max: 500 })
-      .withMessage('Rejection reason cannot be more than 500 characters'),
-  ],
-  rejectWithdrawalRequest
 );
 
 // ============ ADMIN NOTIFICATION ROUTES ============

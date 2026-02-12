@@ -2,7 +2,7 @@ const express = require('express');
 const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests } = require('../controllers/rider');
+const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -555,6 +555,26 @@ router.get(
       .withMessage('Status must be pending, approved, or rejected'),
   ],
   getMyWithdrawalRequests
+);
+
+// Create rider amount request (for due balance)
+router.post(
+  '/wallet/due/request',
+  protect,
+  [
+    body('amount')
+      .notEmpty()
+      .withMessage('Amount is required')
+      .bail()
+      .isFloat({ min: 0.01 })
+      .withMessage('Amount must be a positive number greater than 0'),
+    body('description')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Description cannot be more than 500 characters'),
+  ],
+  createDueAmountRequest
 );
 
 module.exports = router;
