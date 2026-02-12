@@ -1607,6 +1607,24 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       createdAt: order.createdAt,
     }));
 
+    // Get wallet information
+    const earningWallet = vendor.earningWallet || 0;
+    const walletTransactions = vendor.walletTransactions || [];
+    
+    // Get recent wallet transactions (last 10)
+    const recentWalletTransactions = walletTransactions
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10)
+      .map(transaction => ({
+        id: transaction._id,
+        type: transaction.type, // 'credit', 'debit', 'reset'
+        amount: transaction.amount,
+        orderId: transaction.orderId,
+        orderNumber: transaction.orderNumber,
+        description: transaction.description || '',
+        createdAt: transaction.createdAt,
+      }));
+
     // Format date of birth
     const formatDate = (date) => {
       if (!date) return null;
@@ -1663,6 +1681,12 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
         inventory: totalInventory,
         amount: totalRevenue,
         ticket: ticketCount,
+      },
+      wallet: {
+        earningWallet: earningWallet,
+        formattedEarningWallet: `₹${earningWallet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        totalTransactions: walletTransactions.length,
+        recentTransactions: recentWalletTransactions,
       },
       deliveryPartners: deliveryPartners,
       invoices: invoices,
