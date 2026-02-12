@@ -1633,8 +1633,66 @@ exports.getVendorDashboardForAdmin = async (req, res, next) => {
       return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
     };
 
-    // Build response
+    // Build response with all vendor details including bank details
     const dashboardData = {
+      // Complete vendor information
+      vendor: {
+        id: vendor._id,
+        vendorName: vendor.vendorName || null,
+        contactNumber: vendor.contactNumber || null,
+        contactNumberVerified: vendor.contactNumberVerified || false,
+        altContactNumber: vendor.altContactNumber || null,
+        email: vendor.email || null,
+        gender: vendor.gender || null,
+        dateOfBirth: vendor.dateOfBirth ? formatDate(vendor.dateOfBirth) : null,
+        age: vendor.age || null,
+        profileImage: vendor.profileImage || null,
+        storeId: vendor.storeId || null,
+        storeName: vendor.storeName || null,
+        storeImage: vendor.storeImage || [],
+        storeAddress: {
+          line1: vendor.storeAddress?.line1 || null,
+          line2: vendor.storeAddress?.line2 || null,
+          pinCode: vendor.storeAddress?.pinCode || null,
+          city: vendor.storeAddress?.city || null,
+          state: vendor.storeAddress?.state || null,
+          latitude: vendor.storeAddress?.latitude || null,
+          longitude: vendor.storeAddress?.longitude || null,
+        },
+        // Bank details (band details as mentioned by user)
+        bankDetails: {
+          ifsc: vendor.bankDetails?.ifsc || null,
+          accountNumber: vendor.bankDetails?.accountNumber || null,
+          bankName: vendor.bankDetails?.bankName || null,
+          cancelCheque: vendor.bankDetails?.cancelCheque || null,
+        },
+        // Documents
+        documents: {
+          panCardFront: vendor.documents?.panCardFront || null,
+          panCardBack: vendor.documents?.panCardBack || null,
+          aadharCardFront: vendor.documents?.aadharCardFront || null,
+          aadharCardBack: vendor.documents?.aadharCardBack || null,
+          drivingLicense: vendor.documents?.drivingLicense || null,
+        },
+        // Permissions
+        permissions: {
+          canManageProducts: vendor.permissions?.canManageProducts || false,
+          canManageOrders: vendor.permissions?.canManageOrders || false,
+          canManageInventory: vendor.permissions?.canManageInventory || false,
+          canViewAnalytics: vendor.permissions?.canViewAnalytics || false,
+          canManageDiscounts: vendor.permissions?.canManageDiscounts || false,
+          canManagePromotions: vendor.permissions?.canManagePromotions || false,
+          canExportData: vendor.permissions?.canExportData || false,
+          canManageReviews: vendor.permissions?.canManageReviews || false,
+        },
+        fssaiNumber: vendor.fssaiNumber || null,
+        serviceRadius: vendor.serviceRadius || null,
+        handlingChargePercentage: vendor.handlingChargePercentage || null,
+        isActive: vendor.isActive !== undefined ? vendor.isActive : true,
+        createdBy: vendor.createdBy || null,
+        createdAt: vendor.createdAt || null,
+        updatedAt: vendor.updatedAt || null,
+      },
       storeInfo: {
         storeId: vendor.storeId,
         storeName: vendor.storeName,
