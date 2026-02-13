@@ -1566,7 +1566,14 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       rider: riderInfo,
       products: products,
       pricing: pricing,
-      invoicePdfDownloadUrl: order.invoicePdf?.cloudinaryUrl || null, // Direct Cloudinary URL for download/view
+      // Direct Cloudinary URL for download/view (must have /raw/upload/ for browser rendering)
+      invoicePdfDownloadUrl: (() => {
+        const url = order.invoicePdf?.cloudinaryUrl || null;
+        if (url && !url.includes('/raw/upload/')) {
+          logger.warn(`Invoice PDF URL missing /raw/upload/: ${url} for order ${order.orderNumber}`);
+        }
+        return url;
+      })(),
     };
   }));
 

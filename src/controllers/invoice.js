@@ -998,6 +998,14 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
 
     logger.info(`Invoice PDF generated and saved for order: ${orderNumber} with URL: ${invoiceUrl}`);
 
+    // Verify the Cloudinary URL format one more time before sending response
+    const finalUrl = uploadResult.url;
+    if (!finalUrl.includes('/raw/upload/')) {
+      logger.error(`CRITICAL: PDF URL does not contain /raw/upload/: ${finalUrl}`);
+    } else {
+      logger.info(`PDF URL verified: Contains /raw/upload/ - ${finalUrl}`);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Invoice PDF generated and uploaded successfully',
@@ -1005,8 +1013,10 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
         orderNumber: order.orderNumber,
         invoicePdf: {
           url: invoiceUrl, // Server endpoint (without /api)
-          downloadUrl: uploadResult.url, // Direct Cloudinary URL for download/view
+          downloadUrl: finalUrl, // Direct Cloudinary URL (MUST have /raw/upload/ for browser rendering)
           publicId: uploadResult.publicId,
+          // Verification info
+          urlFormat: finalUrl.includes('/raw/upload/') ? 'correct' : 'incorrect',
         },
       },
     });
