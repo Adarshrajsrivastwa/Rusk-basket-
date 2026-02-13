@@ -191,7 +191,17 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
     const secretKey = credentials.razorpayKeySecret ? credentials.razorpayKeySecret.toString().trim() : '';
 
     if (!secretKey) {
-      throw new Error('Razorpay Secret Key is missing. Please configure Razorpay credentials.');
+      throw new Error('Razorpay Secret Key is missing. Please configure Razorpay credentials in admin panel.');
+    }
+
+    // Validate secret key format (should be alphanumeric, typically 20-40 characters)
+    if (secretKey.length < 10) {
+      logger.warn('Razorpay Secret Key seems too short', { length: secretKey.length });
+    }
+
+    // Check if secret key might be a Key ID instead (common mistake)
+    if (secretKey.startsWith('rzp_test_') || secretKey.startsWith('rzp_live_')) {
+      throw new Error('Invalid Razorpay Secret Key. You have provided Key ID instead of Secret Key. Please get the Secret Key from Razorpay Dashboard → Settings → API Keys');
     }
 
     let text;
@@ -241,9 +251,17 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
         text: text,
         generatedSignature: generatedSignature,
         receivedSignature: signature,
+        secretKeyLength: secretKey.length,
         secretKeyPrefix: secretKey.substring(0, 10) + '...', // Log only prefix for security
+        secretKeySuffix: '...' + secretKey.substring(secretKey.length - 5), // Last 5 chars for debugging
       });
-      throw new Error('Invalid payment signature');
+      
+      // Provide helpful error message
+      const errorMessage = paymentLinkId 
+        ? 'Invalid payment signature. Please verify: 1) Razorpay Secret Key is correct (from Dashboard → Settings → API Keys), 2) Payment link was created with same credentials (test/production), 3) No extra spaces in payment_link_id or payment_id'
+        : 'Invalid payment signature. Please verify: 1) Razorpay Secret Key is correct, 2) Order was created with same credentials, 3) No extra spaces in order_id or payment_id';
+      
+      throw new Error(errorMessage);
     }
 
     return {
@@ -692,20 +710,87 @@ const verifyPayment = async (paymentData, gatewayName) => {
       throw new Error(`Payment gateway ${gatewayName} is not enabled`);
     }
 
-    const credentials = gateway.testMode 
-      ? { ...gateway.credentials, ...gateway.testCredentials } 
-      : gateway.credentials;
+    // For Razorpay, try both test and production credentials if first attempt fails
+    // This handles cases where payment link was created with different mode
+    if (gatewayName === 'razorpay') {
+      // First attempt: Use current testMode setting
+      let credentials = { ...gateway.credentials };
+      if (gateway.testMode && gateway.testCredentials) {
+        Object.keys(gateway.testCredentials).forEach(key => {
+          if (gateway.testCredentials[key] && gateway.testCredentials[key].toString().trim()) {
+            credentials[key] = gateway.testCredentials[key];
+          }
+        });
+      }
+
+      logger.info(`Verifying Razorpay payment (attempt 1) - testMode: ${gateway.testMode}`, {
+        hasKeyId: !!credentials.razorpayKeyId,
+        hasKeySecret: !!credentials.razorpayKeySecret,
+        keyIdPrefix: credentials.razorpayKeyId ? credentials.razorpayKeyId.substring(0, 10) + '...' : 'N/A',
+      });
+
+      try {
+        return await verifyRazorpayPayment(paymentData, credentials);
+      } catch (firstError) {
+        // If signature verification failed, try with alternate credentials
+        if (firstError.message.includes('Invalid payment signature') || firstError.message.includes('signature')) {
+          logger.warn('First verification attempt failed, trying alternate credentials', {
+            firstAttemptMode: gateway.testMode ? 'test' : 'production',
+          });
+
+          // Second attempt: Try opposite mode
+          let alternateCredentials = { ...gateway.credentials };
+          if (!gateway.testMode && gateway.testCredentials) {
+            // Current mode is production, try test credentials
+            Object.keys(gateway.testCredentials).forEach(key => {
+              if (gateway.testCredentials[key] && gateway.testCredentials[key].toString().trim()) {
+                alternateCredentials[key] = gateway.testCredentials[key];
+              }
+            });
+            logger.info('Trying test credentials as fallback');
+          } else if (gateway.testMode) {
+            // Current mode is test, try production credentials only
+            // (don't merge test credentials)
+            logger.info('Trying production credentials as fallback');
+          }
+
+          try {
+            return await verifyRazorpayPayment(paymentData, alternateCredentials);
+          } catch (secondError) {
+            // Both attempts failed, throw original error with more context
+            logger.error('Both verification attempts failed', {
+              firstError: firstError.message,
+              secondError: secondError.message,
+            });
+            throw new Error(`Payment verification failed: Invalid payment signature. Please ensure the payment link was created with the same credentials (test/production) that are currently configured.`);
+          }
+        } else {
+          // Other errors, throw as is
+          throw firstError;
+        }
+      }
+    }
+
+    // For other gateways, use standard logic
+    // Merge credentials - test credentials override production credentials if testMode is enabled
+    let credentials = { ...gateway.credentials };
+    if (gateway.testMode && gateway.testCredentials) {
+      Object.keys(gateway.testCredentials).forEach(key => {
+        if (gateway.testCredentials[key] && gateway.testCredentials[key].toString().trim()) {
+          credentials[key] = gateway.testCredentials[key];
+        }
+      });
+    }
+
+    logger.info(`Verifying payment with gateway: ${gateway.name}, testMode: ${gateway.testMode}`);
 
     switch (gatewayName) {
-      case 'razorpay':
-        return await verifyRazorpayPayment(paymentData, credentials);
-      
       case 'phonepay':
         return await verifyPhonePePayment(paymentData, credentials, gateway.testMode);
-      
+        
       case 'shopify':
         return await verifyShopifyPayment(paymentData, credentials);
-      
+        
       case 'cashfree':
         return await verifyCashfreePayment(paymentData, credentials, gateway.testMode);
       
