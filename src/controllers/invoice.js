@@ -992,7 +992,8 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
       data: {
         orderNumber: order.orderNumber,
         invoicePdf: {
-          url: invoiceUrl, // Single URL for both view and download (without /api)
+          url: invoiceUrl, // Server endpoint (without /api)
+          downloadUrl: uploadResult.url, // Direct Cloudinary URL for download/view
           publicId: uploadResult.publicId,
         },
       },

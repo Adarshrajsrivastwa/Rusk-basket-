@@ -1399,6 +1399,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
     .populate('items.vendor', 'vendorName storeName contactNumber storeAddress')
     .populate('rider', 'fullName mobileNumber currentAddress')
     .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber currentAddress')
+    .select('orderNumber items pricing invoicePdf createdAt')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -1565,6 +1566,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       rider: riderInfo,
       products: products,
       pricing: pricing,
+      invoicePdfDownloadUrl: order.invoicePdf?.cloudinaryUrl || null, // Direct Cloudinary URL for download/view
     };
   }));
 
@@ -1744,7 +1746,9 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
     orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
     // Add invoice PDF URL if available
+    // Include invoice PDF URLs - both server endpoint and direct Cloudinary URL
     orderObj.invoicePdfUrl = orderObj.invoicePdf?.url || null;
+    orderObj.invoicePdfDownloadUrl = orderObj.invoicePdf?.cloudinaryUrl || orderObj.invoicePdf?.url || null;
 
     return orderObj;
   });
