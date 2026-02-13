@@ -13,6 +13,7 @@ const {
   updateInvoice,
   updateInvoiceFromOrder,
   generateOrderInvoicePDF,
+  downloadInvoicePDF,
 } = require('../controllers/invoice');
 
 // Middleware
@@ -264,6 +265,27 @@ router.post(
       .trim(),
   ],
   generateOrderInvoicePDF
+);
+
+/**
+ * @route   GET /api/invoice/order/:orderNumber/download-pdf
+ * @desc    Download/View invoice PDF for an order
+ * @access  Public (can be protected if needed)
+ * @query   download=true to force download, otherwise opens in browser
+ */
+router.get(
+  '/order/:orderNumber/download-pdf',
+  [
+    param('orderNumber')
+      .notEmpty()
+      .withMessage('Order number is required')
+      .trim(),
+    query('download')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('Download must be true or false'),
+  ],
+  downloadInvoicePDF
 );
 
 /**

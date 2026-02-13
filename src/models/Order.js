@@ -308,6 +308,12 @@ const OrderSchema = new mongoose.Schema({
     url: {
       type: String,
     },
+    downloadUrl: {
+      type: String,
+    },
+    viewUrl: {
+      type: String,
+    },
     publicId: {
       type: String,
     },

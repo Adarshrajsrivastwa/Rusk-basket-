@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
 const { uploadToCloudinary } = require('../utils/cloudinary');
+const axios = require('axios');
 
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
@@ -970,15 +971,23 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     logger.info(`Uploading PDF to Cloudinary for order: ${orderNumber}`);
     const uploadResult = await uploadToCloudinary(pdfFile, 'rush-basket/invoices');
 
-    // Update order with PDF URL
+    // Convert Cloudinary URL to downloadable format (add .pdf extension and flags)
+    const downloadUrl = uploadResult.url.replace(/\/upload\//, '/upload/fl_attachment:invoice-' + order.orderNumber + '.pdf/');
+    
+    // Create view URL without /api prefix
+    const viewUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
+
+    // Update order with PDF URLs (save both download and view URLs)
     order.invoicePdf = {
       url: uploadResult.url,
+      downloadUrl: downloadUrl,
+      viewUrl: viewUrl,
       publicId: uploadResult.publicId,
     };
 
     await order.save();
 
-    logger.info(`Invoice PDF generated and saved for order: ${orderNumber}`);
+    logger.info(`Invoice PDF generated and saved for order: ${orderNumber} with downloadUrl and viewUrl`);
 
     res.status(200).json({
       success: true,
@@ -987,6 +996,8 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
         orderNumber: order.orderNumber,
         invoicePdf: {
           url: uploadResult.url,
+          downloadUrl: downloadUrl, // Direct download URL from Cloudinary
+          viewUrl: viewUrl, // Server endpoint to view/download (without /api)
           publicId: uploadResult.publicId,
         },
       },
@@ -996,6 +1007,78 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to generate invoice PDF',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Download/View invoice PDF by order number
+ * Fetches PDF from Cloudinary and serves it with proper headers
+ */
+exports.downloadInvoicePDF = async (req, res, next) => {
+  try {
+    const { orderNumber } = req.params;
+    const { download } = req.query; // If download=true, force download instead of view
+
+    // Find order by order number
+    const order = await Order.findOne({ orderNumber }).select('invoicePdf orderNumber');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    if (!order.invoicePdf || !order.invoicePdf.url) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice PDF not found for this order. Please generate it first.',
+      });
+    }
+
+    try {
+      // Fetch PDF from Cloudinary URL
+      const response = await axios.get(order.invoicePdf.url, {
+        responseType: 'arraybuffer',
+        timeout: 30000, // 30 seconds timeout
+      });
+
+      const pdfBuffer = Buffer.from(response.data);
+
+      // Set appropriate headers
+      const filename = `invoice-${order.orderNumber}.pdf`;
+      const contentType = 'application/pdf';
+
+      if (download === 'true') {
+        // Force download
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      } else {
+        // Open in browser
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      }
+
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+
+      // Send PDF buffer
+      res.send(pdfBuffer);
+    } catch (fetchError) {
+      logger.error('Error fetching PDF from Cloudinary:', fetchError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch invoice PDF from storage',
+        message: fetchError.message,
+      });
+    }
+  } catch (error) {
+    logger.error('Download invoice PDF error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to download invoice PDF',
       message: error.message,
     });
   }
