@@ -1088,7 +1088,7 @@ exports.downloadInvoicePDF = async (req, res, next) => {
         });
       }
 
-      // Verify URL format one more time before fetching
+      // Verify URL format one more time
       if (!cloudinaryUrl.includes('/raw/upload/')) {
         logger.error(`CRITICAL: PDF URL does not contain /raw/upload/: ${cloudinaryUrl}`);
         return res.status(500).json({
@@ -1097,57 +1097,37 @@ exports.downloadInvoicePDF = async (req, res, next) => {
         });
       }
 
-      logger.info(`Fetching PDF from Cloudinary: ${cloudinaryUrl}`);
-
-      // Fetch PDF from Cloudinary
-      const response = await axios.get(cloudinaryUrl, {
-        responseType: 'arraybuffer',
-        timeout: 30000, // 30 seconds timeout
-        headers: {
-          'Accept': 'application/pdf',
-        },
-      });
-
-      // Verify response is actually a PDF
-      const contentType = response.headers['content-type'] || '';
-      if (!contentType.includes('application/pdf') && !contentType.includes('application/octet-stream')) {
-        logger.warn(`Cloudinary returned unexpected Content-Type: ${contentType}`);
-      }
-
-      const pdfBuffer = Buffer.from(response.data);
-
-      // Verify buffer is not empty
-      if (!pdfBuffer || pdfBuffer.length === 0) {
-        logger.error('PDF buffer is empty');
-        return res.status(500).json({
-          success: false,
-          error: 'PDF file is empty or corrupted',
-        });
-      }
-
-      // Set appropriate headers BEFORE sending data
-      const filename = `invoice-${order.orderNumber}.pdf`;
+      // BEST SOLUTION: Redirect directly to Cloudinary URL
+      // Cloudinary automatically serves PDFs with correct Content-Type: application/pdf
+      // This prevents any header issues and ensures proper browser rendering
+      logger.info(`Redirecting to Cloudinary URL for proper PDF rendering: ${cloudinaryUrl}`);
       
-      // CRITICAL: Set Content-Type FIRST
-      res.setHeader('Content-Type', 'application/pdf');
-      
+      // Add download parameter to Cloudinary URL if needed
       if (download === 'true') {
-        // Force download
+        // For download, we'll proxy through our server to set Content-Disposition
+        // But for view, redirect directly to Cloudinary
+        const response = await axios.get(cloudinaryUrl, {
+          responseType: 'arraybuffer',
+          timeout: 30000,
+        });
+
+        const pdfBuffer = Buffer.from(response.data);
+        const filename = `invoice-${order.orderNumber}.pdf`;
+
+        // Set headers for download
+        res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+
+        res.end(pdfBuffer);
       } else {
-        // Open in browser (inline)
-        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+        // For viewing in browser, redirect directly to Cloudinary
+        // Cloudinary serves with correct Content-Type: application/pdf automatically
+        res.redirect(302, cloudinaryUrl);
       }
-
-      res.setHeader('Content-Length', pdfBuffer.length);
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-      res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
-      res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME type sniffing
-
-      logger.info(`Sending PDF buffer (${pdfBuffer.length} bytes) with Content-Type: application/pdf`);
-
-      // Send PDF buffer properly (use end instead of send to prevent truncation)
-      res.end(pdfBuffer);
     } catch (fetchError) {
       logger.error('Error fetching PDF from Cloudinary:', fetchError);
       return res.status(500).json({
