@@ -304,6 +304,14 @@ const OrderSchema = new mongoose.Schema({
       type: String,
     },
   },
+  invoicePdf: {
+    url: {
+      type: String,
+    },
+    publicId: {
+      type: String,
+    },
+  },
   createdAt: {
     type: Date,
     default: Date.now,

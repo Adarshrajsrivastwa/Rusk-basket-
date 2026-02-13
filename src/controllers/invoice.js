@@ -4,6 +4,8 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { generateInvoicePDF } = require('../utils/pdfGenerator');
+const { uploadToCloudinary } = require('../utils/cloudinary');
 
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
@@ -887,6 +889,114 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to update invoices from order',
+    });
+  }
+};
+
+/**
+ * Generate invoice PDF for an order and upload to Cloudinary
+ * Updates the order with the PDF URL
+ */
+exports.generateOrderInvoicePDF = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderNumber } = req.params;
+
+    // Find order by order number with populated user and vendor
+    const order = await Order.findOne({ orderNumber })
+      .populate('user', 'userName contactNumber email')
+      .populate('items.vendor', 'vendorName storeName contactNumber altContactNumber email storeAddress');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Get unique vendors from order items
+    const vendorIds = [...new Set(order.items.map(item => {
+      const vendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+      return vendorId;
+    }))];
+
+    if (vendorIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No vendors found in order',
+      });
+    }
+
+    // For now, we'll generate one PDF for the entire order
+    // If you need separate PDFs per vendor, we can modify this
+    const vendorId = vendorIds[0];
+    const vendor = order.items.find(item => {
+      const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+      return itemVendorId === vendorId;
+    })?.vendor;
+
+    if (!vendor) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    // Prepare order data for PDF generation
+    const orderData = {
+      ...order.toObject(),
+      vendor: vendor,
+      user: order.user,
+    };
+
+    // Generate PDF buffer
+    logger.info(`Generating PDF invoice for order: ${orderNumber}`);
+    const pdfBuffer = await generateInvoicePDF(orderData);
+
+    // Upload PDF to Cloudinary
+    const pdfFile = {
+      buffer: pdfBuffer,
+      originalname: `invoice-${orderNumber}.pdf`,
+      mimetype: 'application/pdf',
+    };
+
+    logger.info(`Uploading PDF to Cloudinary for order: ${orderNumber}`);
+    const uploadResult = await uploadToCloudinary(pdfFile, 'rush-basket/invoices');
+
+    // Update order with PDF URL
+    order.invoicePdf = {
+      url: uploadResult.url,
+      publicId: uploadResult.publicId,
+    };
+
+    await order.save();
+
+    logger.info(`Invoice PDF generated and saved for order: ${orderNumber}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invoice PDF generated and uploaded successfully',
+      data: {
+        orderNumber: order.orderNumber,
+        invoicePdf: {
+          url: uploadResult.url,
+          publicId: uploadResult.publicId,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Generate order invoice PDF error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate invoice PDF',
+      message: error.message,
     });
   }
 };

@@ -1434,6 +1434,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       invoiceDate: order.createdAt,
       orderDate: order.createdAt,
       deliveryDate: order.deliveredAt || order.estimatedDelivery || null,
+      invoicePdfUrl: order.invoicePdf?.url || null,
       customer: {
         name: order.user?.userName || 'N/A',
         email: order.user?.email || 'N/A',
@@ -1489,6 +1490,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
     return {
       ...order,
       invoice,
+      invoicePdfUrl: order.invoicePdf?.url || null,
     };
   });
 
@@ -1666,6 +1668,9 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
     
     // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
     orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+
+    // Add invoice PDF URL if available
+    orderObj.invoicePdfUrl = orderObj.invoicePdf?.url || null;
 
     return orderObj;
   });

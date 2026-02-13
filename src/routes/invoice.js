@@ -12,6 +12,7 @@ const {
   updateInvoiceStatus,
   updateInvoice,
   updateInvoiceFromOrder,
+  generateOrderInvoicePDF,
 } = require('../controllers/invoice');
 
 // Middleware
@@ -248,5 +249,86 @@ router.put(
   ],
   updateInvoice
 );
+
+/**
+ * @route   POST /api/invoice/order/:orderNumber/generate-pdf
+ * @desc    Generate invoice PDF for an order and upload to Cloudinary
+ * @access  Private (Admin/Vendor/User)
+ */
+router.post(
+  '/order/:orderNumber/generate-pdf',
+  [
+    param('orderNumber')
+      .notEmpty()
+      .withMessage('Order number is required')
+      .trim(),
+  ],
+  generateOrderInvoicePDF
+);
+
+/**
+ * @route   GET /api/invoice/order-statuses
+ * @desc    Get all possible order statuses
+ * @access  Public
+ */
+router.get('/order-statuses', (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      statuses: [
+        {
+          value: 'pending',
+          label: 'Pending',
+          description: 'Order is pending',
+        },
+        {
+          value: 'order_placed',
+          label: 'Order Placed',
+          description: 'Order has been placed',
+        },
+        {
+          value: 'confirmed',
+          label: 'Confirmed',
+          description: 'Order has been confirmed',
+        },
+        {
+          value: 'processing',
+          label: 'Processing',
+          description: 'Order is being processed',
+        },
+        {
+          value: 'ready',
+          label: 'Ready',
+          description: 'Order is ready for pickup/delivery',
+        },
+        {
+          value: 'rider_assign',
+          label: 'Rider Assigned',
+          description: 'Rider has been assigned to the order',
+        },
+        {
+          value: 'out_for_delivery',
+          label: 'Out for Delivery',
+          description: 'Order is out for delivery',
+        },
+        {
+          value: 'delivered',
+          label: 'Delivered',
+          description: 'Order has been delivered',
+        },
+        {
+          value: 'cancelled',
+          label: 'Cancelled',
+          description: 'Order has been cancelled',
+        },
+        {
+          value: 'refunded',
+          label: 'Refunded',
+          description: 'Order has been refunded',
+        },
+      ],
+    },
+  });
+});
 
 module.exports = router;
