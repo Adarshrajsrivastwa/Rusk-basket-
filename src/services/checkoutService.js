@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
+const RiderJobPost = require('../models/RiderJobPost');
 const { notificationQueue } = require('../utils/queue');
 const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
 const logger = require('../utils/logger');
@@ -1428,7 +1429,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       }
     });
 
-    // Get rider info (check assignmentRequestSentTo first, then order.rider)
+    // Get rider info (check assignmentRequestSentTo first, then order.rider, then from vendor's assigned riders)
     let riderInfo = null;
     if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
       const acceptedRequest = order.assignmentRequestSentTo.find(
@@ -1450,6 +1451,46 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         phone: order.rider.mobileNumber || null,
         address: order.rider.currentAddress || null,
       };
+    }
+
+    // If rider is still null, get rider from product's vendor assigned riders
+    if (!riderInfo && order.items && order.items.length > 0) {
+      try {
+        // Get first product's vendor
+        const firstItem = order.items[0];
+        if (firstItem && firstItem.vendor) {
+          const vendorId = firstItem.vendor._id ? firstItem.vendor._id.toString() : firstItem.vendor.toString();
+          
+          // Find vendor's job posts
+          const jobPosts = await RiderJobPost.find({ vendor: vendorId, isActive: true }).lean();
+          
+          if (jobPosts && jobPosts.length > 0) {
+            const jobPostIds = jobPosts.map(jp => jp._id);
+            
+            // Find assigned/confirmed riders for this vendor's job posts
+            const assignedApplication = await RiderJobApplication.findOne({
+              jobPost: { $in: jobPostIds },
+              status: { $in: ['assigned', 'approved'] },
+              confirmed: true,
+            })
+            .populate('rider', 'fullName mobileNumber currentAddress')
+            .sort({ assignedAt: -1, confirmedAt: -1 })
+            .lean();
+            
+            if (assignedApplication && assignedApplication.rider) {
+              const rider = assignedApplication.rider;
+              riderInfo = {
+                name: rider.fullName || null,
+                phone: rider.mobileNumber || null,
+                address: rider.currentAddress || null,
+              };
+            }
+          }
+        }
+      } catch (error) {
+        logger.error('Error fetching rider from vendor:', error);
+        // Continue with null rider if error occurs
+      }
     }
 
     // Format product details
