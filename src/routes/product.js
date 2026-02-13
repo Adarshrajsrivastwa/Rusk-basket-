@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, query } = require('express-validator');
+const { body, query, param } = require('express-validator');
 const router = express.Router();
 
 // Controllers
@@ -7,7 +7,7 @@ const { getAllProducts, getAllProductsList, getNearbyProducts, getPendingProduct
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct, deleteProduct } = require('../controllers/productUpdate');
 const { approveProduct } = require('../controllers/productApproval');
-const { getAllDailyOffers, getVendorDailyOffers } = require('../controllers/productOffer');
+const { getAllDailyOffers, getVendorDailyOffers, toggleProductOffer } = require('../controllers/productOffer');
 
 // Middleware
 const { protect } = require('../middleware/adminAuth');
@@ -154,6 +154,57 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
   ],
   getVendorDailyOffers
+);
+
+// Update daily offer (Vendor only - can only update their own products)
+router.put(
+  '/daily-offers/:productId',
+  protectVendor,
+  [
+    param('productId')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Product ID must be a valid MongoDB ObjectId'),
+    body('offerEnabled')
+      .optional()
+      .isBoolean()
+      .withMessage('offerEnabled must be a boolean'),
+    body('offerDiscountPercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Discount percentage must be between 0 and 100'),
+    body('offerStartDate')
+      .optional()
+      .custom((value) => {
+        if (value === null || value === '') return true;
+        const date = new Date(value);
+        return !isNaN(date.getTime());
+      })
+      .withMessage('Start date must be a valid date (ISO8601 or YYYY-MM-DD)'),
+    body('offerStartTime')
+      .optional()
+      .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/)
+      .withMessage('Start time must be in HH:MM or HH:MM:SS format (24-hour)'),
+    body('offerEndDate')
+      .optional()
+      .custom((value) => {
+        if (value === null || value === '') return true;
+        const date = new Date(value);
+        return !isNaN(date.getTime());
+      })
+      .withMessage('End date must be a valid date (ISO8601 or YYYY-MM-DD)'),
+    body('offerEndTime')
+      .optional()
+      .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/)
+      .withMessage('End time must be in HH:MM or HH:MM:SS format (24-hour)'),
+    body('isDailyOffer')
+      .optional()
+      .isBoolean()
+      .withMessage('isDailyOffer must be a boolean'),
+  ],
+  toggleProductOffer
 );
 
 // Admin Routes
