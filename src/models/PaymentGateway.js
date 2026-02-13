@@ -4,7 +4,7 @@ const PaymentGatewaySchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Payment gateway name is required'],
-    enum: ['shopify', 'razorpay', 'phonepay'],
+    enum: ['shopify', 'razorpay', 'phonepay', 'cashfree'],
     unique: true,
     trim: true,
   },
@@ -63,6 +63,21 @@ const PaymentGatewaySchema = new mongoose.Schema({
       type: String,
       trim: true,
     },
+    
+    // Cashfree credentials
+    cashfreeAppId: {
+      type: String,
+      trim: true,
+    },
+    cashfreeSecretKey: {
+      type: String,
+      trim: true,
+    },
+    cashfreeApiVersion: {
+      type: String,
+      trim: true,
+      default: '2022-09-01',
+    },
   },
   testMode: {
     type: Boolean,
@@ -109,6 +124,19 @@ const PaymentGatewaySchema = new mongoose.Schema({
     phonepayAppId: {
       type: String,
       trim: true,
+    },
+    cashfreeAppId: {
+      type: String,
+      trim: true,
+    },
+    cashfreeSecretKey: {
+      type: String,
+      trim: true,
+    },
+    cashfreeApiVersion: {
+      type: String,
+      trim: true,
+      default: '2022-09-01',
     },
   },
   priority: {

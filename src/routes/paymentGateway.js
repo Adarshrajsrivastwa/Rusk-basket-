@@ -52,8 +52,8 @@ router.post(
       .notEmpty()
       .withMessage('Payment gateway name is required')
       .bail()
-      .isIn(['shopify', 'razorpay', 'phonepay'])
-      .withMessage('Payment gateway name must be one of: shopify, razorpay, phonepay'),
+      .isIn(['shopify', 'razorpay', 'phonepay', 'cashfree'])
+      .withMessage('Payment gateway name must be one of: shopify, razorpay, phonepay, cashfree'),
     body('displayName')
       .notEmpty()
       .withMessage('Display name is required')
@@ -170,8 +170,8 @@ router.post(
       .notEmpty()
       .withMessage('Gateway name is required')
       .bail()
-      .isIn(['shopify', 'razorpay', 'phonepay'])
-      .withMessage('Gateway name must be one of: shopify, razorpay, phonepay'),
+      .isIn(['shopify', 'razorpay', 'phonepay', 'cashfree'])
+      .withMessage('Gateway name must be one of: shopify, razorpay, phonepay, cashfree'),
     body('credentials')
       .notEmpty()
       .withMessage('Credentials are required')

@@ -430,6 +430,149 @@ const verifyShopifyPayment = async (paymentData, credentials) => {
 };
 
 /**
+ * Initialize payment with Cashfree
+ */
+const initializeCashfreePayment = async (orderData, credentials, testMode = false) => {
+  try {
+    // Validate credentials
+    if (!credentials.cashfreeAppId || !credentials.cashfreeSecretKey) {
+      throw new Error('Cashfree App ID and Secret Key are required. Please configure Cashfree credentials in admin panel.');
+    }
+
+    const baseUrl = testMode
+      ? 'https://sandbox.cashfree.com/pg'
+      : 'https://api.cashfree.com/pg';
+
+    const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
+    const orderId = `ORDER_${orderData.orderId || orderData.orderNumber}_${Date.now()}`;
+    const amount = Math.round(orderData.amount * 100); // Amount in paise
+
+    const payload = {
+      order_id: orderId,
+      order_amount: amount,
+      order_currency: 'INR',
+      order_note: `Payment for Order ${orderData.orderNumber || orderData.orderId}`,
+      customer_details: {
+        customer_id: orderData.userId || 'USER',
+        customer_name: orderData.shippingAddress?.name || '',
+        customer_email: orderData.email || '',
+        customer_phone: orderData.phone || orderData.shippingAddress?.phone || '',
+      },
+      order_meta: {
+        return_url: orderData.redirectUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback?order_id={order_id}`,
+        notify_url: `${process.env.API_URL || 'http://localhost:3000'}/api/payment/cashfree/callback`,
+      },
+    };
+
+    const response = await axios.post(
+      `${baseUrl}/orders`,
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-version': apiVersion,
+          'x-client-id': credentials.cashfreeAppId.trim(),
+          'x-client-secret': credentials.cashfreeSecretKey.trim(),
+        },
+      }
+    );
+
+    if (response.data && response.data.payment_session_id) {
+      return {
+        success: true,
+        paymentGateway: 'cashfree',
+        orderId: response.data.order_id,
+        paymentSessionId: response.data.payment_session_id,
+        amount: amount / 100,
+        // Frontend ke liye structured data
+        frontendData: {
+          gateway: 'cashfree',
+          paymentSessionId: response.data.payment_session_id,
+          orderId: response.data.order_id,
+          amount: amount / 100,
+          orderNumber: orderData.orderNumber,
+        },
+        paymentData: {
+          orderId: response.data.order_id,
+          paymentSessionId: response.data.payment_session_id,
+          amount: amount,
+        },
+      };
+    } else {
+      throw new Error('Cashfree payment initialization failed');
+    }
+  } catch (error) {
+    logger.error('Cashfree payment initialization error:', error);
+    throw new Error(`Cashfree payment failed: ${error.message}`);
+  }
+};
+
+/**
+ * Verify Cashfree payment
+ */
+const verifyCashfreePayment = async (paymentData, credentials, testMode = false) => {
+  try {
+    const baseUrl = testMode
+      ? 'https://sandbox.cashfree.com/pg'
+      : 'https://api.cashfree.com/pg';
+
+    const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
+    const { orderId, paymentSessionId } = paymentData;
+
+    if (!orderId) {
+      throw new Error('Order ID is required for Cashfree payment verification');
+    }
+
+    // Get order status from Cashfree
+    const response = await axios.get(
+      `${baseUrl}/orders/${orderId}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-version': apiVersion,
+          'x-client-id': credentials.cashfreeAppId.trim(),
+          'x-client-secret': credentials.cashfreeSecretKey.trim(),
+        },
+      }
+    );
+
+    if (response.data && response.data.order_status === 'PAID') {
+      // Get payment details
+      const paymentResponse = await axios.get(
+        `${baseUrl}/orders/${orderId}/payments`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-version': apiVersion,
+            'x-client-id': credentials.cashfreeAppId.trim(),
+            'x-client-secret': credentials.cashfreeSecretKey.trim(),
+          },
+        }
+      );
+
+      const payments = paymentResponse.data || [];
+      const successfulPayment = payments.find(p => p.payment_status === 'SUCCESS');
+
+      if (successfulPayment) {
+        return {
+          success: true,
+          paymentId: successfulPayment.cf_payment_id || successfulPayment.payment_id,
+          orderId: orderId,
+          gateway: 'cashfree',
+        };
+      } else {
+        throw new Error('Payment verification failed - no successful payment found');
+      }
+    } else {
+      throw new Error('Payment verification failed or payment was not successful');
+    }
+  } catch (error) {
+    logger.error('Cashfree payment verification error:', error);
+    throw new Error(`Payment verification failed: ${error.message}`);
+  }
+};
+
+/**
  * Initialize payment based on active gateway
  */
 const initializePayment = async (orderData) => {
@@ -460,6 +603,9 @@ const initializePayment = async (orderData) => {
       
       case 'shopify':
         return await initializeShopifyPayment(orderData, credentials);
+      
+      case 'cashfree':
+        return await initializeCashfreePayment(orderData, credentials, gateway.testMode);
       
       default:
         throw new Error(`Unsupported payment gateway: ${gateway.name}`);
@@ -494,6 +640,9 @@ const verifyPayment = async (paymentData, gatewayName) => {
       
       case 'shopify':
         return await verifyShopifyPayment(paymentData, credentials);
+      
+      case 'cashfree':
+        return await verifyCashfreePayment(paymentData, credentials, gateway.testMode);
       
       default:
         throw new Error(`Unsupported payment gateway: ${gatewayName}`);
@@ -621,6 +770,62 @@ const testShopifyCredentials = async (credentials) => {
 };
 
 /**
+ * Test Cashfree credentials
+ */
+const testCashfreeCredentials = async (credentials, isTestMode = false) => {
+  try {
+    if (!credentials.cashfreeAppId || !credentials.cashfreeSecretKey) {
+      throw new Error('App ID and Secret Key are required');
+    }
+
+    const baseUrl = isTestMode
+      ? 'https://sandbox.cashfree.com/pg'
+      : 'https://api.cashfree.com/pg';
+
+    const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
+
+    // Test API connection by trying to get order status (will fail but validates credentials)
+    // Or we can make a simple API call to validate credentials
+    try {
+      // Try to get a non-existent order to test credentials
+      // This will return 404 if credentials are valid, or 401/403 if invalid
+      await axios.get(
+        `${baseUrl}/orders/TEST_ORDER_${Date.now()}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-version': apiVersion,
+            'x-client-id': credentials.cashfreeAppId.trim(),
+            'x-client-secret': credentials.cashfreeSecretKey.trim(),
+          },
+          timeout: 10000,
+        }
+      );
+    } catch (apiError) {
+      // If it's a 401 or 403, credentials are invalid
+      if (apiError.response) {
+        if (apiError.response.status === 401 || apiError.response.status === 403) {
+          throw new Error('Invalid Cashfree credentials. Please check your App ID and Secret Key.');
+        }
+        // 404 or other errors mean credentials are valid but order doesn't exist (which is expected)
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Cashfree credentials are valid',
+      gateway: 'cashfree',
+    };
+  } catch (error) {
+    logger.error('Cashfree credentials test error:', error);
+    if (error.message.includes('Invalid Cashfree credentials')) {
+      throw error;
+    }
+    throw new Error(`Cashfree credentials test failed: ${error.message}`);
+  }
+};
+
+/**
  * Test payment gateway credentials
  */
 const testPaymentGatewayCredentials = async (gatewayName, credentials, isTestMode = false) => {
@@ -638,6 +843,9 @@ const testPaymentGatewayCredentials = async (gatewayName, credentials, isTestMod
       
       case 'shopify':
         return await testShopifyCredentials(credentials);
+      
+      case 'cashfree':
+        return await testCashfreeCredentials(credentials, isTestMode);
       
       default:
         throw new Error(`Unsupported payment gateway: ${gatewayName}`);
@@ -660,5 +868,7 @@ module.exports = {
   verifyPhonePePayment,
   initializeShopifyPayment,
   verifyShopifyPayment,
+  initializeCashfreePayment,
+  verifyCashfreePayment,
   testPaymentGatewayCredentials,
 };

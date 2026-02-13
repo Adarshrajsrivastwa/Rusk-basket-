@@ -66,6 +66,24 @@ const paymentGateways = [
       shopifyAccessToken: '',
     },
   },
+  {
+    name: 'cashfree',
+    displayName: 'Cashfree',
+    isEnabled: false,
+    priority: 4,
+    description: 'Cashfree payment gateway integration',
+    credentials: {
+      cashfreeAppId: '',
+      cashfreeSecretKey: '',
+      cashfreeApiVersion: '2022-09-01',
+    },
+    testMode: true,
+    testCredentials: {
+      cashfreeAppId: '',
+      cashfreeSecretKey: '',
+      cashfreeApiVersion: '2022-09-01',
+    },
+  },
 ];
 
 async function seedPaymentGateways() {

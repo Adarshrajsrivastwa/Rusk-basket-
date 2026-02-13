@@ -134,7 +134,7 @@ router.post(
       .notEmpty()
       .withMessage('Payment gateway is required')
       .bail()
-      .isIn(['razorpay', 'phonepay', 'shopify'])
+      .isIn(['razorpay', 'phonepay', 'shopify', 'cashfree'])
       .withMessage('Invalid payment gateway'),
   ],
   async (req, res, next) => {
@@ -236,6 +236,43 @@ router.post(
       res.status(200).json({ success: true });
     } catch (error) {
       logger.error('PhonePe callback error:', error);
+      res.status(200).json({ success: false }); // Return 200 to prevent retries
+    }
+  }
+);
+
+/**
+ * Cashfree Payment webhook/callback
+ * POST /api/payment/cashfree/callback
+ */
+router.post(
+  '/cashfree/callback',
+  async (req, res, next) => {
+    try {
+      const { data } = req.body;
+
+      if (data && data.order && data.order.order_status === 'PAID') {
+        const { order_id, order_amount } = data.order;
+
+        // Find order by transaction ID
+        const order = await Order.findOne({
+          'payment.transactionId': order_id,
+        });
+
+        if (order && order.payment.status !== 'completed') {
+          order.payment.status = 'completed';
+          order.payment.transactionId = order_id;
+          order.payment.paidAt = new Date();
+          order.payment.method = 'cashfree';
+          await order.save();
+
+          logger.info(`Cashfree payment callback processed for order ${order.orderNumber}`);
+        }
+      }
+
+      res.status(200).json({ success: true });
+    } catch (error) {
+      logger.error('Cashfree callback error:', error);
       res.status(200).json({ success: false }); // Return 200 to prevent retries
     }
   }
@@ -415,6 +452,7 @@ router.get('/gateways', async (req, res, next) => {
 
 /**
  * Create payment link (for Flutter/WebView)
+ * Automatically selects payment gateway based on priority and availability from database
  * POST /api/payment/create-payment-link
  */
 router.post(
@@ -452,8 +490,8 @@ router.post(
       .withMessage('Callback URL must be a valid URL'),
     body('gateway')
       .optional()
-      .isIn(['razorpay', 'phonepay'])
-      .withMessage('Gateway must be razorpay or phonepay'),
+      .isIn(['razorpay', 'phonepay', 'cashfree'])
+      .withMessage('Gateway must be razorpay, phonepay, or cashfree'),
   ],
   async (req, res, next) => {
     try {
@@ -481,7 +519,8 @@ router.post(
       const userEmail = req.user.email || email;
       const userName = req.user.name || name || '';
 
-      // Get payment gateway (prefer specified gateway, otherwise get active)
+      // Get payment gateway from database based on priority and availability
+      // If gateway is specified, use that; otherwise get active gateway with highest priority
       let paymentGateway;
       if (gateway) {
         paymentGateway = await PaymentGateway.findOne({
@@ -495,8 +534,11 @@ router.post(
           });
         }
       } else {
+        // Get active gateway based on priority (highest priority first)
         paymentGateway = await getActivePaymentGateway();
       }
+
+      logger.info(`Creating payment link using gateway: ${paymentGateway.name} (Priority: ${paymentGateway.priority}, TestMode: ${paymentGateway.testMode})`);
 
       // Merge credentials - test credentials override production credentials if testMode is enabled
       let credentials = { ...paymentGateway.credentials };
@@ -533,14 +575,13 @@ router.post(
 
         logger.info(`Payment link created for user ${userId} via Razorpay: ${paymentLink.paymentLinkId}`);
 
+        // Simple response format for Flutter
         res.status(200).json({
           success: true,
           payment_url: paymentLink.payment_url,
-          paymentLinkId: paymentLink.paymentLinkId,
-          amount: paymentLink.amount,
-          currency: paymentLink.currency,
-          status: paymentLink.status,
           gateway: 'razorpay',
+          amount: paymentLink.amount,
+          currency: paymentLink.currency || 'INR',
         });
       } else if (paymentGateway.name === 'phonepay') {
         // PhonePe doesn't have payment links, use redirect URL approach
@@ -589,16 +630,70 @@ router.post(
         if (response.data && response.data.success && response.data.data) {
           logger.info(`Payment link created for user ${userId} via PhonePe: ${merchantTransactionId}`);
 
+          // Simple response format for Flutter
           res.status(200).json({
             success: true,
             payment_url: response.data.data.instrumentResponse.redirectInfo.url,
-            merchantTransactionId: merchantTransactionId,
+            gateway: 'phonepay',
             amount: amountInPaise / 100,
             currency: 'INR',
-            gateway: 'phonepay',
           });
         } else {
           throw new Error('PhonePe payment initialization failed');
+        }
+      } else if (paymentGateway.name === 'cashfree') {
+        // Cashfree payment link creation
+        const baseUrl = paymentGateway.testMode
+          ? 'https://sandbox.cashfree.com/pg'
+          : 'https://api.cashfree.com/pg';
+
+        const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
+        const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+        const amountInPaise = Math.round(parseFloat(amount) * 100);
+
+        const payload = {
+          order_id: orderId,
+          order_amount: amountInPaise,
+          order_currency: 'INR',
+          order_note: description || 'Payment',
+          customer_details: {
+            customer_id: userId.toString(),
+            customer_name: userName,
+            customer_email: userEmail,
+            customer_phone: contact || req.user.contactNumber || '',
+          },
+          order_meta: {
+            return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback?order_id={order_id}`,
+            notify_url: `${process.env.API_URL || 'http://localhost:3000'}/api/payment/cashfree/callback`,
+          },
+        };
+
+        const response = await axios.post(
+          `${baseUrl}/orders`,
+          payload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-version': apiVersion,
+              'x-client-id': credentials.cashfreeAppId.trim(),
+              'x-client-secret': credentials.cashfreeSecretKey.trim(),
+            },
+          }
+        );
+
+        if (response.data && response.data.payment_session_id) {
+          logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
+
+          // Simple response format for Flutter
+          res.status(200).json({
+            success: true,
+            payment_url: `${baseUrl}/payments/${response.data.payment_session_id}`,
+            gateway: 'cashfree',
+            amount: amountInPaise / 100,
+            currency: 'INR',
+          });
+        } else {
+          throw new Error('Cashfree payment initialization failed');
         }
       } else {
         return res.status(400).json({
@@ -608,9 +703,22 @@ router.post(
       }
     } catch (error) {
       logger.error('Create payment link error:', error);
+      
+      // Return user-friendly error message
+      let errorMessage = 'Failed to create payment link';
+      if (error.message) {
+        if (error.message.includes('No payment gateway')) {
+          errorMessage = 'No payment gateway is enabled. Please contact support.';
+        } else if (error.message.includes('credentials')) {
+          errorMessage = 'Payment gateway credentials are missing or invalid. Please contact support.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to create payment link',
+        message: errorMessage,
       });
     }
   }

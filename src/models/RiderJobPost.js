@@ -32,6 +32,11 @@ const RiderJobPostSchema = new mongoose.Schema({
     required: true,
     enum: ['Admin', 'Vendor'],
   },
+  category: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Category cannot be more than 100 characters'],
+  },
   location: {
     line1: {
       type: String,
@@ -87,6 +92,7 @@ RiderJobPostSchema.index({ vendor: 1 });
 RiderJobPostSchema.index({ isActive: 1 });
 RiderJobPostSchema.index({ createdAt: -1 });
 RiderJobPostSchema.index({ postedBy: 1, postedByType: 1 });
+RiderJobPostSchema.index({ category: 1 });
 RiderJobPostSchema.index({ 'location.city': 1 });
 RiderJobPostSchema.index({ 'location.state': 1 });
 RiderJobPostSchema.index({ 'location.pinCode': 1 });

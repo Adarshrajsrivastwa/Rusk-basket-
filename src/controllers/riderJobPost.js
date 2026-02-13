@@ -35,6 +35,7 @@ exports.createJobPost = async (req, res, next) => {
       jobTitle, 
       joiningBonus, 
       onboardingFee, 
+      category,
       vendor: vendorIdFromBody,
       locationLine1,
       locationLine2,
@@ -131,6 +132,7 @@ exports.createJobPost = async (req, res, next) => {
       jobTitle,
       joiningBonus,
       onboardingFee,
+      category: category || undefined,
       vendor: vendorId,
       postedBy,
       postedByType,
@@ -161,6 +163,7 @@ exports.getJobPosts = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const isActive = req.query.isActive;
     const vendor = req.query.vendor;
+    const category = req.query.category;
     const city = req.query.city;
     const state = req.query.state;
     const pinCode = req.query.pinCode;
@@ -203,6 +206,10 @@ exports.getJobPosts = async (req, res, next) => {
       query.isActive = isActive === 'true';
     } else if (!isAdmin && !isVendor) {
       query.isActive = true;
+    }
+
+    if (category) {
+      query.category = { $regex: category.trim(), $options: 'i' };
     }
 
     if (city) {
