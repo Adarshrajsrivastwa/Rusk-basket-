@@ -57,6 +57,31 @@ router.put(
 );
 
 /**
+ * @route   GET /api/invoice/order/:orderNumber/download-pdf
+ * @desc    Download/View invoice PDF for an order
+ * @access  Public (can be protected if needed)
+ * @query   download=true to force download, otherwise opens in browser
+ * 
+ * IMPORTANT: This route must be defined BEFORE /order/:orderId to avoid route conflicts
+ */
+router.get(
+  '/order/:orderNumber/download-pdf',
+  async (req, res, next) => {
+    // Basic validation
+    const { orderNumber } = req.params;
+    if (!orderNumber || orderNumber.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Order number is required',
+      });
+    }
+    req.params.orderNumber = orderNumber.trim();
+    next();
+  },
+  downloadInvoicePDF
+);
+
+/**
  * @route   GET /api/invoice/order/:orderId
  * @desc    Get all invoices for an order
  * @access  Public (can be protected if needed)
@@ -265,27 +290,6 @@ router.post(
       .trim(),
   ],
   generateOrderInvoicePDF
-);
-
-/**
- * @route   GET /api/invoice/order/:orderNumber/download-pdf
- * @desc    Download/View invoice PDF for an order
- * @access  Public (can be protected if needed)
- * @query   download=true to force download, otherwise opens in browser
- */
-router.get(
-  '/order/:orderNumber/download-pdf',
-  [
-    param('orderNumber')
-      .notEmpty()
-      .withMessage('Order number is required')
-      .trim(),
-    query('download')
-      .optional()
-      .isIn(['true', 'false'])
-      .withMessage('Download must be true or false'),
-  ],
-  downloadInvoicePDF
 );
 
 /**

@@ -976,8 +976,8 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     logger.info(`Saving PDF to server: ${filePath}`);
     await fs.writeFile(filePath, pdfBuffer);
 
-    // Create server URL for download/view (without /api prefix)
-    const invoiceUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
+    // Create server URL for download/view (with /api prefix)
+    const invoiceUrl = `/api/invoice/order/${order.orderNumber}/download-pdf`;
 
     // Save file path in order
     order.invoicePdf = {
