@@ -1062,6 +1062,16 @@ exports.downloadInvoicePDF = async (req, res, next) => {
       // Priority 1: Use saved Cloudinary URL directly
       if (order.invoicePdf.cloudinaryUrl && order.invoicePdf.cloudinaryUrl.startsWith('http')) {
         cloudinaryUrl = order.invoicePdf.cloudinaryUrl;
+        
+        // CRITICAL: Verify URL format - must have /raw/upload/ for PDFs
+        if (!cloudinaryUrl.includes('/raw/upload/')) {
+          logger.error(`PDF URL has wrong format (image/upload instead of raw/upload): ${cloudinaryUrl}`);
+          return res.status(500).json({
+            success: false,
+            error: 'PDF URL format incorrect. PDF was uploaded with wrong resource type. Please regenerate invoice.',
+            message: 'PDF must be uploaded as raw file type, not image. Contact support to fix existing PDFs.',
+          });
+        }
       } 
       // Priority 2: Build Cloudinary URL from publicId (PDFs must use raw resource type)
       else if (order.invoicePdf.publicId) {
@@ -1070,6 +1080,7 @@ exports.downloadInvoicePDF = async (req, res, next) => {
           resource_type: 'raw',
           secure: true,
         });
+        logger.info(`Generated Cloudinary URL from publicId: ${cloudinaryUrl}`);
       } else {
         return res.status(404).json({
           success: false,
@@ -1077,31 +1088,63 @@ exports.downloadInvoicePDF = async (req, res, next) => {
         });
       }
 
+      // Verify URL format one more time before fetching
+      if (!cloudinaryUrl.includes('/raw/upload/')) {
+        logger.error(`CRITICAL: PDF URL does not contain /raw/upload/: ${cloudinaryUrl}`);
+        return res.status(500).json({
+          success: false,
+          error: 'PDF URL format incorrect. Cannot serve PDF with wrong resource type.',
+        });
+      }
+
+      logger.info(`Fetching PDF from Cloudinary: ${cloudinaryUrl}`);
+
       // Fetch PDF from Cloudinary
       const response = await axios.get(cloudinaryUrl, {
         responseType: 'arraybuffer',
         timeout: 30000, // 30 seconds timeout
+        headers: {
+          'Accept': 'application/pdf',
+        },
       });
+
+      // Verify response is actually a PDF
+      const contentType = response.headers['content-type'] || '';
+      if (!contentType.includes('application/pdf') && !contentType.includes('application/octet-stream')) {
+        logger.warn(`Cloudinary returned unexpected Content-Type: ${contentType}`);
+      }
 
       const pdfBuffer = Buffer.from(response.data);
 
-      // Set appropriate headers
-      const filename = `invoice-${order.orderNumber}.pdf`;
-      const contentType = 'application/pdf';
+      // Verify buffer is not empty
+      if (!pdfBuffer || pdfBuffer.length === 0) {
+        logger.error('PDF buffer is empty');
+        return res.status(500).json({
+          success: false,
+          error: 'PDF file is empty or corrupted',
+        });
+      }
 
+      // Set appropriate headers BEFORE sending data
+      const filename = `invoice-${order.orderNumber}.pdf`;
+      
+      // CRITICAL: Set Content-Type FIRST
+      res.setHeader('Content-Type', 'application/pdf');
+      
       if (download === 'true') {
         // Force download
-        res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       } else {
-        // Open in browser
-        res.setHeader('Content-Type', contentType);
+        // Open in browser (inline)
         res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
       }
 
       res.setHeader('Content-Length', pdfBuffer.length);
       res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
       res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
+      res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME type sniffing
+
+      logger.info(`Sending PDF buffer (${pdfBuffer.length} bytes) with Content-Type: application/pdf`);
 
       // Send PDF buffer properly (use end instead of send to prevent truncation)
       res.end(pdfBuffer);
