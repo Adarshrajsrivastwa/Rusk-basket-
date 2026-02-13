@@ -1394,11 +1394,10 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
   }
 
   const orders = await Order.find(query)
-    .populate('user', 'userName email contactNumber address')
-    .populate('items.product', 'productName thumbnail skuHsn')
-    .populate('items.vendor', 'storeName storeId vendorName contactNumber email storeAddress')
-    .populate('coupon.couponId', 'couponName code')
-    .populate('rider', 'fullName mobileNumber')
+    .populate('items.product', 'productName thumbnail skuHsn description')
+    .populate('items.vendor', 'vendorName storeName contactNumber storeAddress')
+    .populate('rider', 'fullName mobileNumber currentAddress')
+    .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber currentAddress')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -1406,96 +1405,88 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
 
   const total = await Order.countDocuments(query);
 
-  // Add invoice details to each order
-  const ordersWithInvoice = orders.map(order => {
+  // Format orders with only required fields
+  const formattedOrders = orders.map(order => {
     // Get unique vendors from order items
-    const uniqueVendors = [...new Set(order.items.map(item => {
-      if (!item.vendor) return null;
-      // Handle both populated object and ObjectId
+    const vendorMap = new Map();
+    order.items.forEach(item => {
+      if (!item.vendor) return;
       const vendorId = item.vendor._id ? item.vendor._id.toString() : item.vendor.toString();
-      return vendorId;
-    }).filter(Boolean))].map(vendorId => {
-      const vendorItem = order.items.find(item => {
-        if (!item.vendor) return false;
-        const itemVendorId = item.vendor._id ? item.vendor._id.toString() : item.vendor.toString();
-        return itemVendorId === vendorId;
-      });
-      return {
-        name: vendorItem?.vendor?.vendorName || 'N/A',
-        storeName: vendorItem?.vendor?.storeName || 'N/A',
-        contactNumber: vendorItem?.vendor?.contactNumber || 'N/A',
-        email: vendorItem?.vendor?.email || 'N/A',
-        address: vendorItem?.vendor?.storeAddress || {},
-      };
+      if (!vendorMap.has(vendorId)) {
+        const vendor = item.vendor;
+        vendorMap.set(vendorId, {
+          name: vendor.vendorName || vendor.storeName || null,
+          phone: vendor.contactNumber || null,
+          address: vendor.storeAddress ? {
+            line1: vendor.storeAddress.line1 || null,
+            line2: vendor.storeAddress.line2 || null,
+            city: vendor.storeAddress.city || null,
+            state: vendor.storeAddress.state || null,
+            pinCode: vendor.storeAddress.pinCode || null,
+          } : null,
+        });
+      }
     });
 
-    const invoice = {
-      invoiceNumber: order.orderNumber,
-      invoiceDate: order.createdAt,
-      orderDate: order.createdAt,
-      deliveryDate: order.deliveredAt || order.estimatedDelivery || null,
-      invoicePdfUrl: order.invoicePdf?.url || null,
-      customer: {
-        name: order.user?.userName || 'N/A',
-        email: order.user?.email || 'N/A',
-        contactNumber: order.user?.contactNumber || 'N/A',
-        address: order.user?.address || {},
-      },
-      vendors: uniqueVendors,
-      items: order.items.map((item) => ({
-        productName: item.productName,
-        sku: item.sku || item.product?.skuHsn || 'N/A',
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        salePrice: item.salePrice,
-        totalPrice: item.totalPrice,
-        cashback: item.cashback || 0,
-        vendor: {
-          name: item.vendor?.vendorName || 'N/A',
-          storeName: item.vendor?.storeName || 'N/A',
-        },
-      })),
-      pricing: {
-        subtotal: order.pricing?.subtotal || 0,
-        discount: order.pricing?.discount || 0,
-        tax: order.pricing?.tax || 0,
-        handlingCharge: order.pricing?.handlingCharge || 0,
-        total: order.pricing?.total || 0,
-        totalCashback: order.pricing?.totalCashback || 0,
-        deliveryAmount: order.pricing?.deliveryAmount || 0,
-        riderAmount: order.pricing?.riderAmount || 0,
-      },
-      payment: {
-        method: order.payment?.method || 'N/A',
-        status: order.payment?.status || 'N/A',
-        amount: order.payment?.amount || 0,
-        transactionId: order.payment?.transactionId || 'N/A',
-        paidAt: order.payment?.paidAt || null,
-      },
-      coupon: order.coupon?.code ? {
-        code: order.coupon.code,
-        discount: order.coupon.discount || 0,
-      } : null,
-      status: order.status,
-      rider: order.rider ? {
-        name: order.rider.fullName || 'N/A',
-        mobileNumber: order.rider.mobileNumber || 'N/A',
-        assignedAt: order.assignedAt || null,
-      } : null,
-      notes: order.notes || null,
-      cancellationReason: order.cancellationReason || null,
-      cancelledAt: order.cancelledAt || null,
+    // Get rider info (check assignmentRequestSentTo first, then order.rider)
+    let riderInfo = null;
+    if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
+      const acceptedRequest = order.assignmentRequestSentTo.find(
+        req => req.status === 'accepted' && req.rider
+      );
+      if (acceptedRequest && acceptedRequest.rider) {
+        const rider = acceptedRequest.rider;
+        riderInfo = {
+          name: rider.fullName || null,
+          phone: rider.mobileNumber || null,
+          address: rider.currentAddress || null,
+        };
+      }
+    }
+    
+    if (!riderInfo && order.rider) {
+      riderInfo = {
+        name: order.rider.fullName || null,
+        phone: order.rider.mobileNumber || null,
+        address: order.rider.currentAddress || null,
+      };
+    }
+
+    // Format product details
+    const products = order.items.map(item => ({
+      productName: item.productName || null,
+      description: item.product?.description || null,
+      sku: item.sku || item.product?.skuHsn || null,
+      quantity: item.quantity || 0,
+      unitPrice: item.unitPrice || item.salePrice || 0,
+      salePrice: item.salePrice || 0,
+      totalPrice: item.totalPrice || 0,
+      tax: item.tax || 0,
+      cashback: item.cashback || 0,
+    }));
+
+    // Format pricing
+    const pricing = {
+      subtotal: order.pricing?.subtotal || 0,
+      discount: order.pricing?.discount || 0,
+      tax: order.pricing?.tax || 0,
+      handlingCharge: order.pricing?.handlingCharge || 0,
+      deliveryAmount: order.pricing?.deliveryAmount || 0,
+      totalCashback: order.pricing?.totalCashback || 0,
+      total: order.pricing?.total || 0,
     };
 
     return {
-      ...order,
-      invoice,
-      invoicePdfUrl: order.invoicePdf?.url || null,
+      orderNumber: order.orderNumber || null,
+      vendors: Array.from(vendorMap.values()),
+      rider: riderInfo,
+      products: products,
+      pricing: pricing,
     };
   });
 
   return {
-    orders: ordersWithInvoice,
+    orders: formattedOrders,
     pagination: {
       page,
       limit,

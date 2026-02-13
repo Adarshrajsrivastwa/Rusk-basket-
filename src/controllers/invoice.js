@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
 const { uploadToCloudinary } = require('../utils/cloudinary');
+const cloudinary = require('cloudinary').v2;
 const axios = require('axios');
 
 // Helper function to format response - keep _id for operations but ensure code is present
@@ -971,23 +972,18 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     logger.info(`Uploading PDF to Cloudinary for order: ${orderNumber}`);
     const uploadResult = await uploadToCloudinary(pdfFile, 'rush-basket/invoices');
 
-    // Convert Cloudinary URL to downloadable format (add .pdf extension and flags)
-    const downloadUrl = uploadResult.url.replace(/\/upload\//, '/upload/fl_attachment:invoice-' + order.orderNumber + '.pdf/');
-    
-    // Create view URL without /api prefix
-    const viewUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
+    // Create single URL for both view and download (without /api prefix)
+    const invoiceUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
 
-    // Update order with PDF URLs (save both download and view URLs)
+    // Update order with PDF URL (single URL for both view and download)
     order.invoicePdf = {
-      url: uploadResult.url,
-      downloadUrl: downloadUrl,
-      viewUrl: viewUrl,
+      url: invoiceUrl,
       publicId: uploadResult.publicId,
     };
 
     await order.save();
 
-    logger.info(`Invoice PDF generated and saved for order: ${orderNumber} with downloadUrl and viewUrl`);
+    logger.info(`Invoice PDF generated and saved for order: ${orderNumber} with URL: ${invoiceUrl}`);
 
     res.status(200).json({
       success: true,
@@ -995,9 +991,7 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
       data: {
         orderNumber: order.orderNumber,
         invoicePdf: {
-          url: uploadResult.url,
-          downloadUrl: downloadUrl, // Direct download URL from Cloudinary
-          viewUrl: viewUrl, // Server endpoint to view/download (without /api)
+          url: invoiceUrl, // Single URL for both view and download (without /api)
           publicId: uploadResult.publicId,
         },
       },
@@ -1031,7 +1025,7 @@ exports.downloadInvoicePDF = async (req, res, next) => {
       });
     }
 
-    if (!order.invoicePdf || !order.invoicePdf.url) {
+    if (!order.invoicePdf || !order.invoicePdf.publicId) {
       return res.status(404).json({
         success: false,
         error: 'Invoice PDF not found for this order. Please generate it first.',
@@ -1039,8 +1033,15 @@ exports.downloadInvoicePDF = async (req, res, next) => {
     }
 
     try {
-      // Fetch PDF from Cloudinary URL
-      const response = await axios.get(order.invoicePdf.url, {
+      // Build Cloudinary URL from publicId
+      const cloudinaryUrl = cloudinary.url(order.invoicePdf.publicId, {
+        resource_type: 'raw',
+        format: 'pdf',
+        secure: true,
+      });
+
+      // Fetch PDF from Cloudinary
+      const response = await axios.get(cloudinaryUrl, {
         responseType: 'arraybuffer',
         timeout: 30000, // 30 seconds timeout
       });
