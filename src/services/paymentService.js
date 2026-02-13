@@ -113,6 +113,58 @@ const initializeRazorpayPayment = async (orderData, credentials) => {
 };
 
 /**
+ * Create Razorpay Payment Link
+ */
+const createRazorpayPaymentLink = async (paymentData, credentials) => {
+  try {
+    // Validate credentials
+    if (!credentials.razorpayKeyId || !credentials.razorpayKeySecret) {
+      throw new Error('Razorpay Key ID and Key Secret are required. Please configure Razorpay credentials in admin panel.');
+    }
+
+    const Razorpay = require('razorpay');
+    
+    const razorpay = new Razorpay({
+      key_id: credentials.razorpayKeyId.trim(),
+      key_secret: credentials.razorpayKeySecret.trim(),
+    });
+
+    const paymentLinkOptions = {
+      amount: Math.round(paymentData.amount * 100), // Amount in paise
+      currency: paymentData.currency || 'INR',
+      description: paymentData.description || 'Payment',
+      customer: {
+        name: paymentData.name || '',
+        email: paymentData.email || '',
+        contact: paymentData.contact || '',
+      },
+      notify: {
+        sms: paymentData.notify?.sms !== false, // Default true
+        email: paymentData.notify?.email !== false, // Default true
+      },
+      callback_url: paymentData.callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment-success`,
+      callback_method: paymentData.callbackMethod || 'get',
+      notes: paymentData.notes || {},
+    };
+
+    const paymentLink = await razorpay.paymentLink.create(paymentLinkOptions);
+
+    return {
+      success: true,
+      paymentGateway: 'razorpay',
+      payment_url: paymentLink.short_url,
+      paymentLinkId: paymentLink.id,
+      amount: paymentLink.amount / 100,
+      currency: paymentLink.currency,
+      status: paymentLink.status,
+    };
+  } catch (error) {
+    logger.error('Razorpay payment link creation error:', error);
+    throw new Error(`Razorpay payment link creation failed: ${error.message}`);
+  }
+};
+
+/**
  * Verify Razorpay payment
  */
 const verifyRazorpayPayment = async (paymentData, credentials) => {
@@ -602,6 +654,7 @@ module.exports = {
   initializePayment,
   verifyPayment,
   initializeRazorpayPayment,
+  createRazorpayPaymentLink,
   verifyRazorpayPayment,
   initializePhonePePayment,
   verifyPhonePePayment,
