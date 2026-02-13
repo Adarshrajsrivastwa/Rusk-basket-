@@ -1459,31 +1459,73 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         // Get first product's vendor
         const firstItem = order.items[0];
         if (firstItem && firstItem.vendor) {
-          const vendorId = firstItem.vendor._id ? firstItem.vendor._id.toString() : firstItem.vendor.toString();
+          const mongoose = require('mongoose');
+          const vendorId = firstItem.vendor._id ? firstItem.vendor._id : firstItem.vendor;
           
-          // Find vendor's job posts
-          const jobPosts = await RiderJobPost.find({ vendor: vendorId, isActive: true }).lean();
+          // Convert to ObjectId if it's a string
+          const vendorObjectId = mongoose.Types.ObjectId.isValid(vendorId) 
+            ? (typeof vendorId === 'string' ? new mongoose.Types.ObjectId(vendorId) : vendorId)
+            : null;
           
-          if (jobPosts && jobPosts.length > 0) {
-            const jobPostIds = jobPosts.map(jp => jp._id);
+          if (vendorObjectId) {
+            // Find vendor's job posts
+            const jobPosts = await RiderJobPost.find({ 
+              vendor: vendorObjectId, 
+              isActive: true 
+            }).select('_id').lean();
             
-            // Find assigned/confirmed riders for this vendor's job posts
-            const assignedApplication = await RiderJobApplication.findOne({
-              jobPost: { $in: jobPostIds },
-              status: { $in: ['assigned', 'approved'] },
-              confirmed: true,
-            })
-            .populate('rider', 'fullName mobileNumber currentAddress')
-            .sort({ assignedAt: -1, confirmedAt: -1 })
-            .lean();
-            
-            if (assignedApplication && assignedApplication.rider) {
-              const rider = assignedApplication.rider;
-              riderInfo = {
-                name: rider.fullName || null,
-                phone: rider.mobileNumber || null,
-                address: rider.currentAddress || null,
-              };
+            if (jobPosts && jobPosts.length > 0) {
+              const jobPostIds = jobPosts.map(jp => jp._id);
+              
+              // Find assigned/confirmed riders for this vendor's job posts
+              // Try confirmed first, then any assigned/approved
+              let assignedApplication = await RiderJobApplication.findOne({
+                jobPost: { $in: jobPostIds },
+                status: { $in: ['assigned', 'approved'] },
+                confirmed: true,
+              })
+              .populate('rider', 'fullName mobileNumber currentAddress')
+              .sort({ confirmedAt: -1, assignedAt: -1 })
+              .lean();
+              
+              // If no confirmed rider, try any assigned/approved rider
+              if (!assignedApplication) {
+                assignedApplication = await RiderJobApplication.findOne({
+                  jobPost: { $in: jobPostIds },
+                  status: { $in: ['assigned', 'approved'] },
+                })
+                .populate('rider', 'fullName mobileNumber currentAddress')
+                .sort({ assignedAt: -1 })
+                .lean();
+              }
+              
+              if (assignedApplication && assignedApplication.rider) {
+                const rider = assignedApplication.rider;
+                riderInfo = {
+                  name: rider.fullName || null,
+                  phone: rider.mobileNumber || null,
+                  address: rider.currentAddress || null,
+                };
+              }
+            } else {
+              // If no job posts, try to find any rider assigned to this vendor through applications
+              // Check for riders confirmed for this vendor
+              const confirmedApplication = await RiderJobApplication.findOne({
+                confirmedForVendor: vendorObjectId,
+                confirmed: true,
+              })
+              .populate('rider', 'fullName mobileNumber currentAddress')
+              .sort({ confirmedAt: -1 })
+              .lean();
+              
+              if (confirmedApplication && confirmedApplication.rider) {
+                const rider = confirmedApplication.rider;
+                riderInfo = {
+                  name: rider.fullName || null,
+                  phone: rider.mobileNumber || null,
+                  address: rider.currentAddress || null,
+                };
+              }
             }
           }
         }
