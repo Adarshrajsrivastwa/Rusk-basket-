@@ -2,6 +2,13 @@ const PDFDocument = require('pdfkit');
 const { Readable } = require('stream');
 const logger = require('./logger');
 
+// Color constants
+const ORANGE = '#FF6B35';
+const WHITE = '#FFFFFF';
+const BLACK = '#000000';
+const GREEN = '#28A745';
+const LIGHT_GRAY = '#F5F5F5';
+
 /**
  * Generate invoice PDF buffer from order data
  * @param {Object} orderData - Order data with populated user and vendor
@@ -10,7 +17,7 @@ const logger = require('./logger');
 const generateInvoicePDF = async (orderData) => {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const doc = new PDFDocument({ margin: 0, size: 'A4' });
       const buffers = [];
 
       // Collect PDF data
@@ -27,172 +34,310 @@ const generateInvoicePDF = async (orderData) => {
       const vendor = order.vendor || {};
       const items = order.items || [];
       const pricing = order.pricing || {};
-      const shippingAddress = order.shippingAddress || {};
       const payment = order.payment || {};
 
-      // Header
-      doc.fontSize(20).font('Helvetica-Bold').text('INVOICE', { align: 'center' });
-      doc.moveDown(0.5);
-      doc.fontSize(10).font('Helvetica').text(`Order Number: ${order.orderNumber || 'N/A'}`, { align: 'center' });
-      doc.fontSize(10).text(`Date: ${order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN') : 'N/A'}`, { align: 'center' });
-      doc.moveDown(1);
+      // Generate invoice code and number
+      const invoiceCode = `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
+      const invoiceNumber = `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
+      const invoiceDate = order.createdAt ? new Date(order.createdAt) : new Date();
+      const dueDate = new Date(invoiceDate);
+      dueDate.setDate(dueDate.getDate() + 30); // 30 days from invoice date
 
-      // Company/Vendor Information
-      doc.fontSize(14).font('Helvetica-Bold').text('Vendor Details:', 50, doc.y);
-      doc.moveDown(0.3);
-      doc.fontSize(10).font('Helvetica');
-      doc.text(`Name: ${vendor.vendorName || vendor.storeName || 'N/A'}`);
-      if (vendor.storeName && vendor.vendorName !== vendor.storeName) {
-        doc.text(`Store: ${vendor.storeName}`);
-      }
-      if (vendor.contactNumber) {
-        doc.text(`Mobile: ${vendor.contactNumber}`);
-      }
-      if (vendor.altContactNumber) {
-        doc.text(`Alt Mobile: ${vendor.altContactNumber}`);
-      }
-      if (vendor.email) {
-        doc.text(`Email: ${vendor.email}`);
-      }
-      if (vendor.storeAddress) {
-        const addr = vendor.storeAddress;
-        doc.text(`Address: ${addr.line1 || ''}${addr.line2 ? ', ' + addr.line2 : ''}`);
-        if (addr.city || addr.state || addr.pinCode) {
-          doc.text(`${addr.city || ''}${addr.state ? ', ' + addr.state : ''}${addr.pinCode ? ' - ' + addr.pinCode : ''}`);
-        }
-      }
-      doc.moveDown(1);
-
-      // Customer/User Information
-      doc.fontSize(14).font('Helvetica-Bold').text('Customer Details:', 50, doc.y);
-      doc.moveDown(0.3);
-      doc.fontSize(10).font('Helvetica');
-      doc.text(`Name: ${user.userName || 'N/A'}`);
-      if (user.contactNumber) {
-        doc.text(`Mobile: ${user.contactNumber}`);
-      }
-      if (user.email) {
-        doc.text(`Email: ${user.email}`);
-      }
-      if (shippingAddress.line1) {
-        doc.text(`Shipping Address: ${shippingAddress.line1}${shippingAddress.line2 ? ', ' + shippingAddress.line2 : ''}`);
-        if (shippingAddress.city || shippingAddress.state || shippingAddress.pinCode) {
-          doc.text(`${shippingAddress.city || ''}${shippingAddress.state ? ', ' + shippingAddress.state : ''}${shippingAddress.pinCode ? ' - ' + shippingAddress.pinCode : ''}`);
-        }
-        if (shippingAddress.phone) {
-          doc.text(`Phone: ${shippingAddress.phone}`);
-        }
-      }
-      doc.moveDown(1);
-
-      // Items Table Header
-      const tableTop = doc.y;
-      doc.fontSize(12).font('Helvetica-Bold');
-      doc.text('Item', 50, tableTop);
-      doc.text('Quantity', 200, tableTop);
-      doc.text('Unit Price', 280, tableTop);
-      doc.text('Total', 360, tableTop);
+      // ========== HEADER SECTION (Orange Background) ==========
+      const headerHeight = 120;
+      doc.rect(0, 0, 595.28, headerHeight).fill(ORANGE);
       
-      // Draw line under header
-      doc.moveTo(50, doc.y + 5).lineTo(550, doc.y + 5).stroke();
-      doc.moveDown(0.5);
+      // INVOICE text (large, white, bold)
+      doc.fontSize(48)
+         .font('Helvetica-Bold')
+         .fillColor(WHITE)
+         .text('INVOICE', 50, 30, { align: 'left' });
 
-      // Items
-      doc.fontSize(10).font('Helvetica');
-      let yPosition = doc.y;
+      // Invoice Code and Number (white, smaller)
+      doc.fontSize(12)
+         .font('Helvetica')
+         .fillColor(WHITE)
+         .text(`Code: ${invoiceCode}`, 50, 85);
+      
+      doc.fontSize(12)
+         .text(`Invoice #: ${invoiceNumber}`, 50, 100);
+
+      // ========== KEY INFORMATION BOXES ==========
+      let yPos = headerHeight + 20;
+      const boxWidth = 165;
+      const boxHeight = 80;
+      const boxSpacing = 20;
+      const startX = 50;
+
+      // Invoice Date Box
+      doc.rect(startX, yPos, boxWidth, boxHeight)
+         .stroke(ORANGE)
+         .fill(WHITE);
+      
+      // Calendar icon placeholder (using text)
+      doc.fontSize(16)
+         .fillColor(ORANGE)
+         .text('📅', startX + 10, yPos + 12);
+      
+      doc.fontSize(9)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('INVOICE DATE', startX + 35, yPos + 10);
+      
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text(invoiceDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), startX + 10, yPos + 35);
+
+      // Due Date Box
+      const dueDateX = startX + boxWidth + boxSpacing;
+      doc.rect(dueDateX, yPos, boxWidth, boxHeight)
+         .stroke(ORANGE)
+         .fill(WHITE);
+      
+      doc.fontSize(16)
+         .fillColor(ORANGE)
+         .text('📅', dueDateX + 10, yPos + 12);
+      
+      doc.fontSize(9)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('DUE DATE', dueDateX + 35, yPos + 10);
+      
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text(dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), dueDateX + 10, yPos + 35);
+
+      // Order ID Box
+      const orderIdX = dueDateX + boxWidth + boxSpacing;
+      doc.rect(orderIdX, yPos, boxWidth, boxHeight)
+         .stroke(ORANGE)
+         .fill(WHITE);
+      
+      doc.fontSize(16)
+         .fillColor(ORANGE)
+         .text('📦', orderIdX + 10, yPos + 12);
+      
+      doc.fontSize(9)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('ORDER ID', orderIdX + 35, yPos + 10);
+      
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text(order.orderNumber || 'N/A', orderIdX + 10, yPos + 35);
+
+      // ========== COMPANY DETAILS SECTION ==========
+      yPos = yPos + boxHeight + 20;
+      const companyBoxHeight = 140;
+      
+      doc.rect(50, yPos, 495.28, companyBoxHeight)
+         .stroke(ORANGE)
+         .fill(WHITE);
+
+      // Company Details Header
+      doc.fontSize(16)
+         .fillColor(ORANGE)
+         .text('🏢', 60, yPos + 12);
+      
+      doc.fontSize(14)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('Company Details', 85, yPos + 12);
+
+      // Company Name
+      doc.fontSize(18)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('Rush Delivery Services', 60, yPos + 35);
+
+      // Contact Information with Icons
+      let contactY = yPos + 60;
+      const contactSpacing = 18;
+
+      // Email
+      doc.fontSize(10)
+         .fillColor(ORANGE)
+         .text('✉', 60, contactY);
+      doc.fontSize(10)
+         .fillColor(BLACK)
+         .text('info@rushdelivery.com', 85, contactY);
+
+      // Phone
+      contactY += contactSpacing;
+      doc.fontSize(10)
+         .fillColor(ORANGE)
+         .text('📞', 60, contactY);
+      doc.fontSize(10)
+         .fillColor(BLACK)
+         .text('+91 1800 123 4567', 85, contactY);
+
+      // Address
+      contactY += contactSpacing;
+      doc.fontSize(10)
+         .fillColor(ORANGE)
+         .text('📍', 60, contactY);
+      doc.fontSize(10)
+         .fillColor(BLACK)
+         .text('123 Business Park, Patna, Bihar - 800001, India', 85, contactY);
+
+      // Website
+      contactY += contactSpacing;
+      doc.fontSize(10)
+         .fillColor(ORANGE)
+         .text('🌐', 60, contactY);
+      doc.fontSize(10)
+         .fillColor(BLACK)
+         .text('www.rushdelivery.com', 85, contactY);
+
+      // Horizontal line separator
+      doc.moveTo(60, yPos + companyBoxHeight - 5)
+         .lineTo(545.28, yPos + companyBoxHeight - 5)
+         .stroke(ORANGE);
+
+      // ========== PAYMENT METHOD SECTION ==========
+      yPos = yPos + companyBoxHeight + 20;
+      
+      doc.fontSize(14)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('Payment Method:', 50, yPos);
+      
+      const paymentMethod = (payment.method || 'COD').toUpperCase();
+      const paymentStatus = (payment.status || 'PENDING').toUpperCase();
+      
+      // Payment method box
+      const paymentBoxY = yPos + 5;
+      doc.rect(50, paymentBoxY, 200, 40)
+         .stroke(ORANGE)
+         .fill(WHITE);
+      
+      doc.fontSize(10)
+         .fillColor(ORANGE)
+         .text('💳', 60, paymentBoxY + 10);
+      
+      doc.fontSize(12)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text(paymentMethod, 85, paymentBoxY + 10);
+      
+      doc.fontSize(10)
+         .fillColor(BLACK)
+         .text(`Status: ${paymentStatus}`, 85, paymentBoxY + 25);
+
+      // ========== INVOICE ITEMS SECTION ==========
+      yPos = paymentBoxY + 60;
+      
+      doc.fontSize(14)
+         .font('Helvetica-Bold')
+         .fillColor(BLACK)
+         .text('Invoice Items', 50, yPos);
+      
+      yPos += 25;
+
+      // Table Header (Orange background)
+      const tableHeaderY = yPos;
+      const tableHeaderHeight = 30;
+      doc.rect(50, tableHeaderY, 495.28, tableHeaderHeight)
+         .fill(ORANGE);
+      
+      doc.fontSize(10)
+         .font('Helvetica-Bold')
+         .fillColor(WHITE)
+         .text('SKU/HSSN', 60, tableHeaderY + 8);
+      doc.text('Description', 150, tableHeaderY + 8);
+      doc.text('Quantity', 300, tableHeaderY + 8);
+      doc.text('Unit Price', 380, tableHeaderY + 8);
+      doc.text('Total', 480, tableHeaderY + 8);
+
+      // Table Rows
+      yPos = tableHeaderY + tableHeaderHeight;
+      doc.fillColor(BLACK);
+      
       items.forEach((item, index) => {
-        if (yPosition > 700) {
-          // New page if needed
+        if (yPos > 700) {
           doc.addPage();
-          yPosition = 50;
+          yPos = 50;
         }
+
+        const rowHeight = 30;
+        const bgColor = index % 2 === 0 ? WHITE : LIGHT_GRAY;
         
-        const productName = item.productName || 'N/A';
+        doc.rect(50, yPos, 495.28, rowHeight)
+           .fill(bgColor);
+
+        const sku = item.sku || `SKU-${index + 1}`;
+        const description = item.productName || 'N/A';
         const quantity = item.quantity || 0;
         const unitPrice = item.salePrice || item.unitPrice || 0;
-        const totalPrice = item.totalPrice || 0;
+        const total = item.totalPrice || 0;
 
-        // Wrap product name if too long
-        const maxWidth = 140;
-        doc.text(productName, 50, yPosition, { width: maxWidth, ellipsis: true });
-        doc.text(quantity.toString(), 200, yPosition);
-        doc.text(`₹${unitPrice.toFixed(2)}`, 280, yPosition);
-        doc.text(`₹${totalPrice.toFixed(2)}`, 360, yPosition);
-        
-        yPosition += 20;
-        doc.y = yPosition;
+        doc.fontSize(9)
+           .font('Helvetica')
+           .fillColor(BLACK)
+           .text(`HSSN: ${sku}`, 60, yPos + 8);
+        doc.text(description, 150, yPos + 8, { width: 140, ellipsis: true });
+        doc.text(quantity.toString(), 300, yPos + 8);
+        doc.text(`₹${unitPrice.toFixed(2)}`, 380, yPos + 8);
+        doc.text(`₹${total.toFixed(2)}`, 480, yPos + 8);
+
+        yPos += rowHeight;
       });
 
-      doc.moveDown(1);
-      
-      // Draw line before pricing
-      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-      doc.moveDown(0.5);
+      // ========== PRICING SUMMARY SECTION ==========
+      yPos += 20;
+      const summaryStartY = yPos;
+      const summaryWidth = 200;
+      const summaryX = 350;
 
-      // Pricing Summary
-      doc.fontSize(10).font('Helvetica');
-      const pricingY = doc.y;
-      doc.text('Subtotal:', 360, pricingY);
-      doc.text(`₹${(pricing.subtotal || 0).toFixed(2)}`, 480, pricingY, { align: 'right' });
-      
-      if (pricing.discount > 0) {
-        doc.moveDown(0.3);
-        doc.text('Discount:', 360, doc.y);
-        doc.text(`-₹${pricing.discount.toFixed(2)}`, 480, doc.y, { align: 'right' });
-      }
-      
+      doc.fontSize(10)
+         .font('Helvetica')
+         .fillColor(BLACK);
+
+      // Item Cost
+      doc.text('Item Cost:', summaryX, yPos);
+      doc.text(`₹${(pricing.subtotal || 0).toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+      yPos += 20;
+
+      // Total GST
       if (pricing.tax > 0) {
-        doc.moveDown(0.3);
-        doc.text('Tax:', 360, doc.y);
-        doc.text(`₹${pricing.tax.toFixed(2)}`, 480, doc.y, { align: 'right' });
+        doc.text('Total GST:', summaryX, yPos);
+        doc.text(`₹${pricing.tax.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+        yPos += 20;
       }
-      
+
+      // Handling Charges
       if (pricing.handlingCharge > 0) {
-        doc.moveDown(0.3);
-        doc.text('Handling Charge:', 360, doc.y);
-        doc.text(`₹${pricing.handlingCharge.toFixed(2)}`, 480, doc.y, { align: 'right' });
+        doc.text('Handling Charges:', summaryX, yPos);
+        doc.text(`₹${pricing.handlingCharge.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+        yPos += 20;
       }
-      
-      if (pricing.deliveryAmount > 0) {
-        doc.moveDown(0.3);
-        doc.text('Delivery Charge:', 360, doc.y);
-        doc.text(`₹${pricing.deliveryAmount.toFixed(2)}`, 480, doc.y, { align: 'right' });
-      }
-      
-      doc.moveDown(0.5);
-      doc.moveTo(360, doc.y).lineTo(550, doc.y).stroke();
-      doc.moveDown(0.3);
-      
-      doc.fontSize(12).font('Helvetica-Bold');
-      doc.text('Total Amount:', 360, doc.y);
-      doc.text(`₹${(pricing.total || 0).toFixed(2)}`, 480, doc.y, { align: 'right' });
-      
+
+      // Cashback (Green color)
       if (pricing.totalCashback > 0) {
-        doc.moveDown(0.5);
-        doc.fontSize(10).font('Helvetica');
-        doc.text(`Cashback Earned: ₹${pricing.totalCashback.toFixed(2)}`, 360, doc.y);
+        doc.fillColor(GREEN);
+        doc.text('Cashback:', summaryX, yPos);
+        doc.text(`₹${pricing.totalCashback.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+        yPos += 20;
+        doc.fillColor(BLACK);
       }
 
-      doc.moveDown(1.5);
+      // Total Amount (Orange, Bold, Larger)
+      yPos += 10;
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .fillColor(ORANGE)
+         .text('Total Amount:', summaryX, yPos);
+      doc.text(`₹${(pricing.total || 0).toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
 
-      // Payment Information
-      doc.fontSize(12).font('Helvetica-Bold').text('Payment Information:', 50, doc.y);
-      doc.moveDown(0.3);
-      doc.fontSize(10).font('Helvetica');
-      doc.text(`Payment Method: ${(payment.method || 'N/A').toUpperCase()}`);
-      doc.text(`Payment Status: ${(payment.status || 'N/A').toUpperCase()}`);
-      if (payment.transactionId) {
-        doc.text(`Transaction ID: ${payment.transactionId}`);
-      }
-      if (payment.paidAt) {
-        doc.text(`Paid At: ${new Date(payment.paidAt).toLocaleString('en-IN')}`);
-      }
-
-      doc.moveDown(1);
-
-      // Footer
-      doc.fontSize(8).font('Helvetica').text('Thank you for your business!', { align: 'center' });
-      doc.text('This is a computer-generated invoice.', { align: 'center' });
+      // ========== FOOTER ==========
+      doc.fontSize(8)
+         .font('Helvetica')
+         .fillColor(BLACK)
+         .text('Thank you for your business!', 50, 750, { align: 'center' })
+         .text('This is a computer-generated invoice.', 50, 765, { align: 'center' });
 
       // Finalize PDF
       doc.end();

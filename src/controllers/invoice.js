@@ -5,9 +5,8 @@ const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
-const { uploadToCloudinary } = require('../utils/cloudinary');
-const cloudinary = require('cloudinary').v2;
-const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
 
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
@@ -962,61 +961,43 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     logger.info(`Generating PDF invoice for order: ${orderNumber}`);
     const pdfBuffer = await generateInvoicePDF(orderData);
 
-    // Upload PDF to Cloudinary
-    const pdfFile = {
-      buffer: pdfBuffer,
-      originalname: `invoice-${orderNumber}.pdf`,
-      mimetype: 'application/pdf',
-    };
-
-    logger.info(`Uploading PDF to Cloudinary for order: ${orderNumber}`);
-    // Upload PDF as raw file type (not image) - ensures /raw/upload/ in URL
-    const uploadResult = await uploadToCloudinary(pdfFile, 'rush-basket/invoices', 'raw');
-
-    // Verify URL format is correct (must contain /raw/upload/)
-    if (!uploadResult.url.includes('/raw/upload/')) {
-      logger.error(`PDF URL format incorrect: ${uploadResult.url}. Expected /raw/upload/ in URL.`);
-      return res.status(500).json({
-        success: false,
-        error: 'PDF upload failed - incorrect URL format',
-      });
+    // Create invoices directory if it doesn't exist
+    const invoicesDir = path.join(__dirname, '../../uploads/invoices');
+    try {
+      await fs.mkdir(invoicesDir, { recursive: true });
+    } catch (error) {
+      logger.error('Error creating invoices directory:', error);
     }
 
-    // Create single URL for both view and download (without /api prefix)
+    // Save PDF to server filesystem
+    const filename = `invoice-${order.orderNumber}.pdf`;
+    const filePath = path.join(invoicesDir, filename);
+    
+    logger.info(`Saving PDF to server: ${filePath}`);
+    await fs.writeFile(filePath, pdfBuffer);
+
+    // Create server URL for download/view (without /api prefix)
     const invoiceUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
 
-    // Update order with PDF URL (save both server endpoint and Cloudinary URL)
+    // Save file path in order
     order.invoicePdf = {
-      url: invoiceUrl, // Server endpoint URL
-      cloudinaryUrl: uploadResult.url, // Actual Cloudinary URL (must have /raw/upload/)
-      publicId: uploadResult.publicId,
+      url: invoiceUrl,
+      filePath: filePath, // Server file path
+      filename: filename,
     };
-
-    logger.info(`PDF uploaded successfully. URL: ${uploadResult.url}`);
 
     await order.save();
 
-    logger.info(`Invoice PDF generated and saved for order: ${orderNumber} with URL: ${invoiceUrl}`);
-
-    // Verify the Cloudinary URL format one more time before sending response
-    const finalUrl = uploadResult.url;
-    if (!finalUrl.includes('/raw/upload/')) {
-      logger.error(`CRITICAL: PDF URL does not contain /raw/upload/: ${finalUrl}`);
-    } else {
-      logger.info(`PDF URL verified: Contains /raw/upload/ - ${finalUrl}`);
-    }
+    logger.info(`Invoice PDF saved to server for order: ${orderNumber} at path: ${filePath}`);
 
     res.status(200).json({
       success: true,
-      message: 'Invoice PDF generated and uploaded successfully',
+      message: 'Invoice PDF generated and saved successfully',
       data: {
         orderNumber: order.orderNumber,
         invoicePdf: {
           url: invoiceUrl, // Server endpoint (without /api)
-          downloadUrl: finalUrl, // Direct Cloudinary URL (MUST have /raw/upload/ for browser rendering)
-          publicId: uploadResult.publicId,
-          // Verification info
-          urlFormat: finalUrl.includes('/raw/upload/') ? 'correct' : 'incorrect',
+          downloadUrl: invoiceUrl, // Same URL for both view and download
         },
       },
     });
@@ -1032,7 +1013,7 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
 
 /**
  * Download/View invoice PDF by order number
- * Fetches PDF from Cloudinary and serves it with proper headers
+ * Serves PDF from server filesystem with proper headers
  */
 exports.downloadInvoicePDF = async (req, res, next) => {
   try {
@@ -1049,7 +1030,7 @@ exports.downloadInvoicePDF = async (req, res, next) => {
       });
     }
 
-    if (!order.invoicePdf || (!order.invoicePdf.publicId && !order.invoicePdf.cloudinaryUrl)) {
+    if (!order.invoicePdf || !order.invoicePdf.filePath) {
       return res.status(404).json({
         success: false,
         error: 'Invoice PDF not found for this order. Please generate it first.',
@@ -1057,83 +1038,50 @@ exports.downloadInvoicePDF = async (req, res, next) => {
     }
 
     try {
-      let cloudinaryUrl;
-      
-      // Priority 1: Use saved Cloudinary URL directly
-      if (order.invoicePdf.cloudinaryUrl && order.invoicePdf.cloudinaryUrl.startsWith('http')) {
-        cloudinaryUrl = order.invoicePdf.cloudinaryUrl;
-        
-        // CRITICAL: Verify URL format - must have /raw/upload/ for PDFs
-        if (!cloudinaryUrl.includes('/raw/upload/')) {
-          logger.error(`PDF URL has wrong format (image/upload instead of raw/upload): ${cloudinaryUrl}`);
-          return res.status(500).json({
-            success: false,
-            error: 'PDF URL format incorrect. PDF was uploaded with wrong resource type. Please regenerate invoice.',
-            message: 'PDF must be uploaded as raw file type, not image. Contact support to fix existing PDFs.',
-          });
-        }
-      } 
-      // Priority 2: Build Cloudinary URL from publicId (PDFs must use raw resource type)
-      else if (order.invoicePdf.publicId) {
-        // PDFs must be served as raw resource type - this ensures /raw/upload/ in URL
-        cloudinaryUrl = cloudinary.url(order.invoicePdf.publicId, {
-          resource_type: 'raw',
-          secure: true,
-        });
-        logger.info(`Generated Cloudinary URL from publicId: ${cloudinaryUrl}`);
-      } else {
+      const filePath = order.invoicePdf.filePath;
+      const filename = order.invoicePdf.filename || `invoice-${order.orderNumber}.pdf`;
+
+      // Check if file exists
+      try {
+        await fs.access(filePath);
+      } catch (error) {
+        logger.error(`PDF file not found at path: ${filePath}`);
         return res.status(404).json({
           success: false,
-          error: 'Invoice PDF URL or publicId not found.',
+          error: 'Invoice PDF file not found on server. Please regenerate invoice.',
         });
       }
 
-      // Verify URL format one more time
-      if (!cloudinaryUrl.includes('/raw/upload/')) {
-        logger.error(`CRITICAL: PDF URL does not contain /raw/upload/: ${cloudinaryUrl}`);
-        return res.status(500).json({
-          success: false,
-          error: 'PDF URL format incorrect. Cannot serve PDF with wrong resource type.',
-        });
-      }
+      // Read PDF file from server
+      logger.info(`Reading PDF from server: ${filePath}`);
+      const pdfBuffer = await fs.readFile(filePath);
 
-      // BEST SOLUTION: Redirect directly to Cloudinary URL
-      // Cloudinary automatically serves PDFs with correct Content-Type: application/pdf
-      // This prevents any header issues and ensures proper browser rendering
-      logger.info(`Redirecting to Cloudinary URL for proper PDF rendering: ${cloudinaryUrl}`);
+      // Set appropriate headers BEFORE sending data
+      res.setHeader('Content-Type', 'application/pdf');
       
-      // Add download parameter to Cloudinary URL if needed
       if (download === 'true') {
-        // For download, we'll proxy through our server to set Content-Disposition
-        // But for view, redirect directly to Cloudinary
-        const response = await axios.get(cloudinaryUrl, {
-          responseType: 'arraybuffer',
-          timeout: 30000,
-        });
-
-        const pdfBuffer = Buffer.from(response.data);
-        const filename = `invoice-${order.orderNumber}.pdf`;
-
-        // Set headers for download
-        res.setHeader('Content-Type', 'application/pdf');
+        // Force download
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Length', pdfBuffer.length);
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-
-        res.end(pdfBuffer);
       } else {
-        // For viewing in browser, redirect directly to Cloudinary
-        // Cloudinary serves with correct Content-Type: application/pdf automatically
-        res.redirect(302, cloudinaryUrl);
+        // Open in browser (inline)
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
       }
-    } catch (fetchError) {
-      logger.error('Error fetching PDF from Cloudinary:', fetchError);
+
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+      res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
+      res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME type sniffing
+
+      logger.info(`Sending PDF (${pdfBuffer.length} bytes) with Content-Type: application/pdf`);
+
+      // Send PDF buffer
+      res.end(pdfBuffer);
+    } catch (fileError) {
+      logger.error('Error reading PDF file from server:', fileError);
       return res.status(500).json({
         success: false,
-        error: 'Failed to fetch invoice PDF from storage',
-        message: fetchError.message,
+        error: 'Failed to read invoice PDF from server',
+        message: fileError.message,
       });
     }
   } catch (error) {

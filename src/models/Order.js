@@ -308,11 +308,17 @@ const OrderSchema = new mongoose.Schema({
     url: {
       type: String,
     },
+    filePath: {
+      type: String, // Server file path for PDF
+    },
+    filename: {
+      type: String, // PDF filename
+    },
     cloudinaryUrl: {
-      type: String,
+      type: String, // Legacy: Cloudinary URL (for old invoices)
     },
     publicId: {
-      type: String,
+      type: String, // Legacy: Cloudinary public ID (for old invoices)
     },
   },
   createdAt: {

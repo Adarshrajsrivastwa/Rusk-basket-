@@ -1546,19 +1546,27 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       salePrice: item.salePrice || 0,
       totalPrice: item.totalPrice || 0,
       tax: item.tax || 0,
-      cashback: item.cashback || 0,
+        cashback: item.cashback || 0,
     }));
 
     // Format pricing
     const pricing = {
-      subtotal: order.pricing?.subtotal || 0,
-      discount: order.pricing?.discount || 0,
-      tax: order.pricing?.tax || 0,
-      handlingCharge: order.pricing?.handlingCharge || 0,
-      deliveryAmount: order.pricing?.deliveryAmount || 0,
+        subtotal: order.pricing?.subtotal || 0,
+        discount: order.pricing?.discount || 0,
+        tax: order.pricing?.tax || 0,
+        handlingCharge: order.pricing?.handlingCharge || 0,
+        deliveryAmount: order.pricing?.deliveryAmount || 0,
       totalCashback: order.pricing?.totalCashback || 0,
       total: order.pricing?.total || 0,
     };
+
+    // Get base URL from environment or use default
+    const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
+    const invoiceBasePath = order.invoicePdf?.url || null;
+    
+    // Generate full URLs for view and download
+    const invoiceViewUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null;
+    const invoiceDownloadUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null;
 
     return {
       orderNumber: order.orderNumber || null,
@@ -1566,14 +1574,10 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       rider: riderInfo,
       products: products,
       pricing: pricing,
-      // Direct Cloudinary URL for download/view (must have /raw/upload/ for browser rendering)
-      invoicePdfDownloadUrl: (() => {
-        const url = order.invoicePdf?.cloudinaryUrl || null;
-        if (url && !url.includes('/raw/upload/')) {
-          logger.warn(`Invoice PDF URL missing /raw/upload/: ${url} for order ${order.orderNumber}`);
-        }
-        return url;
-      })(),
+      invoice: {
+        viewUrl: invoiceViewUrl, // Full URL for viewing PDF in browser
+        downloadUrl: invoiceDownloadUrl, // Full URL for downloading PDF
+      },
     };
   }));
 
@@ -1752,10 +1756,15 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
     // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
     orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
-    // Add invoice PDF URL if available
-    // Include invoice PDF URLs - both server endpoint and direct Cloudinary URL
-    orderObj.invoicePdfUrl = orderObj.invoicePdf?.url || null;
-    orderObj.invoicePdfDownloadUrl = orderObj.invoicePdf?.cloudinaryUrl || orderObj.invoicePdf?.url || null;
+    // Add invoice PDF URLs with proper domain
+    const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
+    const invoiceBasePath = orderObj.invoicePdf?.url || null;
+    
+    // Generate full URLs for view and download
+    orderObj.invoice = {
+      viewUrl: invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null,
+      downloadUrl: invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null,
+    };
 
     return orderObj;
   });
