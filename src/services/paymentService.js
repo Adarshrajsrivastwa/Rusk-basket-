@@ -166,26 +166,62 @@ const createRazorpayPaymentLink = async (paymentData, credentials) => {
 
 /**
  * Verify Razorpay payment
+ * Supports both Orders API and Payment Link flows
  */
 const verifyRazorpayPayment = async (paymentData, credentials) => {
   try {
     const crypto = require('crypto');
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = paymentData;
+    const { 
+      razorpay_order_id, 
+      razorpay_payment_id, 
+      razorpay_payment_link_id,
+      razorpay_signature 
+    } = paymentData;
 
-    const text = `${razorpay_order_id}|${razorpay_payment_id}`;
+    // Validate required fields
+    if (!razorpay_payment_id || !razorpay_signature) {
+      throw new Error('razorpay_payment_id and razorpay_signature are required');
+    }
+
+    let text;
+    let orderId;
+
+    // Check if it's Payment Link flow or Orders API flow
+    if (razorpay_payment_link_id) {
+      // Payment Link flow: signature = HMAC(razorpay_payment_link_id|razorpay_payment_id)
+      text = `${razorpay_payment_link_id}|${razorpay_payment_id}`;
+      orderId = razorpay_payment_link_id; // Use payment link ID as identifier
+      logger.info('Verifying Razorpay Payment Link flow');
+    } else if (razorpay_order_id) {
+      // Orders API flow: signature = HMAC(razorpay_order_id|razorpay_payment_id)
+      text = `${razorpay_order_id}|${razorpay_payment_id}`;
+      orderId = razorpay_order_id;
+      logger.info('Verifying Razorpay Orders API flow');
+    } else {
+      throw new Error('Either razorpay_order_id (Orders API) or razorpay_payment_link_id (Payment Link) is required');
+    }
+
+    // Generate signature
     const generatedSignature = crypto
-      .createHmac('sha256', credentials.razorpayKeySecret)
+      .createHmac('sha256', credentials.razorpayKeySecret.trim())
       .update(text)
       .digest('hex');
 
+    // Verify signature
     if (generatedSignature !== razorpay_signature) {
+      logger.error('Razorpay signature mismatch', {
+        expected: generatedSignature,
+        received: razorpay_signature,
+        flow: razorpay_payment_link_id ? 'Payment Link' : 'Orders API',
+      });
       throw new Error('Invalid payment signature');
     }
 
     return {
       success: true,
       paymentId: razorpay_payment_id,
-      orderId: razorpay_order_id,
+      orderId: orderId,
+      paymentLinkId: razorpay_payment_link_id || undefined,
       gateway: 'razorpay',
     };
   } catch (error) {
