@@ -975,9 +975,10 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     // Create single URL for both view and download (without /api prefix)
     const invoiceUrl = `/invoice/order/${order.orderNumber}/download-pdf`;
 
-    // Update order with PDF URL (single URL for both view and download)
+    // Update order with PDF URL (save both server endpoint and Cloudinary URL)
     order.invoicePdf = {
-      url: invoiceUrl,
+      url: invoiceUrl, // Server endpoint URL
+      cloudinaryUrl: uploadResult.url, // Actual Cloudinary URL for fetching PDF
       publicId: uploadResult.publicId,
     };
 
@@ -1025,7 +1026,7 @@ exports.downloadInvoicePDF = async (req, res, next) => {
       });
     }
 
-    if (!order.invoicePdf || !order.invoicePdf.publicId) {
+    if (!order.invoicePdf || (!order.invoicePdf.publicId && !order.invoicePdf.cloudinaryUrl)) {
       return res.status(404).json({
         success: false,
         error: 'Invoice PDF not found for this order. Please generate it first.',
@@ -1033,12 +1034,33 @@ exports.downloadInvoicePDF = async (req, res, next) => {
     }
 
     try {
-      // Build Cloudinary URL from publicId
-      const cloudinaryUrl = cloudinary.url(order.invoicePdf.publicId, {
-        resource_type: 'raw',
-        format: 'pdf',
-        secure: true,
-      });
+      let cloudinaryUrl;
+      
+      // Priority 1: Use saved Cloudinary URL directly
+      if (order.invoicePdf.cloudinaryUrl && order.invoicePdf.cloudinaryUrl.startsWith('http')) {
+        cloudinaryUrl = order.invoicePdf.cloudinaryUrl;
+      } 
+      // Priority 2: Build Cloudinary URL from publicId
+      else if (order.invoicePdf.publicId) {
+        // Try with raw resource type first (for PDFs)
+        try {
+          cloudinaryUrl = cloudinary.url(order.invoicePdf.publicId, {
+            resource_type: 'raw',
+            format: 'pdf',
+            secure: true,
+          });
+        } catch (err) {
+          // Fallback: try without resource_type
+          cloudinaryUrl = cloudinary.url(order.invoicePdf.publicId, {
+            secure: true,
+          });
+        }
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: 'Invoice PDF URL or publicId not found.',
+        });
+      }
 
       // Fetch PDF from Cloudinary
       const response = await axios.get(cloudinaryUrl, {

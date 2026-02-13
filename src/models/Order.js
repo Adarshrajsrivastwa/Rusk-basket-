@@ -308,6 +308,9 @@ const OrderSchema = new mongoose.Schema({
     url: {
       type: String,
     },
+    cloudinaryUrl: {
+      type: String,
+    },
     publicId: {
       type: String,
     },
