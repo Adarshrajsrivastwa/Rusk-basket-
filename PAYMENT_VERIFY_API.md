@@ -14,7 +14,7 @@ Content-Type: application/json
 
 **Use Case:** When using `/api/payment/create-payment-link` endpoint
 
-### Request Body:
+### Request Body (Option 1 - With orderId - Recommended):
 ```json
 {
   "orderId": "698f5746af57538a8ee68d6d",
@@ -26,6 +26,20 @@ Content-Type: application/json
   }
 }
 ```
+
+### Request Body (Option 2 - Without orderId - Auto-extract from payment link):
+```json
+{
+  "gateway": "razorpay",
+  "paymentData": {
+    "razorpay_payment_id": "pay_SFkizdw1LOxATo",
+    "razorpay_payment_link_id": "plink_SFkhl9Mr9hFpuo",
+    "razorpay_signature": "7e1fdc6332e94d50f92dea5921b879d37b0e22b113484d77cde452f398c0225d"
+  }
+}
+```
+
+**Note:** If `orderId` is not provided, backend will automatically fetch it from Razorpay payment link notes (requires orderId to be stored in notes when creating payment link).
 
 ### Field Details:
 - `razorpay_payment_id`: Always starts with `pay_` (Payment ID from Razorpay)

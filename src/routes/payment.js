@@ -119,11 +119,9 @@ router.post(
   protect,
   [
     body('orderId')
-      .notEmpty()
-      .withMessage('Order ID is required')
-      .bail()
+      .optional()
       .isMongoId()
-      .withMessage('Invalid order ID'),
+      .withMessage('Invalid order ID format (must be MongoDB ObjectId)'),
     body('paymentData')
       .notEmpty()
       .withMessage('Payment data is required')
@@ -149,14 +147,78 @@ router.post(
 
       const { orderId, paymentData, gateway } = req.body;
       const userId = req.user._id;
+      let order = null;
 
-      // Get order and verify ownership
-      const order = await Order.findOne({ _id: orderId, user: userId });
+      // For Razorpay Payment Link flow: If orderId not provided, try to get it from payment link
+      if (!orderId && gateway === 'razorpay' && paymentData.razorpay_payment_link_id) {
+        try {
+          // Get payment gateway credentials
+          const PaymentGateway = require('../models/PaymentGateway');
+          const paymentGateway = await PaymentGateway.findOne({ 
+            name: 'razorpay', 
+            isEnabled: true 
+          });
+
+          if (paymentGateway) {
+            let credentials = { ...paymentGateway.credentials };
+            if (paymentGateway.testMode && paymentGateway.testCredentials) {
+              Object.keys(paymentGateway.testCredentials).forEach(key => {
+                if (paymentGateway.testCredentials[key] && paymentGateway.testCredentials[key].trim()) {
+                  credentials[key] = paymentGateway.testCredentials[key];
+                }
+              });
+            }
+
+            // Fetch payment link details from Razorpay to get orderId from notes
+            const Razorpay = require('razorpay');
+            const razorpay = new Razorpay({
+              key_id: credentials.razorpayKeyId.trim(),
+              key_secret: credentials.razorpayKeySecret.trim(),
+            });
+
+            const paymentLink = await razorpay.paymentLink.fetch(paymentData.razorpay_payment_link_id);
+            
+            // Extract orderId from notes
+            if (paymentLink.notes && paymentLink.notes.orderId) {
+              const extractedOrderId = paymentLink.notes.orderId;
+              
+              // Find order by extracted orderId
+              order = await Order.findOne({ _id: extractedOrderId, user: userId });
+              
+              if (!order) {
+                return res.status(404).json({
+                  success: false,
+                  error: 'Order not found. Please provide orderId in request body.',
+                });
+              }
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: 'Order ID not found in payment link. Please provide orderId in request body.',
+              });
+            }
+          }
+        } catch (linkError) {
+          logger.error('Error fetching payment link details:', linkError);
+          return res.status(400).json({
+            success: false,
+            error: 'Could not fetch payment link details. Please provide orderId in request body.',
+          });
+        }
+      } else if (orderId) {
+        // Get order by provided orderId
+        order = await Order.findOne({ _id: orderId, user: userId });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Order ID is required. Please provide orderId in request body.',
+        });
+      }
 
       if (!order) {
         return res.status(404).json({
           success: false,
-          error: 'Order not found',
+          error: 'Order not found or you do not have permission to access this order',
         });
       }
 
