@@ -9,15 +9,27 @@ cloudinary.config({
 
 const { Readable } = require('stream');
 
-const uploadToCloudinary = async (file, folder = 'rush-basket') => {
+const uploadToCloudinary = async (file, folder = 'rush-basket', resourceType = 'auto') => {
   try {
     if (!file) {
       throw new Error('No file provided');
     }
 
+    // Determine resource type based on file mimetype if not explicitly provided
+    let finalResourceType = resourceType;
+    if (resourceType === 'auto' && file.mimetype) {
+      if (file.mimetype === 'application/pdf') {
+        finalResourceType = 'raw';
+      } else if (file.mimetype.startsWith('image/')) {
+        finalResourceType = 'image';
+      } else if (file.mimetype.startsWith('video/')) {
+        finalResourceType = 'video';
+      }
+    }
+
     const uploadOptions = {
       folder: folder,
-      resource_type: 'auto',
+      resource_type: finalResourceType,
       use_filename: true,
       unique_filename: true,
     };
@@ -25,6 +37,7 @@ const uploadToCloudinary = async (file, folder = 'rush-basket') => {
     let result;
     if (file.buffer) {
       return new Promise((resolve, reject) => {
+        // Use upload_stream for safe buffer upload (prevents corruption)
         const uploadStream = cloudinary.uploader.upload_stream(
           uploadOptions,
           (error, uploadResult) => {
@@ -32,6 +45,11 @@ const uploadToCloudinary = async (file, folder = 'rush-basket') => {
               logger.error('Cloudinary upload stream error:', error);
               reject(error);
             } else {
+              // Verify URL format is correct (must have /raw/upload/ for PDFs)
+              const url = uploadResult.secure_url;
+              if (finalResourceType === 'raw' && !url.includes('/raw/upload/')) {
+                logger.warn(`PDF uploaded but URL format may be incorrect: ${url}`);
+              }
               resolve({
                 url: uploadResult.secure_url,
                 publicId: uploadResult.public_id,
@@ -39,8 +57,16 @@ const uploadToCloudinary = async (file, folder = 'rush-basket') => {
             }
           }
         );
+        
+        // Properly pipe buffer to upload stream
         const stream = Readable.from(file.buffer);
         stream.pipe(uploadStream);
+        
+        // Ensure stream completes properly
+        stream.on('error', (err) => {
+          logger.error('Stream error during upload:', err);
+          reject(err);
+        });
       });
     } else if (file.path) {
       result = await cloudinary.uploader.upload(file.path, uploadOptions);
