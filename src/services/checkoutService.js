@@ -1407,7 +1407,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
   const total = await Order.countDocuments(query);
 
   // Format orders with only required fields
-  const formattedOrders = orders.map(order => {
+  const formattedOrders = await Promise.all(orders.map(async (order) => {
     // Get unique vendors from order items
     const vendorMap = new Map();
     order.items.forEach(item => {
@@ -1524,7 +1524,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       products: products,
       pricing: pricing,
     };
-  });
+  }));
 
   return {
     orders: formattedOrders,
