@@ -3,7 +3,7 @@ const { query, body, param } = require('express-validator');
 const router = express.Router();
 
 // Controllers
-const { getAllProductsList } = require('../controllers/productGet');
+const { getAllProductsList, getProductByIdAdmin } = require('../controllers/productGet');
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
@@ -159,6 +159,21 @@ router.post(
       }),
   ],
   addProduct
+);
+
+// Get single product by ID (Admin only)
+router.get(
+  '/products/:id',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Product ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid product ID format'),
+  ],
+  getProductByIdAdmin
 );
 
 // Update product (Admin only)

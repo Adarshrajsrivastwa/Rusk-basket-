@@ -90,10 +90,8 @@ router.put(
       .bail()
       .isIn(['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign', 'out_for_delivery', 'delivered', 'cancelled'])
       .withMessage('Status must be one of: pending, order_placed, confirmed, processing, ready, rider_assign, out_for_delivery, delivered, cancelled'),
-    body('deliveryAmount')
-      .optional()
-      .isFloat({ min: 0 })
-      .withMessage('Delivery amount must be a valid positive number'),
+    // Note: deliveryAmount is now automatically calculated at order creation based on distance
+    // No manual deliveryAmount input required
   ],
   updateOrderStatus
 );
@@ -109,10 +107,8 @@ router.put(
       .bail()
       .isMongoId()
       .withMessage('Invalid order ID'),
-    body('deliveryAmount')
-      .optional()
-      .isFloat({ min: 0 })
-      .withMessage('Delivery amount must be a valid positive number'),
+    // Note: deliveryAmount is now automatically calculated at order creation based on distance
+    // No manual deliveryAmount input required
     body('riderId')
       .optional()
       .isMongoId()

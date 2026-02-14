@@ -622,9 +622,9 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     const { orderId } = req.params;
-    const { status, deliveryAmount } = req.body;
+    const { status } = req.body;
 
-    const order = await checkoutService.updateOrderStatus(orderId, req.vendor._id, status, deliveryAmount);
+    const order = await checkoutService.updateOrderStatus(orderId, req.vendor._id, status);
 
     logger.info(`Order status updated: ${order.orderNumber} to ${status} by Vendor: ${req.vendor.storeId}`);
 
@@ -653,7 +653,7 @@ exports.markOutForDelivery = async (req, res, next) => {
     }
 
     const { orderId } = req.params;
-    const { deliveryAmount, riderId, notes } = req.body;
+    const { riderId, notes } = req.body;
 
     // Get order and validate it belongs to vendor
     const Order = require('../models/Order');
@@ -693,52 +693,8 @@ exports.markOutForDelivery = async (req, res, next) => {
     const previousStatus = order.status;
     order.status = 'out_for_delivery';
     // Note: Wallet update now happens on payment verification, not on status change
-
-    // Update deliveryAmount if provided
-    if (deliveryAmount !== undefined) {
-      const deliveryAmountNum = parseFloat(deliveryAmount);
-      if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Delivery amount must be a valid positive number',
-        });
-      }
-      
-      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
-      // Ensure pricing object exists
-      if (!order.pricing) {
-        order.pricing = {};
-      }
-      
-      // Directly assign to pricing object
-      order.pricing.deliveryAmount = deliveryAmountNum;
-      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
-      
-      // Remove top-level deliveryAmount field
-      order.deliveryAmount = undefined;
-      
-      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
-      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
-        const subtotal = order.pricing.subtotal || 0;
-        const discount = order.pricing.discount || 0;
-        const tax = order.pricing.tax || 0;
-        const handlingCharge = order.pricing.handlingCharge || 0;
-        const deliveryAmt = deliveryAmountNum;
-        
-        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
-        
-        // Also update payment.amount to match the new total
-        if (order.payment) {
-          order.payment.amount = order.pricing.total;
-        }
-      }
-      
-      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
-      order.markModified('pricing');
-      if (order.payment) {
-        order.markModified('payment');
-      }
-    }
+    // Note: Delivery charge is now automatically calculated at order creation based on distance
+    // No manual deliveryAmount input required
 
     // Update rider if provided
     if (riderId) {

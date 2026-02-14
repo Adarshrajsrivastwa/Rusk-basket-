@@ -876,12 +876,52 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     return cleanedItem;
   }));
 
+  // Calculate delivery charge based on distance for each vendor
+  // Using shipping address coordinates (not user's default address)
+  const { calculateDistance, calculateDeliveryCharge } = require('../utils/distanceUtils');
+  
+  let totalDeliveryCharge = 0;
+  const shippingLat = shippingAddress?.latitude;
+  const shippingLon = shippingAddress?.longitude;
+  
+  if (shippingLat && shippingLon) {
+    // Get unique vendors from order items
+    const vendorIds = [...new Set(cleanedItems.map(item => item.vendor.toString()))];
+    const vendors = await Vendor.find({ _id: { $in: vendorIds } })
+      .select('_id storeAddress deliveryChargePerKm');
+    
+    // Calculate delivery charge for each vendor
+    // Distance = Vendor store address to Shipping address
+    for (const vendor of vendors) {
+      const vendorLat = vendor.storeAddress?.latitude;
+      const vendorLon = vendor.storeAddress?.longitude;
+      const chargePerKm = vendor.deliveryChargePerKm || 0;
+      
+      if (vendorLat && vendorLon && chargePerKm > 0) {
+        // Calculate distance from vendor store to shipping address
+        const distance = calculateDistance(vendorLat, vendorLon, shippingLat, shippingLon);
+        if (distance !== null && distance > 0) {
+          const vendorDeliveryCharge = calculateDeliveryCharge(distance, chargePerKm);
+          totalDeliveryCharge += vendorDeliveryCharge;
+        }
+      }
+    }
+  }
+  
+  // Update pricing with delivery charge
+  const finalPricing = {
+    ...totals.pricing,
+    deliveryAmount: parseFloat(totalDeliveryCharge.toFixed(2)),
+    riderAmount: parseFloat(totalDeliveryCharge.toFixed(2)), // riderAmount is same as deliveryAmount (what rider earns)
+    total: parseFloat((totals.pricing.total + totalDeliveryCharge).toFixed(2)),
+  };
+
   // Create order
   const order = await Order.create({
     orderNumber,
     user: userId,
     items: cleanedItems,
-    pricing: totals.pricing,
+    pricing: finalPricing,
     coupon: cart.coupon ? {
       couponId: cart.coupon.couponId,
       code: cart.coupon.code,
@@ -891,7 +931,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     payment: {
       method: paymentMethod,
       status: paymentMethod === 'cod' ? 'pending' : 'processing',
-      amount: totals.pricing.total,
+      amount: finalPricing.total,
     },
     notes,
     status: 'order_placed',
@@ -2675,7 +2715,7 @@ exports.notifyRidersForOrder = async (order) => {
 /**
  * Update order status (for vendor)
  */
-exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) => {
+exports.updateOrderStatus = async (orderId, vendorId, status) => {
   const order = await Order.findById(orderId);
 
   if (!order) {
@@ -2703,48 +2743,8 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
   // Update order status
   order.status = status;
 
-  // Update deliveryAmount if provided
-  if (deliveryAmount !== undefined) {
-    const deliveryAmountNum = parseFloat(deliveryAmount);
-    if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
-      throw new Error('Delivery amount must be a valid positive number');
-    }
-    
-      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
-      // Ensure pricing object exists
-      if (!order.pricing) {
-        order.pricing = {};
-      }
-      
-      // Directly assign to pricing object
-      order.pricing.deliveryAmount = deliveryAmountNum;
-      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
-      
-      // Remove top-level deliveryAmount field
-      order.deliveryAmount = undefined;
-      
-      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
-      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
-        const subtotal = order.pricing.subtotal || 0;
-        const discount = order.pricing.discount || 0;
-        const tax = order.pricing.tax || 0;
-        const handlingCharge = order.pricing.handlingCharge || 0;
-        const deliveryAmt = deliveryAmountNum;
-        
-        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
-        
-        // Also update payment.amount to match the new total
-        if (order.payment) {
-          order.payment.amount = order.pricing.total;
-        }
-      }
-      
-      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
-      order.markModified('pricing');
-      if (order.payment) {
-        order.markModified('payment');
-      }
-  }
+  // Note: Delivery charge is now automatically calculated at order creation based on distance
+  // No manual deliveryAmount input required
 
   // Set timestamps based on status
   if (status === 'ready') {
@@ -2825,19 +2825,26 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
         .populate('coupon.couponId', 'couponName code')
         .populate('rider', 'fullName mobileNumber');
 
-      // Send notification for important status changes
-      if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+      // Send notification for ALL status changes
+      // Only send if status actually changed
+      if (previousStatus !== status) {
         const statusMessages = {
+          'pending': 'Order is pending',
+          'order_placed': 'New order has been placed',
+          'confirmed': 'Order has been confirmed',
+          'processing': 'Order is being processed',
           'ready': 'Order is ready for pickup',
+          'rider_assign': 'Rider has been assigned to order',
           'out_for_delivery': 'Order is out for delivery',
           'delivered': 'Order has been delivered',
           'cancelled': 'Order has been cancelled',
+          'refunded': 'Order has been refunded',
         };
 
         await sendVendorPushNotification(vendorId, {
           type: 'order_status_updated',
           title: 'Order Status Updated',
-          message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+          message: `Order #${order.orderNumber} status changed from ${previousStatus} to ${status}. ${statusMessages[status] || 'Status updated'}`,
           orderId: order._id.toString(),
           orderNumber: order.orderNumber,
           status: status,
@@ -2850,8 +2857,8 @@ exports.updateOrderStatus = async (orderId, vendorId, status, deliveryAmount) =>
         });
       }
   } catch (notifyError) {
-    // Don't fail the request if socket notification fails
-    logger.error('Error sending socket notification to vendor:', notifyError);
+    // Don't fail the request if push notification fails
+    logger.error('Error sending push notification to vendor for order status update:', notifyError);
   }
 
   return await Order.findById(order._id)

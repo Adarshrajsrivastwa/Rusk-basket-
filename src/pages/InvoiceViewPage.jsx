@@ -26,6 +26,12 @@ const InvoiceViewPage = () => {
   const [invoice, setInvoice] = useState(null);
   const [error, setError] = useState(null);
 
+  // Helper function to capitalize status
+  const capitalizeStatus = (status) => {
+    if (!status) return "Pending";
+    return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  };
+
   useEffect(() => {
     const fetchInvoiceDetails = async () => {
       try {
@@ -148,12 +154,6 @@ const InvoiceViewPage = () => {
 
     fetchInvoiceDetails();
   }, [location.state, params.invoiceId]);
-
-  // Helper function to capitalize status
-  const capitalizeStatus = (status) => {
-    if (!status) return "Pending";
-    return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
-  };
 
   const handlePrint = () => window.print();
 

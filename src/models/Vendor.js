@@ -216,6 +216,11 @@ const VendorSchema = new mongoose.Schema({
     min: [0, 'Handling charge percentage must be greater than or equal to 0'],
     max: [100, 'Handling charge percentage cannot exceed 100'],
   },
+  deliveryChargePerKm: {
+    type: Number,
+    default: 0,
+    min: [0, 'Delivery charge per km must be greater than or equal to 0'],
+  },
   // Commission System - Vendor-wise commission settings
   commission: {
     type: {

@@ -951,6 +951,60 @@ exports.getProductById = async (req, res, next) => {
 };
 
 /**
+ * Get a single product by ID (Admin only)
+ * Returns product regardless of approvalStatus or isActive status
+ * Admin authentication required
+ */
+exports.getProductByIdAdmin = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Validate ObjectId format
+    if (!id || !/^[0-9a-fA-F]{24}$/.test(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid product ID format',
+      });
+    }
+
+    // Find product by ID - no status filter for admin
+    const product = await Product.findById(id)
+      .populate('vendor', 'vendorName storeName contactNumber email')
+      .populate('category', 'name categoryName')
+      .populate('subCategory', 'name subCategoryName')
+      .populate('createdBy', 'vendorName storeName contactNumber')
+      .populate('approvedBy', 'name email')
+      .lean();
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found',
+      });
+    }
+
+    // Apply offer discount to product (overrides salePrice if active offer exists)
+    const productWithOffer = await applyOfferToProducts(product);
+
+    logger.info(`Product retrieved by ID (Admin): ${id} - Admin: ${req.admin.email || req.admin._id}`);
+
+    res.status(200).json({
+      success: true,
+      data: productWithOffer,
+    });
+  } catch (error) {
+    logger.error('Get product by ID (Admin) error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid product ID format',
+      });
+    }
+    next(error);
+  }
+};
+
+/**
  * Scan QR code and check if product exists
  * Vendor ID is extracted from authentication credentials
  * Accepts productId (required) and sku (optional) in request body

@@ -674,7 +674,7 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     const vendorId = req.vendor._id;
     const orderId = req.params.id;
-    const { status, notes, deliveryAmount } = req.body;
+    const { status, notes } = req.body;
 
     const order = await Order.findById(orderId);
 
@@ -731,53 +731,8 @@ exports.updateOrderStatus = async (req, res, next) => {
       order.notes = notes;
     }
 
-    // Update delivery amount if provided
-    if (deliveryAmount !== undefined) {
-      const deliveryAmountNum = parseFloat(deliveryAmount);
-      if (isNaN(deliveryAmountNum) || deliveryAmountNum < 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Delivery amount must be a valid positive number',
-        });
-      }
-      
-      // Save deliveryAmount and riderAmount ONLY in pricing object (not at top level)
-      // Ensure pricing object exists
-      if (!order.pricing) {
-        order.pricing = {};
-      }
-      
-      // Directly assign to pricing object
-      order.pricing.deliveryAmount = deliveryAmountNum;
-      order.pricing.riderAmount = deliveryAmountNum; // riderAmount is same as deliveryAmount (what rider earns)
-      
-      // Remove top-level deliveryAmount field if it exists (using set to ensure Mongoose tracks the change)
-      if (order.deliveryAmount !== undefined) {
-        order.set('deliveryAmount', undefined);
-      }
-      
-      // Update pricing.total = subtotal - discount + tax + handlingCharge + deliveryAmount
-      if (order.pricing.subtotal !== undefined && order.pricing.subtotal !== null) {
-        const subtotal = order.pricing.subtotal || 0;
-        const discount = order.pricing.discount || 0;
-        const tax = order.pricing.tax || 0;
-        const handlingCharge = order.pricing.handlingCharge || 0;
-        const deliveryAmt = deliveryAmountNum;
-        
-        order.pricing.total = parseFloat((subtotal - discount + tax + handlingCharge + deliveryAmt).toFixed(2));
-        
-        // Also update payment.amount to match the new total
-        if (order.payment) {
-          order.payment.amount = order.pricing.total;
-        }
-      }
-      
-      // Mark pricing as modified so Mongoose tracks the changes (CRITICAL for nested objects)
-      order.markModified('pricing');
-      if (order.payment) {
-        order.markModified('payment');
-      }
-    }
+    // Note: Delivery charge is now automatically calculated at order creation based on distance
+    // No manual deliveryAmount input required
 
     await order.save();
 
@@ -831,23 +786,30 @@ exports.updateOrderStatus = async (req, res, next) => {
       }
     }
 
-    // Notify vendor about order status update confirmation via socket
+    // Notify vendor about order status update confirmation via push notification
     try {
       const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       
-      // Send push notification for important status changes
-      if (['ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+      // Send push notification for ALL status changes
+      // Only send if status actually changed
+      if (previousStatus !== status) {
         const statusMessages = {
+          'pending': 'Order is pending',
+          'order_placed': 'New order has been placed',
+          'confirmed': 'Order has been confirmed',
+          'processing': 'Order is being processed',
           'ready': 'Order is ready for pickup',
+          'rider_assign': 'Rider has been assigned to order',
           'out_for_delivery': 'Order is out for delivery',
           'delivered': 'Order has been delivered',
           'cancelled': 'Order has been cancelled',
+          'refunded': 'Order has been refunded',
         };
         
         await sendVendorPushNotification(vendorId, {
           type: 'order_status_updated',
           title: 'Order Status Updated',
-          message: `Order #${order.orderNumber} status changed to ${status}. ${statusMessages[status] || ''}`,
+          message: `Order #${order.orderNumber} status changed from ${previousStatus} to ${status}. ${statusMessages[status] || 'Status updated'}`,
           orderId: order._id.toString(),
           orderNumber: order.orderNumber,
           status: status,
@@ -860,7 +822,8 @@ exports.updateOrderStatus = async (req, res, next) => {
         });
       }
     } catch (notifyError) {
-      // Don't fail the request if socket notification fails
+      // Don't fail the request if push notification fails
+      logger.error('Error sending push notification to vendor for order status update:', notifyError);
     }
 
     const populatedOrder = await Order.findById(orderId)
