@@ -2607,6 +2607,7 @@ exports.getAllVendorsWallets = async (req, res, next) => {
       storeName: vendor.storeName || 'N/A',
       storeId: vendor.storeId || 'N/A',
       walletBalance: vendor.earningWallet || 0,
+      earningWallet: vendor.earningWallet || 0,
       commissionType: vendor.commission?.type || 'percentage',
       commissionPercentage: vendor.commission?.percentage || 0,
       commissionFixedAmount: vendor.commission?.fixedAmount || 0,
