@@ -1784,6 +1784,21 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       
       // Products with all details and pricing
       products: products,
+      // Simple items array (as stored in order schema)
+      items: order.items?.map(item => ({
+        product: item.product?._id || item.product || null,
+        vendor: item.vendor?._id || item.vendor || null,
+        productName: item.productName || null,
+        thumbnail: item.thumbnail || null,
+        image: item.image || null,
+        quantity: item.quantity || 0,
+        unitPrice: item.unitPrice || 0,
+        salePrice: item.salePrice || 0,
+        totalPrice: item.totalPrice || 0,
+        cashback: item.cashback || 0,
+        tax: item.tax || 0,
+        sku: item.sku || null
+      })) || [],
       totalItems: order.items?.length || 0,
       totalQuantity: order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
       
