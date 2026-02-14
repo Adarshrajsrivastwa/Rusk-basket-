@@ -244,6 +244,18 @@ const VendorSchema = new mongoose.Schema({
       enum: ['monthly', 'yearly'],
       default: 'monthly',
     },
+    subscriptionDeductionDate: {
+      type: Number, // Day of month (1-31) for monthly, day of year (1-365) for yearly
+      default: null,
+    },
+    lastSubscriptionDeduction: {
+      type: Date,
+      default: null,
+    },
+    nextSubscriptionDeduction: {
+      type: Date,
+      default: null,
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Admin',
@@ -261,7 +273,7 @@ const VendorSchema = new mongoose.Schema({
   earningWallet: {
     type: Number,
     default: 0,
-    min: [0, 'Earning wallet cannot be negative'],
+    // Note: Wallet can go negative for subscription commissions
   },
   walletTransactions: [{
     type: {

@@ -224,6 +224,55 @@ const RiderSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Earning wallet cannot be negative'],
   },
+  // Commission System - Rider-wise commission settings
+  commission: {
+    type: {
+      type: String,
+      enum: ['percentage', 'fixed', 'hybrid', 'subscription'],
+      default: 'percentage',
+    },
+    percentage: {
+      type: Number,
+      default: 10,
+      min: [0, 'Commission percentage must be greater than or equal to 0'],
+      max: [100, 'Commission percentage cannot exceed 100'],
+    },
+    fixedAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Fixed commission amount must be greater than or equal to 0'],
+    },
+    subscriptionAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Subscription amount must be greater than or equal to 0'],
+    },
+    subscriptionPeriod: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      default: 'monthly',
+    },
+    subscriptionDeductionDate: { // Day of month (1-31) for monthly, day of year (1-365) for yearly
+      type: Number,
+      default: null,
+    },
+    lastSubscriptionDeduction: {
+      type: Date,
+      default: null,
+    },
+    nextSubscriptionDeduction: {
+      type: Date,
+      default: null,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
   walletTransactions: [{
     type: {
       type: String,

@@ -721,75 +721,7 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     if (status === 'delivered' && !order.deliveredAt) {
       order.deliveredAt = new Date();
-      
-      // Add vendor's order amount to earningWallet when order is delivered (only if not already credited)
-      // Check if this order was already processed by checking walletTransactions
-      try {
-        const vendor = await Vendor.findById(vendorId);
-        if (vendor) {
-          const alreadyCredited = vendor.walletTransactions?.some(
-            txn => txn.orderId && txn.orderId.toString() === order._id.toString() && txn.type === 'credit'
-          );
-          
-          if (!alreadyCredited) {
-            // Calculate vendor's share from order items
-            const vendorItems = order.items.filter(item => {
-              const itemVendorId = item.vendor?._id || item.vendor;
-              return itemVendorId && itemVendorId.toString() === vendorId.toString();
-            });
-            
-            if (vendorItems.length > 0) {
-              // Calculate total amount for this vendor's items
-              let vendorOrderAmount = 0;
-              vendorItems.forEach(item => {
-                const itemTotal = (item.price || 0) * (item.quantity || 0);
-                vendorOrderAmount += itemTotal;
-              });
-              
-              // Add handling charge if applicable (proportional to vendor's items)
-              if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
-                const vendorSubtotal = vendorItems.reduce((sum, item) => {
-                  return sum + ((item.price || 0) * (item.quantity || 0));
-                }, 0);
-                const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
-                const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
-                vendorOrderAmount += vendorHandlingCharge;
-              }
-              
-              if (vendorOrderAmount > 0) {
-                // Update vendor's earning wallet
-                const updatedVendor = await Vendor.findOneAndUpdate(
-                  { _id: vendorId },
-                  {
-                    $inc: { earningWallet: vendorOrderAmount },
-                    $push: {
-                      walletTransactions: {
-                        type: 'credit',
-                        amount: vendorOrderAmount,
-                        orderId: order._id,
-                        orderNumber: order.orderNumber,
-                        description: `Order ${order.orderNumber} delivered. Amount credited to earning wallet.`,
-                        createdAt: new Date(),
-                      }
-                    }
-                  },
-                  {
-                    new: true,
-                    runValidators: true,
-                  }
-                );
-                
-                if (updatedVendor) {
-                  logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorId} earning wallet for order ${order.orderNumber}`);
-                }
-              }
-            }
-          }
-        }
-      } catch (earningWalletError) {
-        logger.error('Error adding order amount to vendor earning wallet:', earningWalletError);
-        // Don't fail the request if earning wallet update fails
-      }
+      // Note: Wallet update now happens on payment verification, not on delivery status
     } else if (status === 'cancelled' && !order.cancelledAt) {
       order.cancelledAt = new Date();
       order.cancelledBy = 'vendor';
@@ -1158,99 +1090,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
     // Use the updated order from atomic operation
     order = updateResult;
 
-    // If updateStatus is true, handle earning wallet update for out_for_delivery
-    if (updateStatus === true || updateStatus === 'true') {
-      
-      // Add vendor's order amount to earningWallet when order goes out for delivery
-      try {
-        // Get all unique vendors from order items
-        const vendorIds = new Set();
-        order.items.forEach(item => {
-          const itemVendorId = item.vendor?._id || item.vendor;
-          if (itemVendorId) {
-            vendorIds.add(itemVendorId.toString());
-          }
-        });
-        
-        // Credit amount to each vendor
-        for (const vendorIdStr of vendorIds) {
-          try {
-            const vendor = await Vendor.findById(vendorIdStr);
-            if (vendor) {
-              // Check if already credited for out_for_delivery status
-              const alreadyCredited = vendor.walletTransactions?.some(
-                txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
-                       txn.type === 'credit' && 
-                       txn.description && txn.description.includes('out for delivery')
-              );
-              
-              if (!alreadyCredited) {
-                // Calculate vendor's share from order items
-                const vendorItems = order.items.filter(item => {
-                  const itemVendorId = item.vendor?._id || item.vendor;
-                  return itemVendorId && itemVendorId.toString() === vendorIdStr;
-                });
-                
-                if (vendorItems.length > 0) {
-                  // Calculate total amount for this vendor's items
-                  let vendorOrderAmount = 0;
-                  vendorItems.forEach(item => {
-                    // Use totalPrice if available, otherwise calculate from unitPrice/price
-                    const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
-                    vendorOrderAmount += itemTotal;
-                  });
-                  
-                  // Add handling charge if applicable (proportional to vendor's items)
-                  if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
-                    const vendorSubtotal = vendorItems.reduce((sum, item) => {
-                      const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
-                      return sum + itemTotal;
-                    }, 0);
-                    const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
-                    const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
-                    vendorOrderAmount += vendorHandlingCharge;
-                  }
-                  
-                  if (vendorOrderAmount > 0) {
-                    // Update vendor's earning wallet
-                    const updatedVendor = await Vendor.findOneAndUpdate(
-                      { _id: vendorIdStr },
-                      {
-                        $inc: { earningWallet: vendorOrderAmount },
-                        $push: {
-                          walletTransactions: {
-                            type: 'credit',
-                            amount: vendorOrderAmount,
-                            orderId: order._id,
-                            orderNumber: order.orderNumber,
-                            description: `Order ${order.orderNumber} out for delivery. Amount credited to earning wallet.`,
-                            createdAt: new Date(),
-                          }
-                        }
-                      },
-                      {
-                        new: true,
-                        runValidators: true,
-                      }
-                    );
-                    
-                    if (updatedVendor) {
-                      logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber} (out for delivery via rider assignment)`);
-                    }
-                  }
-                }
-              }
-            }
-          } catch (vendorError) {
-            logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
-            // Continue with other vendors even if one fails
-          }
-        }
-      } catch (earningWalletError) {
-        logger.error('Error adding order amount to vendor earning wallet (out for delivery):', earningWalletError);
-        // Don't fail the request if earning wallet update fails
-      }
-    }
+    // Note: Wallet update now happens on payment verification, not on status change
 
     // Populate order for notifications
     const populatedOrder = await Order.findById(order._id)
@@ -2609,6 +2449,68 @@ exports.updateVendorCommission = async (req, res, next) => {
     // Update metadata for this vendor
     vendor.commission.updatedBy = adminId;
     vendor.commission.updatedAt = currentDate;
+
+    // Handle subscription commission: Deduct amount when subscription is set/updated
+    const isSubscriptionType = (type !== undefined && type === 'subscription') || 
+                               (type === undefined && vendor.commission.type === 'subscription');
+    const isSubscriptionAmountChanged = subscriptionAmount !== undefined && 
+                                       vendor.commission.subscriptionAmount !== subscriptionAmount;
+    const isSubscriptionTypeChanged = type !== undefined && 
+                                      vendor.commission.type !== 'subscription' && 
+                                      type === 'subscription';
+
+    if (isSubscriptionType && (isSubscriptionAmountChanged || isSubscriptionTypeChanged)) {
+      const subscriptionAmountToDeduct = subscriptionAmount !== undefined ? 
+                                          parseFloat(subscriptionAmount) : 
+                                          vendor.commission.subscriptionAmount || 0;
+
+      if (subscriptionAmountToDeduct > 0) {
+        // Deduct subscription amount from vendor wallet (can go negative)
+        const currentBalance = vendor.earningWallet || 0;
+        vendor.earningWallet = currentBalance - subscriptionAmountToDeduct;
+        
+        // Add transaction record
+        vendor.walletTransactions = vendor.walletTransactions || [];
+        vendor.walletTransactions.push({
+          type: 'debit',
+          amount: subscriptionAmountToDeduct,
+          description: `Subscription commission ${vendor.commission.subscriptionPeriod || 'monthly'} fee deducted. Amount: ₹${subscriptionAmountToDeduct.toFixed(2)}`,
+          createdAt: new Date(),
+        });
+
+        // Set subscription deduction date (day of month for monthly, day of year for yearly)
+        const today = new Date();
+        if (!vendor.commission.subscriptionDeductionDate) {
+          if (vendor.commission.subscriptionPeriod === 'monthly') {
+            vendor.commission.subscriptionDeductionDate = today.getDate(); // Day of month (1-31)
+          } else {
+            // For yearly, use day of year (1-365)
+            const startOfYear = new Date(today.getFullYear(), 0, 1);
+            const dayOfYear = Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+            vendor.commission.subscriptionDeductionDate = dayOfYear;
+          }
+        }
+
+        // Set last and next deduction dates
+        vendor.commission.lastSubscriptionDeduction = today;
+        
+        // Calculate next deduction date
+        const nextDeduction = new Date(today);
+        if (vendor.commission.subscriptionPeriod === 'monthly') {
+          nextDeduction.setMonth(nextDeduction.getMonth() + 1);
+          // Ensure same day of month
+          const deductionDay = vendor.commission.subscriptionDeductionDate;
+          const lastDayOfMonth = new Date(nextDeduction.getFullYear(), nextDeduction.getMonth() + 1, 0).getDate();
+          nextDeduction.setDate(Math.min(deductionDay, lastDayOfMonth));
+        } else {
+          // Yearly
+          nextDeduction.setFullYear(nextDeduction.getFullYear() + 1);
+        }
+        vendor.commission.nextSubscriptionDeduction = nextDeduction;
+
+        logger.info(`Subscription commission ₹${subscriptionAmountToDeduct.toFixed(2)} deducted from vendor ${vendorId} wallet. Next deduction: ${nextDeduction.toISOString()}`);
+      }
+    }
 
     await vendor.save();
 

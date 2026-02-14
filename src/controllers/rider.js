@@ -898,92 +898,7 @@ exports.markOrderDelivered = async (req, res, next) => {
     const previousStatus = order.status;
     order.status = 'delivered';
     order.deliveredAt = new Date();
-    
-    // Add vendor's order amount to earningWallet when order is delivered
-    try {
-      // Get all unique vendors from order items
-      const vendorIds = new Set();
-      order.items.forEach(item => {
-        const itemVendorId = item.vendor?._id || item.vendor;
-        if (itemVendorId) {
-          vendorIds.add(itemVendorId.toString());
-        }
-      });
-      
-      // Credit amount to each vendor
-      for (const vendorIdStr of vendorIds) {
-        try {
-          const vendor = await Vendor.findById(vendorIdStr);
-          if (vendor) {
-            // Check if already credited
-            const alreadyCredited = vendor.walletTransactions?.some(
-              txn => txn.orderId && txn.orderId.toString() === order._id.toString() && txn.type === 'credit'
-            );
-            
-            if (!alreadyCredited) {
-              // Calculate vendor's share from order items
-              const vendorItems = order.items.filter(item => {
-                const itemVendorId = item.vendor?._id || item.vendor;
-                return itemVendorId && itemVendorId.toString() === vendorIdStr;
-              });
-              
-              if (vendorItems.length > 0) {
-                // Calculate total amount for this vendor's items
-                let vendorOrderAmount = 0;
-                vendorItems.forEach(item => {
-                  const itemTotal = (item.price || 0) * (item.quantity || 0);
-                  vendorOrderAmount += itemTotal;
-                });
-                
-                // Add handling charge if applicable (proportional to vendor's items)
-                if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
-                  const vendorSubtotal = vendorItems.reduce((sum, item) => {
-                    return sum + ((item.price || 0) * (item.quantity || 0));
-                  }, 0);
-                  const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
-                  const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
-                  vendorOrderAmount += vendorHandlingCharge;
-                }
-                
-                if (vendorOrderAmount > 0) {
-                  // Update vendor's earning wallet
-                  const updatedVendor = await Vendor.findOneAndUpdate(
-                    { _id: vendorIdStr },
-                    {
-                      $inc: { earningWallet: vendorOrderAmount },
-                      $push: {
-                        walletTransactions: {
-                          type: 'credit',
-                          amount: vendorOrderAmount,
-                          orderId: order._id,
-                          orderNumber: order.orderNumber,
-                          description: `Order ${order.orderNumber} delivered by rider. Amount credited to earning wallet.`,
-                          createdAt: new Date(),
-                        }
-                      }
-                    },
-                    {
-                      new: true,
-                      runValidators: true,
-                    }
-                  );
-                  
-                  if (updatedVendor) {
-                    logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber}`);
-                  }
-                }
-              }
-            }
-          }
-        } catch (vendorError) {
-          logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
-          // Continue with other vendors even if one fails
-        }
-      }
-    } catch (earningWalletError) {
-      logger.error('Error adding order amount to vendor earning wallet:', earningWalletError);
-      // Don't fail the request if earning wallet update fails
-    }
+    // Note: Wallet update now happens on payment verification, not on delivery status
     
     // If COD payment, add amount to user wallet
     if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
@@ -1273,96 +1188,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     } else {
       // Normal flow: update status to out_for_delivery
       order.status = 'out_for_delivery';
-      
-      // Add vendor's order amount to earningWallet when order goes out for delivery
-      try {
-        // Get all unique vendors from order items
-        const vendorIds = new Set();
-        order.items.forEach(item => {
-          const itemVendorId = item.vendor?._id || item.vendor;
-          if (itemVendorId) {
-            vendorIds.add(itemVendorId.toString());
-          }
-        });
-        
-        // Credit amount to each vendor
-        for (const vendorIdStr of vendorIds) {
-          try {
-            const vendor = await Vendor.findById(vendorIdStr);
-            if (vendor) {
-              // Check if already credited for out_for_delivery status
-              const alreadyCredited = vendor.walletTransactions?.some(
-                txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
-                       txn.type === 'credit' && 
-                       txn.description && txn.description.includes('out for delivery')
-              );
-              
-              if (!alreadyCredited) {
-                // Calculate vendor's share from order items
-                const vendorItems = order.items.filter(item => {
-                  const itemVendorId = item.vendor?._id || item.vendor;
-                  return itemVendorId && itemVendorId.toString() === vendorIdStr;
-                });
-                
-                if (vendorItems.length > 0) {
-                  // Calculate total amount for this vendor's items
-                  let vendorOrderAmount = 0;
-                  vendorItems.forEach(item => {
-                    // Use totalPrice if available, otherwise calculate from unitPrice/price
-                    const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
-                    vendorOrderAmount += itemTotal;
-                  });
-                  
-                  // Add handling charge if applicable (proportional to vendor's items)
-                  if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
-                    const vendorSubtotal = vendorItems.reduce((sum, item) => {
-                      const itemTotal = item.totalPrice || (item.price || item.unitPrice || 0) * (item.quantity || 0);
-                      return sum + itemTotal;
-                    }, 0);
-                    const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
-                    const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
-                    vendorOrderAmount += vendorHandlingCharge;
-                  }
-                  
-                  if (vendorOrderAmount > 0) {
-                    // Update vendor's earning wallet
-                    const updatedVendor = await Vendor.findOneAndUpdate(
-                      { _id: vendorIdStr },
-                      {
-                        $inc: { earningWallet: vendorOrderAmount },
-                        $push: {
-                          walletTransactions: {
-                            type: 'credit',
-                            amount: vendorOrderAmount,
-                            orderId: order._id,
-                            orderNumber: order.orderNumber,
-                            description: `Order ${order.orderNumber} out for delivery. Amount credited to earning wallet.`,
-                            createdAt: new Date(),
-                          }
-                        }
-                      },
-                      {
-                        new: true,
-                        runValidators: true,
-                      }
-                    );
-                    
-                    if (updatedVendor) {
-                      logger.info(`Order amount ₹${vendorOrderAmount.toFixed(2)} added to vendor ${vendorIdStr} earning wallet for order ${order.orderNumber} (out for delivery by rider)`);
-                    }
-                  }
-                }
-              }
-            }
-          } catch (vendorError) {
-            logger.error(`Error crediting vendor ${vendorIdStr} for order ${order.orderNumber}:`, vendorError);
-            // Continue with other vendors even if one fails
-          }
-        }
-      } catch (earningWalletError) {
-        logger.error('Error adding order amount to vendor earning wallet (out for delivery):', earningWalletError);
-        // Don't fail the request if earning wallet update fails
-      }
+      // Note: Wallet update now happens on payment verification, not on status change
     }
     
     await order.save();
@@ -1684,23 +1510,71 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     
     await order.save();
 
-    // Add delivery amount to rider's earning wallet
+    // Add delivery amount minus rider commission to rider's earning wallet
     const deliveryAmount = order.deliveryAmount || order.pricing?.deliveryAmount || 0;
     if (deliveryAmount > 0) {
       try {
-        const updatedRider = await Rider.findOneAndUpdate(
-          { _id: riderId },
-          {
-            $inc: { earningWallet: deliveryAmount },
-          },
-          {
-            new: true,
-            runValidators: true,
+        // Get rider to calculate commission
+        const rider = await Rider.findById(riderId);
+        if (!rider) {
+          logger.warn(`Rider ${riderId} not found when updating earning wallet for order ${order.orderNumber}`);
+        } else {
+          // Calculate commission based on rider's commission type
+          let commissionAmount = 0;
+          const commission = rider.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
+          
+          if (commission.type === 'percentage') {
+            commissionAmount = (deliveryAmount * (commission.percentage || 10)) / 100;
+          } else if (commission.type === 'fixed') {
+            commissionAmount = commission.fixedAmount || 0;
+          } else if (commission.type === 'hybrid') {
+            // Hybrid: percentage + fixed
+            const percentageCommission = (deliveryAmount * (commission.percentage || 10)) / 100;
+            commissionAmount = percentageCommission + (commission.fixedAmount || 0);
+          } else if (commission.type === 'subscription') {
+            // For subscription, per-order commission is 0 (subscription fee is deducted separately)
+            commissionAmount = 0;
           }
-        );
 
-        if (updatedRider) {
-          logger.info(`Delivery amount ₹${deliveryAmount} added to rider ${riderId} earning wallet for order ${order.orderNumber}`);
+          // Calculate wallet amount: Delivery Amount - Commission
+          const walletAmount = deliveryAmount - commissionAmount;
+
+          // Check if already credited for this order
+          const alreadyCredited = rider.walletTransactions?.some(
+            txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
+                   txn.type === 'credit' && 
+                   txn.description && txn.description.includes('Delivery image upload')
+          );
+
+          if (!alreadyCredited && walletAmount > 0) {
+            // Update rider's earning wallet
+            const updatedRider = await Rider.findOneAndUpdate(
+              { _id: riderId },
+              {
+                $inc: { earningWallet: walletAmount },
+                $push: {
+                  walletTransactions: {
+                    type: 'credit',
+                    amount: walletAmount,
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    description: `Delivery image upload for order ${order.orderNumber}. Delivery: ₹${deliveryAmount.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}`,
+                    createdAt: new Date(),
+                  }
+                }
+              },
+              {
+                new: true,
+                runValidators: true,
+              }
+            );
+
+            if (updatedRider) {
+              logger.info(`Delivery amount ₹${deliveryAmount.toFixed(2)} (Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}) added to rider ${riderId} earning wallet for order ${order.orderNumber}`);
+            }
+          } else if (alreadyCredited) {
+            logger.info(`Delivery amount already credited to rider ${riderId} for order ${order.orderNumber}`);
+          }
         }
       } catch (earningWalletError) {
         logger.error('Error adding delivery amount to rider earning wallet:', earningWalletError);
@@ -1868,11 +1742,21 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
       });
     }
 
-    // Check if payment method is already cash
-    if (order.payment.method === 'cash') {
+    // Check if order payment method is COD (Cash on Delivery) - This API only works for COD orders
+    if (order.payment.method !== 'cod') {
       return res.status(400).json({
         success: false,
-        error: 'Order payment method is already set to cash',
+        error: 'This API can only be used for COD (Cash on Delivery) orders. Current payment method is not COD.',
+        currentPaymentMethod: order.payment.method,
+      });
+    }
+
+    // Check if payment is already completed
+    if (order.payment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        error: 'Order payment is already completed',
+        currentPaymentStatus: order.payment.status,
       });
     }
 
@@ -1933,6 +1817,136 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
     );
 
     logger.info(`Order ${order.orderNumber} payment method set to cash and status completed. Amount ₹${orderTotalAmount} added to rider ${order.rider._id} due balance.`);
+
+    // Update vendor wallets: Deduct Commission + Delivery Charge from vendor wallets
+    try {
+      const Vendor = require('../models/Vendor');
+      const logger = require('../utils/logger');
+      
+      // Get unique vendor IDs from order items
+      const vendorIds = [...new Set(order.items.map(item => {
+        const vendorId = item.vendor?._id || item.vendor;
+        return vendorId ? vendorId.toString() : null;
+      }).filter(Boolean))];
+
+      // Process each vendor
+      for (const vendorIdStr of vendorIds) {
+        try {
+          // Get vendor items
+          const vendorItems = order.items.filter(item => {
+            const itemVendorId = item.vendor?._id || item.vendor;
+            return itemVendorId && itemVendorId.toString() === vendorIdStr;
+          });
+
+          if (vendorItems.length === 0) continue;
+
+          // Calculate vendor's total amount from items
+          let vendorTotalAmount = 0;
+          vendorItems.forEach(item => {
+            const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+            vendorTotalAmount += itemTotal;
+          });
+
+          // Add proportional handling charge if applicable
+          if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+            const vendorSubtotal = vendorItems.reduce((sum, item) => {
+              const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+              return sum + itemTotal;
+            }, 0);
+            const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
+            const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
+            vendorTotalAmount += vendorHandlingCharge;
+          }
+
+          // Use delivery charge directly from order (already saved, no need to calculate)
+          // If multiple vendors, split delivery charge proportionally based on vendor subtotal
+          let deliveryCharge = 0;
+          if (order.pricing?.deliveryAmount) {
+            const totalDeliveryAmount = order.pricing.deliveryAmount || 0;
+            // If multiple vendors, split proportionally; if single vendor, use full amount
+            if (vendorIds.length > 1 && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+              const vendorSubtotal = vendorItems.reduce((sum, item) => {
+                const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+                return sum + itemTotal;
+              }, 0);
+              const deliveryChargeRatio = vendorSubtotal / order.pricing.subtotal;
+              deliveryCharge = totalDeliveryAmount * deliveryChargeRatio;
+            } else {
+              // Single vendor or no subtotal - use full delivery amount
+              deliveryCharge = totalDeliveryAmount;
+            }
+          }
+
+          // Get vendor to calculate commission
+          const vendor = await Vendor.findById(vendorIdStr);
+          if (!vendor) {
+            logger.warn(`Vendor ${vendorIdStr} not found for order ${order.orderNumber}`);
+            continue;
+          }
+
+          // Calculate commission based on vendor's commission type
+          let commissionAmount = 0;
+          const commission = vendor.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
+          
+          if (commission.type === 'percentage') {
+            commissionAmount = (vendorTotalAmount * (commission.percentage || 10)) / 100;
+          } else if (commission.type === 'fixed') {
+            commissionAmount = commission.fixedAmount || 0;
+          } else if (commission.type === 'hybrid') {
+            // Hybrid: percentage + fixed
+            const percentageCommission = (vendorTotalAmount * (commission.percentage || 10)) / 100;
+            commissionAmount = percentageCommission + (commission.fixedAmount || 0);
+          } else if (commission.type === 'subscription') {
+            // For subscription, commission is 0 (no per-order commission)
+            commissionAmount = 0;
+          }
+
+          // Calculate total deduction: Commission + Delivery Charge
+          const totalDeduction = commissionAmount + deliveryCharge;
+
+          // Check if already deducted for this order
+          const alreadyDeducted = vendor.walletTransactions?.some(
+            txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
+                   txn.type === 'debit' && 
+                   txn.description && txn.description.includes('Cash payment - Commission and delivery')
+          );
+
+          if (!alreadyDeducted && totalDeduction > 0) {
+            // Deduct commission + delivery charge from vendor wallet
+            const updatedVendor = await Vendor.findOneAndUpdate(
+              { _id: vendorIdStr },
+              {
+                $inc: { earningWallet: -totalDeduction },
+                $push: {
+                  walletTransactions: {
+                    type: 'debit',
+                    amount: totalDeduction,
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    description: `Cash payment for order ${order.orderNumber} - Commission: ₹${commissionAmount.toFixed(2)}, Delivery: ₹${deliveryCharge.toFixed(2)}, Total deducted: ₹${totalDeduction.toFixed(2)}`,
+                    createdAt: new Date(),
+                  }
+                }
+              },
+              {
+                new: true,
+                runValidators: true,
+              }
+            );
+
+            if (updatedVendor) {
+              logger.info(`Cash payment: Deducted ₹${totalDeduction.toFixed(2)} from vendor ${vendorIdStr} wallet for order ${order.orderNumber} (Commission: ₹${commissionAmount.toFixed(2)}, Delivery: ₹${deliveryCharge.toFixed(2)})`);
+            }
+          }
+        } catch (vendorError) {
+          logger.error(`Error updating vendor ${vendorIdStr} wallet for order ${order.orderNumber}:`, vendorError);
+          // Continue with other vendors even if one fails
+        }
+      }
+    } catch (walletError) {
+      logger.error('Error updating vendor wallets after cash payment:', walletError);
+      // Don't fail the request if wallet update fails
+    }
 
     // Populate order for response
     const populatedOrder = await Order.findById(orderId)
@@ -2723,6 +2737,320 @@ exports.createDueAmountRequest = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Create rider amount request error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Update rider commission (Admin only)
+ * PUT /api/admin/riders/:id/commission
+ */
+exports.updateRiderCommission = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const riderId = req.params.id;
+    const { type, percentage, fixedAmount, subscriptionAmount, subscriptionPeriod } = req.body;
+    const adminId = req.admin._id;
+
+    if (!riderId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rider ID is required',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(riderId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid rider ID format',
+      });
+    }
+
+    const rider = await Rider.findById(riderId);
+
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    // Validate commission type
+    const validTypes = ['percentage', 'fixed', 'hybrid', 'subscription'];
+    if (type && !validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid commission type. Must be one of: ${validTypes.join(', ')}`,
+      });
+    }
+
+    // Initialize commission object if it doesn't exist
+    if (!rider.commission) {
+      rider.commission = {
+        type: 'percentage',
+        percentage: 10,
+        fixedAmount: 0,
+        subscriptionAmount: 0,
+        subscriptionPeriod: 'monthly',
+      };
+    }
+
+    // Check if commission type is being changed
+    const isCommissionTypeChanged = type !== undefined && rider.commission.type !== type;
+    const currentDate = new Date();
+
+    // Update commission fields
+    if (type !== undefined) {
+      rider.commission.type = type;
+    }
+
+    if (percentage !== undefined) {
+      const percentageValue = parseFloat(percentage);
+      if (isNaN(percentageValue) || percentageValue < 0 || percentageValue > 100) {
+        return res.status(400).json({
+          success: false,
+          error: 'Commission percentage must be between 0 and 100',
+        });
+      }
+      rider.commission.percentage = percentageValue;
+    }
+
+    if (fixedAmount !== undefined) {
+      const fixedValue = parseFloat(fixedAmount);
+      if (isNaN(fixedValue) || fixedValue < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Fixed commission amount must be greater than or equal to 0',
+        });
+      }
+      rider.commission.fixedAmount = fixedValue;
+    }
+
+    if (subscriptionAmount !== undefined) {
+      const subscriptionValue = parseFloat(subscriptionAmount);
+      if (isNaN(subscriptionValue) || subscriptionValue < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription amount must be greater than or equal to 0',
+        });
+      }
+      rider.commission.subscriptionAmount = subscriptionValue;
+    }
+
+    if (subscriptionPeriod !== undefined) {
+      if (!['monthly', 'yearly'].includes(subscriptionPeriod)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription period must be either "monthly" or "yearly"',
+        });
+      }
+      rider.commission.subscriptionPeriod = subscriptionPeriod;
+    }
+
+    // Update metadata for this rider
+    rider.commission.updatedBy = adminId;
+    rider.commission.updatedAt = currentDate;
+
+    // Handle subscription commission: Deduct amount when subscription is set/updated
+    const isSubscriptionType = (type !== undefined && type === 'subscription') || 
+                               (type === undefined && rider.commission.type === 'subscription');
+    const isSubscriptionAmountChanged = subscriptionAmount !== undefined && 
+                                       rider.commission.subscriptionAmount !== subscriptionAmount;
+    const isSubscriptionTypeChanged = type !== undefined && 
+                                      rider.commission.type !== 'subscription' && 
+                                      type === 'subscription';
+
+    if (isSubscriptionType && (isSubscriptionAmountChanged || isSubscriptionTypeChanged)) {
+      const subscriptionAmountToDeduct = subscriptionAmount !== undefined ? 
+                                          parseFloat(subscriptionAmount) : 
+                                          rider.commission.subscriptionAmount || 0;
+
+      if (subscriptionAmountToDeduct > 0) {
+        // Deduct subscription amount from rider earning wallet (can go negative)
+        const currentBalance = rider.earningWallet || 0;
+        rider.earningWallet = currentBalance - subscriptionAmountToDeduct;
+        
+        // Add transaction record
+        rider.walletTransactions = rider.walletTransactions || [];
+        rider.walletTransactions.push({
+          type: 'debit',
+          amount: subscriptionAmountToDeduct,
+          description: `Subscription commission ${rider.commission.subscriptionPeriod || 'monthly'} fee deducted. Amount: ₹${subscriptionAmountToDeduct.toFixed(2)}`,
+          createdAt: new Date(),
+        });
+
+        // Set subscription deduction date (day of month for monthly, day of year for yearly)
+        const today = new Date();
+        if (!rider.commission.subscriptionDeductionDate) {
+          if (rider.commission.subscriptionPeriod === 'monthly') {
+            rider.commission.subscriptionDeductionDate = today.getDate(); // Day of month (1-31)
+          } else {
+            // For yearly, use day of year (1-365)
+            const startOfYear = new Date(today.getFullYear(), 0, 1);
+            const dayOfYear = Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+            rider.commission.subscriptionDeductionDate = dayOfYear;
+          }
+        }
+
+        // Set last and next deduction dates
+        rider.commission.lastSubscriptionDeduction = today;
+        
+        // Calculate next deduction date
+        const nextDeduction = new Date(today);
+        if (rider.commission.subscriptionPeriod === 'monthly') {
+          nextDeduction.setMonth(nextDeduction.getMonth() + 1);
+          // Ensure same day of month
+          const deductionDay = rider.commission.subscriptionDeductionDate;
+          const lastDayOfMonth = new Date(nextDeduction.getFullYear(), nextDeduction.getMonth() + 1, 0).getDate();
+          nextDeduction.setDate(Math.min(deductionDay, lastDayOfMonth));
+        } else {
+          // Yearly
+          nextDeduction.setFullYear(nextDeduction.getFullYear() + 1);
+        }
+        rider.commission.nextSubscriptionDeduction = nextDeduction;
+
+        logger.info(`Subscription commission ₹${subscriptionAmountToDeduct.toFixed(2)} deducted from rider ${riderId} wallet. Next deduction: ${nextDeduction.toISOString()}`);
+      }
+    }
+
+    await rider.save();
+
+    // If commission type is changed, update all riders' commission dates to current date
+    if (isCommissionTypeChanged) {
+      try {
+        await Rider.updateMany(
+          { _id: { $ne: rider._id } }, // Exclude the current rider
+          {
+            $set: {
+              'commission.updatedAt': currentDate,
+              'commission.updatedBy': adminId,
+            },
+          }
+        );
+        logger.info(`Admin ${adminId} changed commission type to ${type}. Updated all riders' commission dates.`);
+      } catch (updateError) {
+        logger.error('Error updating all riders commission dates:', updateError);
+        // Don't fail the request if bulk update fails, just log it
+      }
+    }
+
+    const populatedRider = await Rider.findById(rider._id)
+      .populate('commission.updatedBy', 'name email')
+      .select('commission fullName mobileNumber');
+
+    logger.info(`Admin ${adminId} updated commission for rider ${riderId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Rider commission updated successfully',
+      data: {
+        riderId: populatedRider._id,
+        fullName: populatedRider.fullName,
+        mobileNumber: populatedRider.mobileNumber,
+        commission: {
+          type: populatedRider.commission.type,
+          percentage: populatedRider.commission.percentage,
+          fixedAmount: populatedRider.commission.fixedAmount,
+          subscriptionAmount: populatedRider.commission.subscriptionAmount,
+          subscriptionPeriod: populatedRider.commission.subscriptionPeriod,
+          updatedBy: populatedRider.commission.updatedBy || null,
+          updatedAt: populatedRider.commission.updatedAt,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Update rider commission error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get all riders' earning wallets (Admin only)
+ * GET /api/admin/riders/wallets
+ */
+exports.getAllRidersWallets = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Build query
+    const query = {};
+    
+    // Optional search by rider name or mobile number
+    if (req.query.search) {
+      query.$or = [
+        { fullName: { $regex: req.query.search, $options: 'i' } },
+        { mobileNumber: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    // Optional filter by approvalStatus
+    if (req.query.approvalStatus) {
+      query.approvalStatus = req.query.approvalStatus;
+    }
+
+    // Optional filter by isActive
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true';
+    }
+
+    // Get total count
+    const total = await Rider.countDocuments(query);
+
+    // Get riders with wallet and commission information
+    const riders = await Rider.find(query)
+      .select('fullName mobileNumber earningWallet dueBalance pendingBalance approvalStatus isActive commission createdAt')
+      .populate('commission.updatedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Format response
+    const wallets = riders.map(rider => ({
+      riderId: rider._id,
+      fullName: rider.fullName || 'N/A',
+      mobileNumber: rider.mobileNumber || 'N/A',
+      walletBalance: rider.earningWallet || 0,
+      dueBalance: rider.dueBalance || 0,
+      pendingBalance: rider.pendingBalance || 0,
+      commissionType: rider.commission?.type || 'percentage',
+      commissionPercentage: rider.commission?.percentage || 0,
+      commissionFixedAmount: rider.commission?.fixedAmount || 0,
+      commissionSubscriptionAmount: rider.commission?.subscriptionAmount || 0,
+      commissionSubscriptionPeriod: rider.commission?.subscriptionPeriod || null,
+      commissionUpdatedAt: rider.commission?.updatedAt || null,
+      commissionUpdatedBy: rider.commission?.updatedBy ? {
+        id: rider.commission.updatedBy._id,
+        name: rider.commission.updatedBy.name,
+        email: rider.commission.updatedBy.email,
+      } : null,
+      approvalStatus: rider.approvalStatus || 'pending',
+      isActive: rider.isActive !== undefined ? rider.isActive : true,
+      createdAt: rider.createdAt,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        wallets,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Get all riders wallets error:', error);
     next(error);
   }
 };

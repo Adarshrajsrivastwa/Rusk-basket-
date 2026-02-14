@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const compression = require('compression');
 const { initializeQueues } = require('./utils/queue');
 const { disableExpiredOffers, processDailyOffers } = require('./utils/offerExpiryService');
+const logger = require('./utils/logger');
 
 require('./workers/emailWorker');
 require('./workers/smsWorker');
@@ -318,6 +319,40 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
     
     // Start scheduling
     scheduleDailyOfferCheck();
+
+    // Schedule subscription commission processing to run daily at 6 AM IST
+    const { processSubscriptionCommissions } = require('./workers/subscriptionCommissionWorker');
+    
+    const scheduleSubscriptionCommissionCheck = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(6, 0, 0, 0); // Set to 6 AM tomorrow
+      
+      // If it's already past 6 AM today, schedule for tomorrow
+      const today6AM = new Date(now);
+      today6AM.setHours(6, 0, 0, 0);
+      
+      const nextRun = now < today6AM ? today6AM : tomorrow;
+      const msUntilNextRun = nextRun.getTime() - now.getTime();
+      
+      setTimeout(() => {
+        // Process subscription commissions
+        processSubscriptionCommissions().then(result => {
+          if (result.success) {
+            logger.info(`Subscription commission processing completed: ${result.processed} processed, ${result.failed} failed`);
+          }
+        }).catch(error => {
+          logger.error('Error in subscription commission processing:', error);
+        });
+        
+        // Schedule next day
+        scheduleSubscriptionCommissionCheck();
+      }, msUntilNextRun);
+    };
+    
+    // Start scheduling subscription commission check
+    scheduleSubscriptionCommissionCheck();
   });
 })
 .catch((error) => {

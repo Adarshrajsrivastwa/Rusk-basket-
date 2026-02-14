@@ -10,7 +10,7 @@ const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets } = require('../controllers/vendor');
-const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest } = require('../controllers/rider');
+const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest, getAllRidersWallets, updateRiderCommission } = require('../controllers/rider');
 const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
 
 // Middleware
@@ -658,6 +658,71 @@ router.get(
       .withMessage('isActive must be either "true" or "false"'),
   ],
   getAllVendorsWallets
+);
+
+// Get all riders' earning wallets (Admin only)
+router.get(
+  '/riders/wallets',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('approvalStatus')
+      .optional()
+      .isIn(['pending', 'approved', 'rejected'])
+      .withMessage('approvalStatus must be one of: pending, approved, rejected'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+  ],
+  getAllRidersWallets
+);
+
+// Update rider commission (Admin only)
+router.put(
+  '/riders/:id/commission',
+  protect,
+  [
+    param('id')
+      .notEmpty()
+      .withMessage('Rider ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid rider ID format'),
+    body('type')
+      .optional()
+      .isIn(['percentage', 'fixed', 'hybrid', 'subscription'])
+      .withMessage('Commission type must be one of: percentage, fixed, hybrid, subscription'),
+    body('percentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Commission percentage must be between 0 and 100'),
+    body('fixedAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Fixed commission amount must be greater than or equal to 0'),
+    body('subscriptionAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Subscription amount must be greater than or equal to 0'),
+    body('subscriptionPeriod')
+      .optional()
+      .isIn(['monthly', 'yearly'])
+      .withMessage('Subscription period must be either monthly or yearly'),
+  ],
+  updateRiderCommission
 );
 
 // ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============

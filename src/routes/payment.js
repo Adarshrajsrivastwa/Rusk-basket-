@@ -16,6 +16,135 @@ const PaymentGateway = require('../models/PaymentGateway');
 const router = express.Router();
 
 /**
+ * Helper function to update vendor wallets when payment is verified
+ * Formula: Total Amount - Delivery Charge - Commission = Vendor Wallet Amount
+ */
+const updateVendorWalletsOnPaymentVerification = async (order) => {
+  try {
+    const Vendor = require('../models/Vendor');
+    const mongoose = require('mongoose');
+    
+    // Get unique vendor IDs from order items
+    const vendorIds = [...new Set(order.items.map(item => {
+      const vendorId = item.vendor?._id || item.vendor;
+      return vendorId ? vendorId.toString() : null;
+    }).filter(Boolean))];
+
+    // Process each vendor
+    for (const vendorIdStr of vendorIds) {
+      try {
+        // Get vendor items
+        const vendorItems = order.items.filter(item => {
+          const itemVendorId = item.vendor?._id || item.vendor;
+          return itemVendorId && itemVendorId.toString() === vendorIdStr;
+        });
+
+        if (vendorItems.length === 0) continue;
+
+        // Calculate vendor's total amount from items
+        let vendorTotalAmount = 0;
+        vendorItems.forEach(item => {
+          const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+          vendorTotalAmount += itemTotal;
+        });
+
+        // Add proportional handling charge if applicable
+        if (order.pricing?.handlingCharge && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+          const vendorSubtotal = vendorItems.reduce((sum, item) => {
+            const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+            return sum + itemTotal;
+          }, 0);
+          const handlingChargeRatio = vendorSubtotal / order.pricing.subtotal;
+          const vendorHandlingCharge = (order.pricing.handlingCharge || 0) * handlingChargeRatio;
+          vendorTotalAmount += vendorHandlingCharge;
+        }
+
+        // Calculate proportional delivery charge
+        let deliveryCharge = 0;
+        if (order.pricing?.deliveryAmount && order.pricing?.subtotal && order.pricing.subtotal > 0) {
+          const vendorSubtotal = vendorItems.reduce((sum, item) => {
+            const itemTotal = item.totalPrice || (item.unitPrice || item.salePrice || 0) * (item.quantity || 0);
+            return sum + itemTotal;
+          }, 0);
+          const deliveryChargeRatio = vendorSubtotal / order.pricing.subtotal;
+          deliveryCharge = (order.pricing.deliveryAmount || 0) * deliveryChargeRatio;
+        }
+
+        // Get vendor to calculate commission
+        const vendor = await Vendor.findById(vendorIdStr);
+        if (!vendor) {
+          logger.warn(`Vendor ${vendorIdStr} not found for order ${order.orderNumber}`);
+          continue;
+        }
+
+        // Calculate commission based on vendor's commission type
+        let commissionAmount = 0;
+        const commission = vendor.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
+        
+        if (commission.type === 'percentage') {
+          commissionAmount = (vendorTotalAmount * (commission.percentage || 10)) / 100;
+        } else if (commission.type === 'fixed') {
+          commissionAmount = commission.fixedAmount || 0;
+        } else if (commission.type === 'hybrid') {
+          // Hybrid: percentage + fixed
+          const percentageCommission = (vendorTotalAmount * (commission.percentage || 10)) / 100;
+          commissionAmount = percentageCommission + (commission.fixedAmount || 0);
+        } else if (commission.type === 'subscription') {
+          // For subscription commission type:
+          // - Monthly subscription fee is deducted separately on scheduled date
+          // - Per order commission is 0 (subscription already covers it)
+          commissionAmount = 0;
+        }
+
+        // Calculate vendor wallet amount: Total Amount - Delivery Charge - Commission
+        const vendorWalletAmount = vendorTotalAmount - deliveryCharge - commissionAmount;
+
+        // Check if already credited for this order
+        const alreadyCredited = vendor.walletTransactions?.some(
+          txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
+                 txn.type === 'credit' && 
+                 txn.description && txn.description.includes('Payment verified')
+        );
+
+        if (!alreadyCredited && vendorWalletAmount > 0) {
+          // Update vendor's earning wallet
+          const updatedVendor = await Vendor.findOneAndUpdate(
+            { _id: vendorIdStr },
+            {
+              $inc: { earningWallet: vendorWalletAmount },
+              $push: {
+                walletTransactions: {
+                  type: 'credit',
+                  amount: vendorWalletAmount,
+                  orderId: order._id,
+                  orderNumber: order.orderNumber,
+                  description: `Payment verified for order ${order.orderNumber}. Total: ₹${vendorTotalAmount.toFixed(2)}, Delivery: ₹${deliveryCharge.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${vendorWalletAmount.toFixed(2)}`,
+                  createdAt: new Date(),
+                }
+              }
+            },
+            {
+              new: true,
+              runValidators: true,
+            }
+          );
+
+          if (updatedVendor) {
+            logger.info(`Payment verified: Added ₹${vendorWalletAmount.toFixed(2)} to vendor ${vendorIdStr} wallet for order ${order.orderNumber} (Total: ₹${vendorTotalAmount.toFixed(2)}, Delivery: ₹${deliveryCharge.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)})`);
+          }
+        }
+      } catch (vendorError) {
+        logger.error(`Error updating vendor ${vendorIdStr} wallet for order ${order.orderNumber}:`, vendorError);
+        // Continue with other vendors even if one fails
+      }
+    }
+  } catch (walletError) {
+    logger.error('Error updating vendor wallets after payment verification:', walletError);
+    // Don't throw error, just log it
+  }
+};
+
+/**
  * Initialize payment for an order
  */
 router.post(
@@ -240,6 +369,9 @@ router.post(
         order.payment.method = gateway; // Store payment gateway used
         await order.save();
 
+        // Update vendor wallets: Total Amount - Delivery Charge - Commission
+        await updateVendorWalletsOnPaymentVerification(order);
+
         logger.info(`Payment verified for order ${order.orderNumber} via ${gateway}`);
 
         res.status(200).json({
@@ -291,6 +423,9 @@ router.post(
           order.payment.method = 'phonepay'; // Store payment gateway used
           await order.save();
 
+          // Update vendor wallets: Total Amount - Delivery Charge - Commission
+          await updateVendorWalletsOnPaymentVerification(order);
+
           logger.info(`PhonePe payment callback processed for order ${order.orderNumber}`);
         }
       }
@@ -327,6 +462,9 @@ router.post(
           order.payment.paidAt = new Date();
           order.payment.method = 'cashfree';
           await order.save();
+
+          // Update vendor wallets: Total Amount - Delivery Charge - Commission
+          await updateVendorWalletsOnPaymentVerification(order);
 
           logger.info(`Cashfree payment callback processed for order ${order.orderNumber}`);
         }
@@ -369,6 +507,9 @@ router.post(
             order.payment.paidAt = new Date();
             order.payment.method = 'razorpay';
             await order.save();
+
+            // Update vendor wallets: Total Amount - Delivery Charge - Commission
+            await updateVendorWalletsOnPaymentVerification(order);
 
             logger.info(`Razorpay payment link callback processed for order ${order.orderNumber}`);
           }
