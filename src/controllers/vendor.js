@@ -2554,6 +2554,10 @@ exports.updateVendorCommission = async (req, res, next) => {
       };
     }
 
+    // Check if commission type is being changed
+    const isCommissionTypeChanged = type !== undefined && vendor.commission.type !== type;
+    const currentDate = new Date();
+
     // Update commission fields
     if (type !== undefined) {
       vendor.commission.type = type;
@@ -2602,11 +2606,30 @@ exports.updateVendorCommission = async (req, res, next) => {
       vendor.commission.subscriptionPeriod = subscriptionPeriod;
     }
 
-    // Update metadata
+    // Update metadata for this vendor
     vendor.commission.updatedBy = adminId;
-    vendor.commission.updatedAt = new Date();
+    vendor.commission.updatedAt = currentDate;
 
     await vendor.save();
+
+    // If commission type is changed, update all vendors' commission dates to current date
+    if (isCommissionTypeChanged) {
+      try {
+        await Vendor.updateMany(
+          { _id: { $ne: vendor._id } }, // Exclude the current vendor
+          {
+            $set: {
+              'commission.updatedAt': currentDate,
+              'commission.updatedBy': adminId,
+            },
+          }
+        );
+        logger.info(`Admin ${adminId} changed commission type to ${type}. Updated all vendors' commission dates.`);
+      } catch (updateError) {
+        logger.error('Error updating all vendors commission dates:', updateError);
+        // Don't fail the request if bulk update fails, just log it
+      }
+    }
 
     const populatedVendor = await Vendor.findById(vendor._id)
       .populate('commission.updatedBy', 'name email')
@@ -2634,6 +2657,81 @@ exports.updateVendorCommission = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Update vendor commission error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Get all vendors' wallets with dates (Admin only)
+ * GET /api/admin/vendors/wallets
+ */
+exports.getAllVendorsWallets = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Build query
+    const query = {};
+    
+    // Optional search by vendor name or store name
+    if (req.query.search) {
+      query.$or = [
+        { vendorName: { $regex: req.query.search, $options: 'i' } },
+        { storeName: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    // Optional filter by isActive
+    if (req.query.isActive !== undefined) {
+      query.isActive = req.query.isActive === 'true';
+    }
+
+    // Get total count
+    const total = await Vendor.countDocuments(query);
+
+    // Get vendors with wallet and commission information
+    const vendors = await Vendor.find(query)
+      .select('vendorName storeName storeId earningWallet commission isActive createdAt')
+      .populate('commission.updatedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Format response
+    const wallets = vendors.map(vendor => ({
+      vendorId: vendor._id,
+      vendorName: vendor.vendorName || 'N/A',
+      storeName: vendor.storeName || 'N/A',
+      storeId: vendor.storeId || 'N/A',
+      walletBalance: vendor.earningWallet || 0,
+      commissionType: vendor.commission?.type || 'percentage',
+      commissionPercentage: vendor.commission?.percentage || 0,
+      commissionFixedAmount: vendor.commission?.fixedAmount || 0,
+      commissionUpdatedAt: vendor.commission?.updatedAt || null,
+      commissionUpdatedBy: vendor.commission?.updatedBy ? {
+        id: vendor.commission.updatedBy._id,
+        name: vendor.commission.updatedBy.name,
+        email: vendor.commission.updatedBy.email,
+      } : null,
+      isActive: vendor.isActive,
+      createdAt: vendor.createdAt,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        wallets,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Get all vendors wallets error:', error);
     next(error);
   }
 };

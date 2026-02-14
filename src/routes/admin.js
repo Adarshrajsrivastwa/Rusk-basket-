@@ -9,7 +9,7 @@ const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
-const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest } = require('../controllers/vendor');
+const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest } = require('../controllers/rider');
 const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
 
@@ -632,6 +632,32 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
   ],
   getVendors
+);
+
+// Get all vendors' wallets with dates (admin only)
+router.get(
+  '/vendors/wallets',
+  protect,
+  [
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+    query('isActive')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('isActive must be either "true" or "false"'),
+  ],
+  getAllVendorsWallets
 );
 
 // ============ VENDOR EARNING WALLET WITHDRAWAL ROUTES (Admin only) ============
