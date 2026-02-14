@@ -516,9 +516,10 @@ exports.getOrder = async (req, res, next) => {
       });
     }
 
+    // Return in same format as getOrders endpoint
     res.status(200).json({
       success: true,
-      data: order,
+      orders: [order], // Wrap in array to match /orders format
     });
   } catch (error) {
     logger.error('Get order error:', error);

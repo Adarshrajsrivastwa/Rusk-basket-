@@ -1852,55 +1852,182 @@ exports.getOrderById = async (orderId, userId = null) => {
   }
 
   const order = await Order.findOne(query)
+    .populate({
+      path: 'items.product',
+      select: 'productName productNumber productType category subCategory thumbnail images description skus inventory initialInventory skuHsn actualPrice regularPrice salePrice cashback tax discountPercentage tags vendor latitude longitude approvalStatus isActive offerEnabled offerDiscountPercentage offerStartDate offerEndDate isDailyOffer originalSalePrice createdAt updatedAt',
+      populate: [
+        { path: 'category', select: 'name' },
+        { path: 'subCategory', select: 'name' },
+        { path: 'vendor', select: 'vendorName storeName storeId' }
+      ]
+    })
+    .populate('items.vendor', 'vendorName storeName contactNumber storeAddress')
     .populate('user', 'userName contactNumber email address')
-    .populate('items.product', 'productName thumbnail description')
-    .populate('items.vendor', 'vendorName storeName storeId storeAddress')
     .populate('coupon.couponId', 'couponName code offerType')
     .populate('rider', 'fullName mobileNumber whatsappNumber city currentAddress')
     .populate('assignedBy', 'vendorName storeName')
-    .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber whatsappNumber city currentAddress');
+    .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber whatsappNumber city currentAddress')
+    .lean();
 
   if (!order) {
     return null;
   }
 
-  const orderObj = order.toObject ? order.toObject() : order;
+  // Format order similar to getUserOrders format
+  // Get unique vendors from order items
+  const vendorMap = new Map();
+  order.items.forEach(item => {
+    if (!item.vendor) return;
+    const vendorId = item.vendor._id ? item.vendor._id.toString() : item.vendor.toString();
+    if (!vendorMap.has(vendorId)) {
+      const vendor = item.vendor;
+      vendorMap.set(vendorId, {
+        name: vendor.vendorName || vendor.storeName || null,
+        phone: vendor.contactNumber || null,
+        address: vendor.storeAddress ? {
+          line1: vendor.storeAddress.line1 || null,
+          line2: vendor.storeAddress.line2 || null,
+          city: vendor.storeAddress.city || null,
+          state: vendor.storeAddress.state || null,
+          pinCode: vendor.storeAddress.pinCode || null,
+        } : null,
+      });
+    }
+  });
 
-  // Check for accepted rider in assignmentRequestSentTo array first
-  let assignedRider = null;
-  if (orderObj.assignmentRequestSentTo && Array.isArray(orderObj.assignmentRequestSentTo)) {
-    const acceptedRequest = orderObj.assignmentRequestSentTo.find(
+  // Get rider info
+  let riderInfo = null;
+  if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
+    const acceptedRequest = order.assignmentRequestSentTo.find(
       req => req.status === 'accepted' && req.rider
     );
     if (acceptedRequest && acceptedRequest.rider) {
-      assignedRider = acceptedRequest.rider;
+      const rider = acceptedRequest.rider;
+      riderInfo = {
+        name: rider.fullName || null,
+        phone: rider.mobileNumber || null,
+        address: rider.currentAddress || null,
+      };
     }
   }
-
-  // Use assigned rider from assignmentRequestSentTo, or fallback to order.rider
-  const riderToUse = assignedRider || orderObj.rider;
-
-  // Add enhanced rider details
-  if (riderToUse) {
-    orderObj.riderDetails = {
-      riderId: riderToUse._id || riderToUse,
-      riderName: riderToUse.fullName || null,
-      mobileNumber: riderToUse.mobileNumber || null,
-      whatsappNumber: riderToUse.whatsappNumber || null,
-      city: riderToUse.city || null,
-      address: riderToUse.currentAddress || null,
+  
+  if (!riderInfo && order.rider) {
+    riderInfo = {
+      name: order.rider.fullName || null,
+      phone: order.rider.mobileNumber || null,
+      address: order.rider.currentAddress || null,
     };
-  } else {
-    orderObj.riderDetails = null;
   }
 
-  // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
-  orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
-  
-  // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
-  orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
+  // Format pricing
+  const pricing = {
+    subtotal: order.pricing?.subtotal || 0,
+    discount: order.pricing?.discount || 0,
+    tax: order.pricing?.tax || 0,
+    handlingCharge: order.pricing?.handlingCharge || 0,
+    deliveryAmount: order.pricing?.deliveryAmount || 0,
+    riderAmount: order.pricing?.riderAmount || 0,
+    totalCashback: order.pricing?.totalCashback || 0,
+    total: order.pricing?.total || 0,
+    itemSubtotal: order.pricing?.subtotal || 0,
+    couponDiscount: order.coupon?.discount || 0,
+    totalTax: order.pricing?.tax || 0,
+    grandTotal: order.pricing?.total || 0,
+  };
 
-  return orderObj;
+  // Get base URL from environment or use default
+  const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
+  const invoiceBasePath = order.invoicePdf?.url || null;
+  
+  // Generate full URLs for view and download
+  const invoiceViewUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null;
+  const invoiceDownloadUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null;
+
+  return {
+    // Order basic info
+    orderNumber: order.orderNumber || null,
+    orderId: order._id || null,
+    
+    // Order status
+    status: order.status || 'order_placed',
+    statusHistory: {
+      current: order.status || 'order_placed',
+      orderPlaced: order.createdAt || null,
+      confirmed: order.status === 'confirmed' ? order.updatedAt : null,
+      processing: order.status === 'processing' ? order.updatedAt : null,
+      ready: order.status === 'ready' ? order.updatedAt : null,
+      outForDelivery: order.status === 'out_for_delivery' ? order.updatedAt : null,
+      delivered: order.deliveredAt || null,
+      cancelled: order.cancelledAt || null,
+      cancellationReason: order.cancellationReason || null,
+      cancelledBy: order.cancelledBy || null,
+    },
+    
+    // Payment information
+    payment: {
+      method: order.payment?.method || null,
+      status: order.payment?.status || 'pending',
+      amount: order.payment?.amount || order.pricing?.total || 0,
+      transactionId: order.payment?.transactionId || null,
+      paidAt: order.payment?.paidAt || null,
+    },
+    
+    // Shipping address
+    shippingAddress: order.shippingAddress || null,
+    
+    // Coupon information
+    coupon: order.coupon ? {
+      code: order.coupon.code || null,
+      discount: order.coupon.discount || 0,
+    } : null,
+    
+    // Vendors
+    vendors: Array.from(vendorMap.values()),
+    
+    // Rider information
+    rider: riderInfo,
+    assignedAt: order.assignedAt || null,
+    estimatedDelivery: order.estimatedDelivery || null,
+    
+    // Simple items array (as stored in order schema)
+    items: order.items?.map(item => ({
+      product: item.product?._id || item.product || null,
+      vendor: item.vendor?._id || item.vendor || null,
+      productName: item.productName || null,
+      thumbnail: item.thumbnail || null,
+      image: item.image || null,
+      quantity: item.quantity || 0,
+      unitPrice: item.unitPrice || 0,
+      salePrice: item.salePrice || 0,
+      totalPrice: item.totalPrice || 0,
+      cashback: item.cashback || 0,
+      tax: item.tax || 0,
+      sku: item.sku || null
+    })) || [],
+    totalItems: order.items?.length || 0,
+    totalQuantity: order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
+    
+    // Complete pricing breakdown
+    pricing: pricing,
+    
+    // Invoice
+    invoice: {
+      viewUrl: invoiceViewUrl,
+      downloadUrl: invoiceDownloadUrl,
+    },
+    
+    // Dates
+    createdAt: order.createdAt || null,
+    updatedAt: order.updatedAt || null,
+    
+    // Additional order info
+    notes: order.notes || null,
+    deliveryImage: order.deliveryImage || null,
+    deliveredImage: order.deliveredImage || null,
+    
+    // User info
+    user: order.user || null,
+  };
 };
 
 /**
