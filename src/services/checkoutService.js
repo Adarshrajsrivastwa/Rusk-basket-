@@ -1395,11 +1395,19 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
   }
 
   const orders = await Order.find(query)
-    .populate('items.product', 'productName thumbnail skuHsn description')
+    .populate({
+      path: 'items.product',
+      select: 'productName productNumber productType category subCategory thumbnail images description skus inventory initialInventory skuHsn actualPrice regularPrice salePrice cashback tax discountPercentage tags vendor latitude longitude approvalStatus isActive offerEnabled offerDiscountPercentage offerStartDate offerEndDate isDailyOffer originalSalePrice createdAt updatedAt',
+      populate: [
+        { path: 'category', select: 'name' },
+        { path: 'subCategory', select: 'name' },
+        { path: 'vendor', select: 'vendorName storeName storeId' }
+      ]
+    })
     .populate('items.vendor', 'vendorName storeName contactNumber storeAddress')
     .populate('rider', 'fullName mobileNumber currentAddress')
     .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber currentAddress')
-    .select('orderNumber items pricing invoicePdf createdAt')
+    .select('orderNumber status items pricing payment shippingAddress coupon rider assignedAt assignedBy assignmentNotes assignmentRequestSentTo estimatedDelivery deliveredAt cancelledAt cancellationReason cancelledBy notes deliveryAmount deliveryImage deliveredImage invoicePdf createdAt updatedAt')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -1536,28 +1544,164 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       }
     }
 
-    // Format product details
-    const products = order.items.map(item => ({
-      productName: item.productName || null,
-      description: item.product?.description || null,
+    // Format product details with all product information and pricing
+    const products = order.items.map((item, index) => {
+      const quantity = item.quantity || 0;
+      const unitPrice = item.unitPrice || item.salePrice || 0;
+      const salePrice = item.salePrice || 0;
+      const itemTax = item.tax || 0;
+      const itemCashback = item.cashback || 0;
+      const itemSubtotal = quantity * unitPrice;
+      const itemTotal = item.totalPrice || itemSubtotal;
+      
+      return {
+      // Individual Product Order Information
+      itemIndex: index + 1, // Position in order
+      itemId: item._id || null,
+      
+      // Individual Product Quantity
+      quantity: quantity, // Quantity of this specific product in the order
+      orderQuantity: quantity, // Alias for clarity
+      individualQuantity: quantity, // Individual product quantity
+      
+      // Individual Product Pricing - Per Unit
+      unitPrice: unitPrice, // Price per single unit at time of order
+      perUnitPrice: unitPrice, // Alias for clarity
+      salePrice: salePrice, // Sale price per unit at time of order
+      regularPrice: item.product?.regularPrice || item.product?.actualPrice || 0, // Regular price per unit
+      actualPrice: item.product?.actualPrice || 0, // Actual price per unit
+      
+      // Individual Product Pricing - Total for this item
+      itemSubtotal: itemSubtotal, // Subtotal for this item (quantity * unitPrice)
+      itemTotal: itemTotal, // Total price for this specific product item
+      totalPrice: itemTotal, // Alias
+      
+      // Individual Product Tax and Charges
+      itemTax: itemTax, // Tax amount for this individual product
+      itemTaxAmount: itemTax, // Alias
+      itemTaxPercentage: item.product?.tax || 0, // Tax percentage for this product
+      itemCashback: itemCashback, // Cashback for this individual product
+      itemCashbackAmount: itemCashback, // Alias
+      
+      // SKU Information
       sku: item.sku || item.product?.skuHsn || null,
-      quantity: item.quantity || 0,
-      unitPrice: item.unitPrice || item.salePrice || 0,
-      salePrice: item.salePrice || 0,
-      totalPrice: item.totalPrice || 0,
-      tax: item.tax || 0,
-        cashback: item.cashback || 0,
-    }));
+      skuHsn: item.product?.skuHsn || item.sku || null,
+      
+      // Complete Individual Product Pricing Breakdown
+      individualProductPricing: {
+        // Quantity Information
+        quantity: quantity,
+        quantityOrdered: quantity,
+        
+        // Per Unit Pricing
+        unitPrice: unitPrice,
+        perUnitPrice: unitPrice,
+        salePricePerUnit: salePrice,
+        regularPricePerUnit: item.product?.regularPrice || item.product?.actualPrice || 0,
+        actualPricePerUnit: item.product?.actualPrice || 0,
+        
+        // Total Pricing for this item
+        subtotal: itemSubtotal, // quantity * unitPrice
+        totalBeforeTax: itemSubtotal,
+        taxAmount: itemTax,
+        taxPercentage: item.product?.tax || 0,
+        cashbackAmount: itemCashback,
+        totalAfterTax: itemTotal,
+        finalTotal: itemTotal, // Final amount for this product item
+        
+        // Price Breakdown Calculation
+        calculation: {
+          quantity: quantity,
+          unitPrice: unitPrice,
+          baseAmount: itemSubtotal,
+          tax: itemTax,
+          cashback: itemCashback,
+          total: itemTotal,
+          formula: `${quantity} × ₹${unitPrice} = ₹${itemSubtotal}${itemTax > 0 ? ` + Tax ₹${itemTax}` : ''}${itemCashback > 0 ? ` - Cashback ₹${itemCashback}` : ''} = ₹${itemTotal}`
+        }
+      },
+      
+      // Item pricing breakdown (simplified)
+      itemPricing: {
+        quantity: quantity,
+        unitPrice: unitPrice,
+        salePrice: salePrice,
+        subtotal: itemSubtotal,
+        tax: itemTax,
+        cashback: itemCashback,
+        total: itemTotal
+      },
+      
+      // Full product details
+      product: item.product ? {
+        _id: item.product._id || null,
+        productNumber: item.product.productNumber || null,
+        productName: item.product.productName || item.productName || null,
+        productType: item.product.productType || null,
+        category: item.product.category ? {
+          _id: item.product.category._id || null,
+          name: item.product.category.name || null
+        } : null,
+        subCategory: item.product.subCategory ? {
+          _id: item.product.subCategory._id || null,
+          name: item.product.subCategory.name || null
+        } : null,
+        thumbnail: item.product.thumbnail || null,
+        images: item.product.images || [],
+        description: item.product.description || null,
+        skus: item.product.skus || [],
+        inventory: item.product.inventory || 0,
+        initialInventory: item.product.initialInventory || 0,
+        skuHsn: item.product.skuHsn || null,
+        actualPrice: item.product.actualPrice || 0,
+        regularPrice: item.product.regularPrice || 0,
+        salePrice: item.product.salePrice || 0,
+        cashback: item.product.cashback || 0,
+        tax: item.product.tax || 0,
+        discountPercentage: item.product.discountPercentage || 0,
+        tags: item.product.tags || [],
+        vendor: item.product.vendor ? {
+          _id: item.product.vendor._id || null,
+          vendorName: item.product.vendor.vendorName || null,
+          storeName: item.product.vendor.storeName || null,
+          storeId: item.product.vendor.storeId || null
+        } : null,
+        latitude: item.product.latitude || null,
+        longitude: item.product.longitude || null,
+        approvalStatus: item.product.approvalStatus || null,
+        isActive: item.product.isActive !== undefined ? item.product.isActive : true,
+        offerEnabled: item.product.offerEnabled || false,
+        offerDiscountPercentage: item.product.offerDiscountPercentage || 0,
+        offerStartDate: item.product.offerStartDate || null,
+        offerEndDate: item.product.offerEndDate || null,
+        isDailyOffer: item.product.isDailyOffer || false,
+        originalSalePrice: item.product.originalSalePrice || null,
+        createdAt: item.product.createdAt || null,
+        updatedAt: item.product.updatedAt || null
+      } : {
+        // Fallback if product is not populated
+        productName: item.productName || null,
+        description: item.description || null,
+        skuHsn: item.sku || null
+      }
+      };
+    });
 
-    // Format pricing
+    // Format pricing with all details
     const pricing = {
-        subtotal: order.pricing?.subtotal || 0,
-        discount: order.pricing?.discount || 0,
-        tax: order.pricing?.tax || 0,
-        handlingCharge: order.pricing?.handlingCharge || 0,
-        deliveryAmount: order.pricing?.deliveryAmount || 0,
+      subtotal: order.pricing?.subtotal || 0,
+      discount: order.pricing?.discount || 0,
+      tax: order.pricing?.tax || 0,
+      handlingCharge: order.pricing?.handlingCharge || 0,
+      deliveryAmount: order.pricing?.deliveryAmount || 0,
+      riderAmount: order.pricing?.riderAmount || 0,
       totalCashback: order.pricing?.totalCashback || 0,
       total: order.pricing?.total || 0,
+      // Breakdown
+      itemSubtotal: order.pricing?.subtotal || 0,
+      couponDiscount: order.coupon?.discount || 0,
+      totalTax: order.pricing?.tax || 0,
+      grandTotal: order.pricing?.total || 0,
     };
 
     // Get base URL from environment or use default
@@ -1569,15 +1713,73 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
     const invoiceDownloadUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null;
 
     return {
+      // Order basic info
       orderNumber: order.orderNumber || null,
-      vendors: Array.from(vendorMap.values()),
-      rider: riderInfo,
-      products: products,
-      pricing: pricing,
-      invoice: {
-        viewUrl: invoiceViewUrl, // Full URL for viewing PDF in browser
-        downloadUrl: invoiceDownloadUrl, // Full URL for downloading PDF
+      orderId: order._id || null,
+      
+      // Order status
+      status: order.status || 'order_placed',
+      statusHistory: {
+        current: order.status || 'order_placed',
+        orderPlaced: order.createdAt || null,
+        confirmed: order.status === 'confirmed' ? order.updatedAt : null,
+        processing: order.status === 'processing' ? order.updatedAt : null,
+        ready: order.status === 'ready' ? order.updatedAt : null,
+        outForDelivery: order.status === 'out_for_delivery' ? order.updatedAt : null,
+        delivered: order.deliveredAt || null,
+        cancelled: order.cancelledAt || null,
+        cancellationReason: order.cancellationReason || null,
+        cancelledBy: order.cancelledBy || null,
       },
+      
+      // Payment information
+      payment: {
+        method: order.payment?.method || null,
+        status: order.payment?.status || 'pending',
+        amount: order.payment?.amount || order.pricing?.total || 0,
+        transactionId: order.payment?.transactionId || null,
+        paidAt: order.payment?.paidAt || null,
+      },
+      
+      // Shipping address
+      shippingAddress: order.shippingAddress || null,
+      
+      // Coupon information
+      coupon: order.coupon ? {
+        code: order.coupon.code || null,
+        discount: order.coupon.discount || 0,
+      } : null,
+      
+      // Vendors
+      vendors: Array.from(vendorMap.values()),
+      
+      // Rider information
+      rider: riderInfo,
+      assignedAt: order.assignedAt || null,
+      estimatedDelivery: order.estimatedDelivery || null,
+      
+      // Products with all details and pricing
+      products: products,
+      totalItems: order.items?.length || 0,
+      totalQuantity: order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
+      
+      // Complete pricing breakdown
+      pricing: pricing,
+      
+      // Invoice
+      invoice: {
+        viewUrl: invoiceViewUrl,
+        downloadUrl: invoiceDownloadUrl,
+      },
+      
+      // Dates
+      createdAt: order.createdAt || null,
+      updatedAt: order.updatedAt || null,
+      
+      // Additional order info
+      notes: order.notes || null,
+      deliveryImage: order.deliveryImage || null,
+      deliveredImage: order.deliveredImage || null,
     };
   }));
 
