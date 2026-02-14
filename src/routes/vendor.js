@@ -633,6 +633,10 @@ router.put(
       .trim()
       .matches(/^[0-9]{14,17}$/)
       .withMessage('Please provide a valid FSSAI number (14-17 digits)'),
+    body('deliveryChargePerKm')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Delivery charge per km must be a number greater than or equal to 0'),
     body('contactNumber')
       .custom((value) => {
         if (value !== undefined) {
