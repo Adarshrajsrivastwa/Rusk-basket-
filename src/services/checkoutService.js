@@ -1782,8 +1782,6 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       assignedAt: order.assignedAt || null,
       estimatedDelivery: order.estimatedDelivery || null,
       
-      // Products with all details and pricing
-      products: products,
       // Simple items array (as stored in order schema)
       items: order.items?.map(item => ({
         product: item.product?._id || item.product || null,
