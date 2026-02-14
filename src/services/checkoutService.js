@@ -825,8 +825,17 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   const orderNumber = await Order.generateOrderNumber();
 
   // Clean up items - ensure thumbnail and image are properly formatted (not null)
-  const cleanedItems = totals.items.map(item => {
+  // Also ensure productName and all product details are properly saved
+  const cleanedItems = await Promise.all(totals.items.map(async (item) => {
     const cleanedItem = { ...item };
+    
+    // Ensure productName is always present
+    if (!cleanedItem.productName) {
+      const product = await Product.findById(item.product);
+      if (product) {
+        cleanedItem.productName = product.productName;
+      }
+    }
     
     // Handle thumbnail - convert null to undefined or ensure it's a proper object
     if (cleanedItem.thumbnail === null || (cleanedItem.thumbnail && !cleanedItem.thumbnail.url)) {
@@ -849,8 +858,23 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       };
     }
     
+    // Ensure SKU is saved
+    if (!cleanedItem.sku && item.sku) {
+      cleanedItem.sku = item.sku;
+    }
+    
+    // Ensure all required fields are present
+    cleanedItem.product = item.product;
+    cleanedItem.vendor = item.vendor;
+    cleanedItem.quantity = item.quantity || 0;
+    cleanedItem.unitPrice = item.unitPrice || item.salePrice || 0;
+    cleanedItem.salePrice = item.salePrice || item.unitPrice || 0;
+    cleanedItem.totalPrice = item.totalPrice || (cleanedItem.unitPrice * cleanedItem.quantity);
+    cleanedItem.tax = item.tax || 0;
+    cleanedItem.cashback = item.cashback || 0;
+    
     return cleanedItem;
-  });
+  }));
 
   // Create order
   const order = await Order.create({
