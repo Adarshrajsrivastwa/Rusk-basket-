@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const crypto = require('crypto');
+const axios = require('axios');
 const {
   initializePayment,
   verifyPayment,
@@ -815,7 +816,6 @@ router.post(
         const sha256Hash = crypto.createHash('sha256').update(stringToHash).digest('hex');
         const xVerify = `${sha256Hash}###${credentials.phonepaySaltIndex || '1'}`;
 
-        const axios = require('axios');
         const response = await axios.post(
           `${baseUrl}/pg/v1/pay`,
           {
@@ -846,6 +846,18 @@ router.post(
         }
       } else if (paymentGateway.name === 'cashfree') {
         // Cashfree payment link creation
+        // Validate credentials
+        if (!credentials.cashfreeAppId || !credentials.cashfreeSecretKey) {
+          throw new Error('Cashfree App ID and Secret Key are required. Please configure Cashfree credentials in admin panel.');
+        }
+
+        const appId = credentials.cashfreeAppId.trim();
+        const secretKey = credentials.cashfreeSecretKey.trim();
+
+        if (!appId || !secretKey) {
+          throw new Error('Cashfree App ID and Secret Key cannot be empty');
+        }
+
         const baseUrl = paymentGateway.testMode
           ? 'https://sandbox.cashfree.com/pg'
           : 'https://api.cashfree.com/pg';
@@ -871,32 +883,64 @@ router.post(
           },
         };
 
-        const response = await axios.post(
-          `${baseUrl}/orders`,
-          payload,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-version': apiVersion,
-              'x-client-id': credentials.cashfreeAppId.trim(),
-              'x-client-secret': credentials.cashfreeSecretKey.trim(),
-            },
+        try {
+          const response = await axios.post(
+            `${baseUrl}/orders`,
+            payload,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-version': apiVersion,
+                'x-client-id': appId,
+                'x-client-secret': secretKey,
+              },
+              timeout: 15000,
+            }
+          );
+
+          if (response.data && response.data.payment_session_id) {
+            logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
+
+            // Cashfree payment URL format: https://payments.cashfree.com/forms/pay/{payment_session_id}
+            const paymentUrl = paymentGateway.testMode
+              ? `https://payments.cashfree.com/forms/pay/${response.data.payment_session_id}`
+              : `https://payments.cashfree.com/forms/pay/${response.data.payment_session_id}`;
+
+            // Simple response format for Flutter
+            res.status(200).json({
+              success: true,
+              payment_url: paymentUrl,
+              gateway: 'cashfree',
+              amount: amountInPaise / 100,
+              currency: 'INR',
+              order_id: response.data.order_id,
+              payment_session_id: response.data.payment_session_id,
+            });
+          } else {
+            throw new Error('Cashfree payment initialization failed: Invalid response from Cashfree API');
           }
-        );
-
-        if (response.data && response.data.payment_session_id) {
-          logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
-
-          // Simple response format for Flutter
-          res.status(200).json({
-            success: true,
-            payment_url: `${baseUrl}/payments/${response.data.payment_session_id}`,
-            gateway: 'cashfree',
-            amount: amountInPaise / 100,
-            currency: 'INR',
-          });
-        } else {
-          throw new Error('Cashfree payment initialization failed');
+        } catch (apiError) {
+          logger.error('Cashfree API error:', apiError.response?.data || apiError.message);
+          
+          if (apiError.response) {
+            const status = apiError.response.status;
+            const errorData = apiError.response.data;
+            
+            if (status === 401 || status === 403) {
+              throw new Error('Invalid Cashfree credentials. Please check your App ID and Secret Key.');
+            }
+            
+            const errorMessage = errorData?.message || 
+                               errorData?.error || 
+                               `Cashfree API error (${status}). Please check your credentials.`;
+            throw new Error(errorMessage);
+          }
+          
+          if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) {
+            throw new Error('Connection timeout. Please try again.');
+          }
+          
+          throw new Error(`Cashfree payment initialization failed: ${apiError.message}`);
         }
       } else {
         return res.status(400).json({
