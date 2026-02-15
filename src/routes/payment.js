@@ -906,7 +906,7 @@ router.post(
             customer_phone: contact || req.user.contactNumber || '',
           },
           order_meta: {
-            return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback?order_id={order_id}`,
+            return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
             notify_url: notifyUrl,
           },
         };
@@ -942,14 +942,15 @@ router.post(
             // For both test and production, use the same URL format
             const paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
 
-            // Simple response format for Flutter
+            // Simple response format - orderId not required for standalone payment links
             res.status(200).json({
               success: true,
               payment_url: paymentUrl,
               gateway: 'cashfree',
               amount: amountInPaise / 100,
               currency: 'INR',
-              order_id: response.data.order_id,
+              // order_id removed - not required for standalone payment links
+              // Cashfree order_id is for internal tracking only
               payment_session_id: paymentSessionId,
             });
           } else {
