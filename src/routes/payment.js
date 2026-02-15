@@ -862,7 +862,8 @@ router.post(
           ? 'https://sandbox.cashfree.com/pg'
           : 'https://api.cashfree.com/pg';
 
-        const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
+        // Use newer API version (2023-08-01) which includes payment_link in response
+        const apiVersion = credentials.cashfreeApiVersion || '2023-08-01';
         const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
         const amountInPaise = Math.round(parseFloat(amount) * 100);
 
@@ -912,13 +913,15 @@ router.post(
         };
 
         try {
+          // IMPORTANT: Use /orders endpoint (NOT /sessions)
+          // Cashfree PG API: https://sandbox.cashfree.com/pg/orders or https://api.cashfree.com/pg/orders
           const response = await axios.post(
             `${baseUrl}/orders`,
             payload,
             {
               headers: {
                 'Content-Type': 'application/json',
-                'x-api-version': apiVersion,
+                'x-api-version': apiVersion, // Must be 2023-08-01
                 'x-client-id': appId,
                 'x-client-secret': secretKey,
               },
@@ -926,36 +929,45 @@ router.post(
             }
           );
 
-          if (response.data && response.data.payment_session_id) {
-            logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
+          // Log full response for debugging
+          logger.info('Cashfree Orders API Response:', JSON.stringify(response.data, null, 2));
 
-            // Get payment_session_id and clean it (remove any extra characters)
-            let paymentSessionId = response.data.payment_session_id;
-            
-            // Remove "payment" suffix if it exists (some API versions may return it)
-            if (paymentSessionId.endsWith('payment')) {
-              paymentSessionId = paymentSessionId.slice(0, -7); // Remove "payment" (7 characters)
-              logger.warn(`Cashfree payment_session_id had 'payment' suffix, removed it: ${paymentSessionId}`);
-            }
-
-            // Cashfree payment URL format: https://payments.cashfree.com/forms/pay/{payment_session_id}
-            // For both test and production, use the same URL format
-            const paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
-
-            // Simple response format - orderId not required for standalone payment links
-            res.status(200).json({
-              success: true,
-              payment_url: paymentUrl,
-              gateway: 'cashfree',
-              amount: amountInPaise / 100,
-              currency: 'INR',
-              // order_id removed - not required for standalone payment links
-              // Cashfree order_id is for internal tracking only
-              payment_session_id: paymentSessionId,
-            });
-          } else {
-            throw new Error('Cashfree payment initialization failed: Invalid response from Cashfree API');
+          if (!response.data || !response.data.payment_session_id) {
+            logger.error('Cashfree /orders response missing payment_session_id. Full response:', JSON.stringify(response.data, null, 2));
+            throw new Error(`Cashfree payment initialization failed: Invalid response from Cashfree API. Available fields: ${Object.keys(response.data || {}).join(', ')}`);
           }
+
+          // Get payment_session_id from response
+          const paymentSessionId = response.data.payment_session_id;
+
+          // Check for payment_link in response (may or may not be present depending on API version)
+          let paymentUrl = response.data.payment_link || 
+                         response.data.payment_url || 
+                         response.data.paymentLink ||
+                         response.data.paymentUrl;
+
+          // If payment_link is not in response, we need to construct it
+          // Cashfree payment URL format: https://payments.cashfree.com/forms/pay/{payment_session_id}
+          if (!paymentUrl) {
+            logger.warn('Cashfree response does not contain payment_link. Constructing URL from payment_session_id.');
+            // For Cashfree, payment link is constructed from payment_session_id
+            // Format: https://payments.cashfree.com/forms/pay/{payment_session_id}
+            paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
+          }
+          
+          logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
+
+          // Simple response format - orderId not required for standalone payment links
+          res.status(200).json({
+            success: true,
+            payment_url: paymentUrl, // Use payment_link directly from API
+            gateway: 'cashfree',
+            amount: amountInPaise / 100,
+            currency: 'INR',
+            // order_id removed - not required for standalone payment links
+            // Cashfree order_id is for internal tracking only
+            payment_session_id: paymentSessionId,
+          });
         } catch (apiError) {
           logger.error('Cashfree API error:', apiError.response?.data || apiError.message);
           

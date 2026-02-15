@@ -1,4 +1,5 @@
 const Rider = require('../models/Rider');
+const ReferralSettings = require('../models/ReferralSettings');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
@@ -14,10 +15,13 @@ exports.riderLogin = async (req, res, next) => {
       });
     }
 
-    const { mobileNumber } = req.body;
+    const { mobileNumber, referralCode } = req.body;
 
     // Check if rider exists
     let rider = await Rider.findOne({ mobileNumber });
+    let isNewRider = !rider;
+    let referralCodeApplied = false;
+    let referralCodeMessage = null;
 
     // If rider doesn't exist, create a new one
     if (!rider) {
@@ -27,9 +31,30 @@ exports.riderLogin = async (req, res, next) => {
         isActive: true,
         approvalStatus: 'pending',
       });
+      
+      // Handle referral code if provided (only for new riders)
+      if (referralCode) {
+        const referrer = await Rider.findOne({ referralCode: referralCode.toUpperCase() });
+        if (referrer) {
+          // Check if rider is trying to refer themselves
+          if (referrer.mobileNumber === mobileNumber) {
+            referralCodeMessage = 'You cannot use your own referral code';
+          } else {
+            rider.referredBy = referrer._id;
+            referralCodeApplied = true;
+            referralCodeMessage = 'Referral code applied successfully. Bonus will be credited after OTP verification.';
+          }
+        } else {
+          referralCodeMessage = 'Invalid referral code';
+        }
+      }
+      
       await rider.save({ validateBeforeSave: false });
       logger.info(`New rider created with mobile number: ${mobileNumber}`);
     }
+
+    // If existing rider provided referral code, completely ignore it (only for new riders)
+    // No need to set message as it won't be included in response for existing riders
 
     // Check if rider account is deactivated
     if (!rider.isActive) {
@@ -47,13 +72,21 @@ exports.riderLogin = async (req, res, next) => {
       await sendOTP(mobileNumber, otpCode);
       logger.info(`OTP generated and sent to Rider: ${mobileNumber}`);
 
-      res.status(200).json({
+      const responseData = {
         success: true,
         message: 'OTP sent to your mobile number',
         mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        isNewRider: !rider.fullName, // Indicate if this is a new rider (no profile completed)
+        isNewRider: isNewRider, // Indicate if this is a new rider
         otp: otpCode,
-      });
+      };
+
+      // Add referral code info only for new riders
+      if (isNewRider && referralCode) {
+        responseData.referralCodeApplied = referralCodeApplied;
+        responseData.referralCodeMessage = referralCodeMessage;
+      }
+
+      res.status(200).json(responseData);
     } catch (smsError) {
       logger.error('Failed to send OTP:', smsError);
       rider.clearOTP();
@@ -84,7 +117,7 @@ exports.riderLogin = async (req, res, next) => {
               success: true,
               message: 'OTP sent to your mobile number',
               mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-              isNewRider: !rider.fullName,
+              isNewRider: false, // Existing rider
               otp: otpCode,
             });
           } catch (smsError) {
@@ -145,6 +178,47 @@ exports.riderVerifyOTP = async (req, res, next) => {
 
     rider.clearOTP();
     await rider.save({ validateBeforeSave: false });
+
+    // Process referral if rider was referred and this is first verification
+    if (rider.referredBy) {
+      try {
+        const referrer = await Rider.findById(rider.referredBy);
+        if (referrer) {
+          const settings = await ReferralSettings.getSettings();
+          if (settings.isActive) {
+            // Credit to referee (new rider) - add to earningWallet
+            if (settings.riderRefereeAmount > 0) {
+              rider.earningWallet = (rider.earningWallet || 0) + settings.riderRefereeAmount;
+              rider.walletTransactions.push({
+                type: 'credit',
+                amount: settings.riderRefereeAmount,
+                description: `Referral bonus for using code ${referrer.referralCode}`,
+              });
+              await rider.save();
+            }
+
+            // Credit to referrer - add to earningWallet
+            if (settings.riderReferrerAmount > 0) {
+              referrer.earningWallet = (referrer.earningWallet || 0) + settings.riderReferrerAmount;
+              referrer.walletTransactions.push({
+                type: 'credit',
+                amount: settings.riderReferrerAmount,
+                description: `Referral bonus for referring rider ${rider.mobileNumber}`,
+              });
+              
+              // Update referrer stats
+              referrer.referralCount = (referrer.referralCount || 0) + 1;
+              await referrer.save();
+            }
+
+            logger.info(`Referral processed: Rider ${rider._id} referred by ${referrer._id}`);
+          }
+        }
+      } catch (referralError) {
+        logger.error('Error processing referral during rider verification:', referralError);
+        // Don't fail the login if referral processing fails
+      }
+    }
 
     const token = rider.getSignedJwtToken();
 

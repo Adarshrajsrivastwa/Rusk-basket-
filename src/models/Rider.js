@@ -300,6 +300,24 @@ const RiderSchema = new mongoose.Schema({
       default: Date.now,
     },
   }],
+  // Referral system
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true,
+  },
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Rider',
+    default: null,
+  },
+  referralCount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Referral count cannot be negative'],
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -321,6 +339,14 @@ RiderSchema.pre('save', function (next) {
     }
     this.age = age;
   }
+  
+  // Generate referral code if not exists (will be made unique by index)
+  if (!this.referralCode && this.isNew) {
+    // Generate referral code: RIDER + random string
+    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+    this.referralCode = `RIDER${randomStr}`;
+  }
+  
   this.updatedAt = Date.now();
   next();
 });

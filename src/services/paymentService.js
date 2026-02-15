@@ -561,16 +561,25 @@ const initializeCashfreePayment = async (orderData, credentials, testMode = fals
     );
 
     if (response.data && response.data.payment_session_id) {
+      // Use payment_link directly from Cashfree API response
+      const paymentLink = response.data.payment_link;
+      
+      if (!paymentLink) {
+        logger.warn('Cashfree response missing payment_link field, using payment_session_id only');
+      }
+
       return {
         success: true,
         paymentGateway: 'cashfree',
         orderId: response.data.order_id,
         paymentSessionId: response.data.payment_session_id,
+        paymentLink: paymentLink, // Include payment_link from API
         amount: amount / 100,
         // Frontend ke liye structured data
         frontendData: {
           gateway: 'cashfree',
           paymentSessionId: response.data.payment_session_id,
+          paymentLink: paymentLink, // Include payment_link for frontend
           orderId: response.data.order_id,
           amount: amount / 100,
           orderNumber: orderData.orderNumber,

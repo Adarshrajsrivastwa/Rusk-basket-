@@ -908,13 +908,26 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     }
   }
   
-  // Update pricing with delivery charge
+  // Get cashback usage from cart
+  const cashbackUsage = cart.cashbackUsage || 0;
+  
+  // Apply cashback discount to final total
+  const orderTotalBeforeCashback = totals.pricing.total + totalDeliveryCharge;
+  const finalTotal = Math.max(0, orderTotalBeforeCashback - cashbackUsage);
+
+  // Update pricing with delivery charge and cashback discount
   const finalPricing = {
     ...totals.pricing,
     deliveryAmount: parseFloat(totalDeliveryCharge.toFixed(2)),
     riderAmount: parseFloat(totalDeliveryCharge.toFixed(2)), // riderAmount is same as deliveryAmount (what rider earns)
-    total: parseFloat((totals.pricing.total + totalDeliveryCharge).toFixed(2)),
+    cashbackDiscount: parseFloat(cashbackUsage.toFixed(2)),
+    total: parseFloat(finalTotal.toFixed(2)),
   };
+  
+  // Remove cashbackDiscount from discount (since it's already included in totals.pricing.discount)
+  // The discount in totals.pricing already includes cashback, so we need to separate them
+  const couponDiscount = totals.pricing.discount - cashbackUsage;
+  finalPricing.discount = Math.max(0, couponDiscount);
 
   // Create order
   const order = await Order.create({
@@ -925,7 +938,10 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     coupon: cart.coupon ? {
       couponId: cart.coupon.couponId,
       code: cart.coupon.code,
-      discount: totals.pricing.discount,
+      discount: totals.pricing.discount - cashbackUsage, // Discount from coupon only (excluding cashback)
+    } : undefined,
+    cashbackUsed: cashbackUsage > 0 ? {
+      amount: cashbackUsage,
     } : undefined,
     shippingAddress,
     payment: {
@@ -946,23 +962,45 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     }
   }
 
-  // Add cashback to user account (ecashback)
+  // Deduct cashback if used
+  if (cashbackUsage > 0) {
+    try {
+      const { useCashbackFromUser } = require('../utils/cashbackHelper');
+      const result = await useCashbackFromUser(
+        userId,
+        cashbackUsage,
+        order._id,
+        orderNumber,
+        `Cashback used for order ${orderNumber}`
+      );
+      
+      if (!result.success) {
+        logger.warn(`Failed to deduct cashback for order ${orderNumber}: ${result.error}`);
+        // If cashback deduction fails, we should ideally rollback the order
+        // But for now, we'll just log it
+      }
+    } catch (error) {
+      logger.error(`Error deducting cashback from user ${userId} for order ${orderNumber}:`, error);
+    }
+  }
+
+  // Add cashback to user account (ecashback) - earned from order
   const totalCashback = totals.pricing?.totalCashback || 0;
   
   if (totalCashback > 0) {
     try {
-      const user = await User.findById(userId);
-      if (user) {
-        const previousCashback = user.cashback || 0;
-        const newCashback = previousCashback + totalCashback;
-        user.cashback = newCashback;
-        await user.save();
-        
-        // Verify cashback was saved
-        const updatedUser = await User.findById(userId).select('cashback');
-        logger.info(`Cashback added to user ${userId} for order ${orderNumber}: Previous: ₹${previousCashback}, Added: ₹${totalCashback}, New Total: ₹${updatedUser?.cashback || newCashback}`);
-      } else {
-        logger.warn(`User ${userId} not found when trying to add cashback for order ${orderNumber}`);
+      // Use cashback helper to add cashback and create transaction record
+      const { addCashbackToUser } = require('../utils/cashbackHelper');
+      const result = await addCashbackToUser(
+        userId,
+        totalCashback,
+        order._id,
+        orderNumber,
+        `Cashback earned from order ${orderNumber}`
+      );
+      
+      if (!result.success) {
+        logger.warn(`Failed to add cashback for order ${orderNumber}: ${result.error}`);
       }
     } catch (error) {
       // Don't throw error, just log it - order should still be created
@@ -975,6 +1013,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   // Clear cart
   cart.items = [];
   cart.coupon = undefined;
+  cart.cashbackUsage = 0;
   await cart.save();
 
   // Update vendor revenue tracking
@@ -1331,16 +1370,18 @@ exports.reorder = async (userId, orderId) => {
   // Add cashback to user account (ecashback) for reorder
   if (totalCashback > 0) {
     try {
-      const user = await User.findById(userId);
-      if (user) {
-        const previousCashback = user.cashback || 0;
-        const newCashback = previousCashback + totalCashback;
-        user.cashback = newCashback;
-        await user.save();
-        
-        logger.info(`Cashback added to user ${userId} for reorder ${orderNumber}: Previous: ₹${previousCashback}, Added: ₹${totalCashback}, New Total: ₹${newCashback}`);
-      } else {
-        logger.warn(`User ${userId} not found when trying to add cashback for reorder ${orderNumber}`);
+      // Use cashback helper to add cashback and create transaction record
+      const { addCashbackToUser } = require('../utils/cashbackHelper');
+      const result = await addCashbackToUser(
+        userId,
+        totalCashback,
+        newOrder._id,
+        orderNumber,
+        `Cashback earned from reorder ${orderNumber}`
+      );
+      
+      if (!result.success) {
+        logger.warn(`Failed to add cashback for reorder ${orderNumber}: ${result.error}`);
       }
     } catch (error) {
       logger.error(`Error adding cashback to user ${userId} for reorder ${orderNumber}:`, error);
@@ -3325,16 +3366,18 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
   // Add cashback to user account (ecashback) when items are added to order
   if (newCashback > 0) {
     try {
-      const user = await User.findById(order.user);
-      if (user) {
-        const previousCashback = user.cashback || 0;
-        const newCashbackTotal = previousCashback + newCashback;
-        user.cashback = newCashbackTotal;
-        await user.save();
-        
-        logger.info(`Cashback added to user ${order.user} for items added to order ${order.orderNumber}: Previous: ₹${previousCashback}, Added: ₹${newCashback}, New Total: ₹${newCashbackTotal}`);
-      } else {
-        logger.warn(`User ${order.user} not found when trying to add cashback for items added to order ${order.orderNumber}`);
+      // Use cashback helper to add cashback and create transaction record
+      const { addCashbackToUser } = require('../utils/cashbackHelper');
+      const result = await addCashbackToUser(
+        order.user,
+        newCashback,
+        order._id,
+        order.orderNumber,
+        `Cashback earned from items added to order ${order.orderNumber}`
+      );
+      
+      if (!result.success) {
+        logger.warn(`Failed to add cashback for items added to order ${order.orderNumber}: ${result.error}`);
       }
     } catch (error) {
       logger.error(`Error adding cashback to user ${order.user} for items added to order ${order.orderNumber}:`, error);

@@ -1,4 +1,5 @@
 const checkoutService = require('../services/checkoutService');
+const cashbackService = require('../services/cashbackService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 
@@ -270,6 +271,57 @@ exports.removeCoupon = async (req, res, next) => {
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to remove coupon',
+    });
+  }
+};
+
+exports.applyCashback = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { cashbackAmount } = req.body;
+    const userId = req.user._id;
+    logger.info(`Applying cashback to cart for user: ${userId}, amount: ${cashbackAmount}`);
+
+    const result = await cashbackService.applyCashbackToCart(userId, cashbackAmount);
+
+    res.status(200).json({
+      success: true,
+      message: 'Cashback applied successfully',
+      data: result,
+    });
+  } catch (error) {
+    logger.error('Apply cashback error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to apply cashback',
+    });
+  }
+};
+
+exports.removeCashback = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    logger.info(`Removing cashback from cart for user: ${userId}`);
+
+    const result = await cashbackService.removeCashbackFromCart(userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Cashback removed successfully',
+      data: result,
+    });
+  } catch (error) {
+    logger.error('Remove cashback error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to remove cashback',
     });
   }
 };

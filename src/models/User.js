@@ -135,6 +135,24 @@ const UserSchema = new mongoose.Schema({
       default: Date.now,
     },
   }],
+  // Referral system
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true,
+  },
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  referralCount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Referral count cannot be negative'],
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -161,6 +179,13 @@ UserSchema.pre('save', function (next) {
   // Email is optional, so we set it to undefined to prevent MongoDB from indexing null values
   if (this.email === null || this.email === '') {
     delete this.email;
+  }
+  
+  // Generate referral code if not exists (will be made unique by index)
+  if (!this.referralCode && this.isNew) {
+    // Generate referral code: USER + random string
+    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+    this.referralCode = `USER${randomStr}`;
   }
   
   this.updatedAt = Date.now();

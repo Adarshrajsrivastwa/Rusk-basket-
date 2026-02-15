@@ -1,4 +1,5 @@
 const Admin = require('../models/Admin');
+const ReferralSettings = require('../models/ReferralSettings');
 const { validationResult } = require('express-validator');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const { sendAdminPushNotification } = require('../utils/firebaseNotification');
@@ -580,5 +581,82 @@ exports.getAllAdmins = async (req, res, next) => {
   } catch (error) {
     logger.error('Get all admins error:', error);
     next(error);
+  }
+};
+
+/**
+ * Get referral settings
+ */
+exports.getReferralSettings = async (req, res, next) => {
+  try {
+    const settings = await ReferralSettings.getSettings();
+
+    res.status(200).json({
+      success: true,
+      data: settings,
+    });
+  } catch (error) {
+    logger.error('Get referral settings error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to get referral settings',
+    });
+  }
+};
+
+/**
+ * Update referral settings
+ */
+exports.updateReferralSettings = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const settings = await ReferralSettings.getSettings();
+
+    // Update user referral amounts
+    if (req.body.userReferrerAmount !== undefined) {
+      settings.userReferrerAmount = parseFloat(req.body.userReferrerAmount);
+    }
+    if (req.body.userRefereeAmount !== undefined) {
+      settings.userRefereeAmount = parseFloat(req.body.userRefereeAmount);
+    }
+
+    // Update rider referral amounts
+    if (req.body.riderReferrerAmount !== undefined) {
+      settings.riderReferrerAmount = parseFloat(req.body.riderReferrerAmount);
+    }
+    if (req.body.riderRefereeAmount !== undefined) {
+      settings.riderRefereeAmount = parseFloat(req.body.riderRefereeAmount);
+    }
+
+    // Update status
+    if (req.body.isActive !== undefined) {
+      settings.isActive = req.body.isActive === true || req.body.isActive === 'true';
+    }
+
+    // Set updated by
+    settings.updatedBy = req.admin._id;
+
+    await settings.save();
+
+    logger.info(`Referral settings updated by Admin: ${req.admin.email || req.admin.mobile}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Referral settings updated successfully',
+      data: settings,
+    });
+  } catch (error) {
+    logger.error('Update referral settings error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to update referral settings',
+    });
   }
 };

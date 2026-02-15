@@ -59,6 +59,11 @@ const CartSchema = new mongoose.Schema({
       uppercase: true,
     },
   },
+  cashbackUsage: {
+    type: Number,
+    default: 0,
+    min: [0, 'Cashback usage cannot be negative'],
+  },
   totalPrice: {
     type: Number,
     default: 0,
@@ -236,6 +241,10 @@ CartSchema.methods.calculateTotals = async function () {
     }
   }
 
+  // Add cashback usage as discount
+  const cashbackDiscount = this.cashbackUsage || 0;
+  discount += cashbackDiscount;
+
   // Calculate handling charge based on vendor's handling charge percentage
   // Get unique vendor IDs from items
   const vendorIds = [];
@@ -290,6 +299,7 @@ CartSchema.methods.calculateTotals = async function () {
     pricing: {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discount: parseFloat(discount.toFixed(2)),
+      cashbackDiscount: parseFloat(cashbackDiscount.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
       handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
       total: parseFloat(total.toFixed(2)),

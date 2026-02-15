@@ -114,6 +114,11 @@ const OrderSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Total cashback must be greater than or equal to 0'],
     },
+    cashbackDiscount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Cashback discount must be greater than or equal to 0'],
+    },
     deliveryAmount: {
       type: Number,
       default: 0,
@@ -138,6 +143,13 @@ const OrderSchema = new mongoose.Schema({
     discount: {
       type: Number,
       default: 0,
+    },
+  },
+  cashbackUsed: {
+    amount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Cashback used amount must be greater than or equal to 0'],
     },
   },
   shippingAddress: {

@@ -114,6 +114,7 @@ const paymentGatewayRoutes = require('./routes/paymentGateway');
 const paymentRoutes = require('./routes/payment');
 const paymentRequestRoutes = require('./routes/paymentRequest');
 const walletRoutes = require('./routes/wallet');
+const cashbackRoutes = require('./routes/cashback');
 const userNotificationRoutes = require('./routes/userNotification');
 const dailyOrderRoutes = require('./routes/dailyOrder');
 
@@ -219,6 +220,7 @@ app.use('/api/payment-gateway', paymentGatewayRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/payment-request', paymentRequestRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/cashback', cashbackRoutes);
 app.use('/api/notifications', userNotificationRoutes);
 app.use('/api/daily-order', dailyOrderRoutes);
 

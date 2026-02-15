@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const ReferralSettings = require('../models/ReferralSettings');
 const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
@@ -14,10 +15,13 @@ exports.userLogin = async (req, res, next) => {
       });
     }
 
-    const { contactNumber } = req.body;
+    const { contactNumber, referralCode } = req.body;
 
     // Check if user exists
     let user = await User.findOne({ contactNumber });
+    let isNewUser = !user;
+    let referralCodeApplied = false;
+    let referralCodeMessage = null;
 
     // If user doesn't exist, create a new one
     if (!user) {
@@ -30,6 +34,23 @@ exports.userLogin = async (req, res, next) => {
       
       // Ensure email is not included in the document
       user.email = undefined;
+      
+      // Handle referral code if provided (only for new users)
+      if (referralCode) {
+        const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
+        if (referrer) {
+          // Check if user is trying to refer themselves
+          if (referrer.contactNumber === contactNumber) {
+            referralCodeMessage = 'You cannot use your own referral code';
+          } else {
+            user.referredBy = referrer._id;
+            referralCodeApplied = true;
+            referralCodeMessage = 'Referral code applied successfully. Bonus will be credited after OTP verification.';
+          }
+        } else {
+          referralCodeMessage = 'Invalid referral code';
+        }
+      }
       
       try {
         await user.save({ validateBeforeSave: false });
@@ -84,6 +105,9 @@ exports.userLogin = async (req, res, next) => {
       }
     }
 
+    // If existing user provided referral code, completely ignore it (only for new users)
+    // No need to set message as it won't be included in response for existing users
+
     // Check if user account is deactivated
     if (!user.isActive) {
       return res.status(403).json({
@@ -100,23 +124,39 @@ exports.userLogin = async (req, res, next) => {
       await sendOTP(contactNumber, otpCode);
       logger.info(`OTP generated and sent to User: ${contactNumber}`);
 
-      res.status(200).json({
+      const responseData = {
         success: true,
         message: 'OTP sent to your contact number',
         contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        isNewUser: !user.userName, // Indicate if this is a new user (no profile completed)
+        isNewUser: isNewUser, // Indicate if this is a new user
         otp: otpCode, // Include OTP in response for all users
-      });
+      };
+
+      // Add referral code info only for new users
+      if (isNewUser && referralCode) {
+        responseData.referralCodeApplied = referralCodeApplied;
+        responseData.referralCodeMessage = referralCodeMessage;
+      }
+
+      res.status(200).json(responseData);
     } catch (smsError) {
       logger.error('Failed to send OTP:', smsError);
       // Still return OTP in response even if SMS fails (for development/testing)
-      res.status(200).json({
+      const responseData = {
         success: true,
         message: 'OTP generated (SMS sending failed, but OTP is available)',
         contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        isNewUser: !user.userName,
+        isNewUser: isNewUser,
         otp: otpCode, // Include OTP in response
-      });
+      };
+
+      // Add referral code info only for new users
+      if (isNewUser && referralCode) {
+        responseData.referralCodeApplied = referralCodeApplied;
+        responseData.referralCodeMessage = referralCodeMessage;
+      }
+
+      res.status(200).json(responseData);
     }
   } catch (error) {
     logger.error('User login error:', error);
@@ -138,7 +178,7 @@ exports.userLogin = async (req, res, next) => {
               success: true,
               message: 'OTP sent to your contact number',
               contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-              isNewUser: !user.userName,
+              isNewUser: false, // Existing user
               otp: otpCode, // Include OTP in response
             });
           } catch (smsError) {
@@ -148,7 +188,7 @@ exports.userLogin = async (req, res, next) => {
               success: true,
               message: 'OTP generated (SMS sending failed, but OTP is available)',
               contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-              isNewUser: !user.userName,
+              isNewUser: false, // Existing user
               otp: otpCode, // Include OTP in response
             });
           }
@@ -200,9 +240,41 @@ exports.userVerifyOTP = async (req, res, next) => {
     }
 
     // Mark contact number as verified after successful OTP verification
+    const wasVerified = user.contactNumberVerified;
     user.contactNumberVerified = true;
     user.clearOTP();
     await user.save({ validateBeforeSave: false });
+
+    // Process referral if user was referred and this is first verification
+    if (user.referredBy && !wasVerified) {
+      try {
+        const referrer = await User.findById(user.referredBy);
+        if (referrer) {
+          const settings = await ReferralSettings.getSettings();
+          if (settings.isActive) {
+            // Credit to referee (new user) - add to cashback
+            if (settings.userRefereeAmount > 0) {
+              user.cashback = (user.cashback || 0) + settings.userRefereeAmount;
+              await user.save();
+            }
+
+            // Credit to referrer - add to cashback
+            if (settings.userReferrerAmount > 0) {
+              referrer.cashback = (referrer.cashback || 0) + settings.userReferrerAmount;
+              
+              // Update referrer stats
+              referrer.referralCount = (referrer.referralCount || 0) + 1;
+              await referrer.save();
+            }
+
+            logger.info(`Referral processed: User ${user._id} referred by ${referrer._id}`);
+          }
+        }
+      } catch (referralError) {
+        logger.error('Error processing referral during user verification:', referralError);
+        // Don't fail the login if referral processing fails
+      }
+    }
 
     const token = user.getSignedJwtToken();
 

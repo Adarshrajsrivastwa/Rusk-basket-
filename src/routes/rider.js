@@ -8,6 +8,7 @@ const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
 const { uploadRiderFiles, uploadDeliveryImage: uploadDeliveryImageMiddleware } = require('../middleware/riderUpload');
 const { createRiderTicket, getRiderTickets, getRiderTicket, addRiderTicketMessage } = require('../controllers/ticket');
+const { getRiderReferral, applyRiderReferralCode } = require('../controllers/referral');
 
 const router = express.Router();
 
@@ -22,6 +23,11 @@ router.post(
       .bail()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit mobile number'),
+    body('referralCode')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 20 })
+      .withMessage('Referral code must be between 1 and 20 characters'),
   ],
   riderLogin
 );
@@ -194,6 +200,23 @@ router.put(
       .trim(),
   ],
   updateProfile
+);
+
+// Referral routes (protected - must be before /:id route to avoid conflict)
+router.get('/referral', protect, getRiderReferral);
+
+router.post(
+  '/referral/apply',
+  protect,
+  [
+    body('referralCode')
+      .trim()
+      .notEmpty()
+      .withMessage('Referral code is required')
+      .isLength({ min: 1, max: 20 })
+      .withMessage('Referral code must be between 1 and 20 characters'),
+  ],
+  applyRiderReferralCode
 );
 
 // Get delivered orders by specific rider ID (must be before /:id route)

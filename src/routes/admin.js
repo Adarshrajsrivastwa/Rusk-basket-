@@ -7,7 +7,7 @@ const { getAllProductsList, getProductByIdAdmin } = require('../controllers/prod
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
-const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins } = require('../controllers/admin');
+const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins, getReferralSettings, updateReferralSettings } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest, getAllRidersWallets, updateRiderCommission } = require('../controllers/rider');
@@ -1233,6 +1233,41 @@ router.get(
       .withMessage('Search query must be between 1 and 200 characters'),
   ],
   getAllAdmins
+);
+
+// Referral Settings Routes (Admin only)
+router.get(
+  '/referral-settings',
+  protect,
+  getReferralSettings
+);
+
+router.put(
+  '/referral-settings',
+  protect,
+  [
+    body('userReferrerAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('User referrer amount must be a non-negative number'),
+    body('userRefereeAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('User referee amount must be a non-negative number'),
+    body('riderReferrerAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Rider referrer amount must be a non-negative number'),
+    body('riderRefereeAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Rider referee amount must be a non-negative number'),
+    body('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+  ],
+  updateReferralSettings
 );
 
 module.exports = router;

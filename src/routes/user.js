@@ -5,6 +5,7 @@ const { userLogin, userVerifyOTP, userLogout } = require('../controllers/userAut
 const { getProfile, updateProfile, getCashback, addAddress, getAddresses, updateAddress, deleteAddress, setDefaultAddress } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
 const { createTicket, getTickets, getTicket, updateTicket, addTicketMessage } = require('../controllers/ticket');
+const { getUserReferral, applyUserReferralCode } = require('../controllers/referral');
 const { protect } = require('../middleware/userAuth');
 const { uploadProfileImage } = require('../middleware/userUpload');
 
@@ -20,6 +21,11 @@ router.post(
       .bail()
       .matches(/^[0-9]{10}$/)
       .withMessage('Please provide a valid 10-digit contact number'),
+    body('referralCode')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 20 })
+      .withMessage('Referral code must be between 1 and 20 characters'),
   ],
   userLogin
 );
@@ -446,6 +452,23 @@ router.post(
       .withMessage('Message must be between 1 and 2000 characters'),
   ],
   addTicketMessage
+);
+
+// Referral routes (protected)
+router.get('/referral', protect, getUserReferral);
+
+router.post(
+  '/referral/apply',
+  protect,
+  [
+    body('referralCode')
+      .trim()
+      .notEmpty()
+      .withMessage('Referral code is required')
+      .isLength({ min: 1, max: 20 })
+      .withMessage('Referral code must be between 1 and 20 characters'),
+  ],
+  applyUserReferralCode
 );
 
 module.exports = router;

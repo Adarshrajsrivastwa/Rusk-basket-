@@ -8,6 +8,8 @@ const {
   clearCart,
   applyCoupon,
   removeCoupon,
+  applyCashback,
+  removeCashback,
   createOrder,
   getOrders,
   getOrder,
@@ -277,6 +279,23 @@ router.post(
 );
 
 router.delete('/cart/coupon/remove', removeCoupon);
+
+// Cashback routes
+router.post(
+  '/cart/cashback/apply',
+  protect,
+  [
+    body('cashbackAmount')
+      .notEmpty()
+      .withMessage('Cashback amount is required')
+      .bail()
+      .isFloat({ min: 0.01 })
+      .withMessage('Cashback amount must be greater than 0'),
+  ],
+  applyCashback
+);
+
+router.delete('/cart/cashback/remove', protect, removeCashback);
 
 // Order routes
 router.post(
