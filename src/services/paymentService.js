@@ -928,6 +928,14 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
       throw new Error('App ID and Secret Key are required');
     }
 
+    // Validate that credentials are not empty after trimming
+    const appId = credentials.cashfreeAppId?.trim();
+    const secretKey = credentials.cashfreeSecretKey?.trim();
+
+    if (!appId || !secretKey) {
+      throw new Error('App ID and Secret Key cannot be empty');
+    }
+
     const baseUrl = isTestMode
       ? 'https://sandbox.cashfree.com/pg'
       : 'https://api.cashfree.com/pg';
@@ -939,28 +947,80 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
     try {
       // Try to get a non-existent order to test credentials
       // This will return 404 if credentials are valid, or 401/403 if invalid
-      await axios.get(
+      const response = await axios.get(
         `${baseUrl}/orders/TEST_ORDER_${Date.now()}`,
         {
           headers: {
             'Content-Type': 'application/json',
             'x-api-version': apiVersion,
-            'x-client-id': credentials.cashfreeAppId.trim(),
-            'x-client-secret': credentials.cashfreeSecretKey.trim(),
+            'x-client-id': appId,
+            'x-client-secret': secretKey,
           },
-          timeout: 10000,
+          timeout: 15000,
+          validateStatus: function (status) {
+            // Accept all status codes to handle them manually
+            return status >= 200 && status < 600;
+          },
         }
       );
-    } catch (apiError) {
-      // If it's a 401 or 403, credentials are invalid
-      if (apiError.response) {
-        if (apiError.response.status === 401 || apiError.response.status === 403) {
-          throw new Error('Invalid Cashfree credentials. Please check your App ID and Secret Key.');
-        }
-        // 404 or other errors mean credentials are valid but order doesn't exist (which is expected)
+
+      // If we get a 200 response (unlikely for non-existent order), credentials are valid
+      if (response.status === 200) {
+        return {
+          success: true,
+          message: 'Cashfree credentials are valid',
+          gateway: 'cashfree',
+        };
       }
+    } catch (apiError) {
+      // Handle axios errors
+      if (apiError.response) {
+        const status = apiError.response.status;
+        
+        // 401 or 403 means invalid credentials
+        if (status === 401 || status === 403) {
+          const errorMessage = apiError.response.data?.message || 
+                              apiError.response.data?.error || 
+                              'Invalid Cashfree credentials. Please check your App ID and Secret Key.';
+          throw new Error(errorMessage);
+        }
+        
+        // 404 means credentials are valid but order doesn't exist (expected)
+        if (status === 404) {
+          return {
+            success: true,
+            message: 'Cashfree credentials are valid',
+            gateway: 'cashfree',
+          };
+        }
+
+        // Other 4xx/5xx errors
+        const errorMessage = apiError.response.data?.message || 
+                            apiError.response.data?.error || 
+                            `Cashfree API error (${status}). Please check your credentials and try again.`;
+        throw new Error(errorMessage);
+      }
+
+      // Network errors, timeouts, etc.
+      if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) {
+        throw new Error('Connection timeout. Please check your internet connection and try again.');
+      }
+
+      if (apiError.code === 'ENOTFOUND' || apiError.code === 'ECONNREFUSED') {
+        throw new Error('Unable to connect to Cashfree API. Please check your network connection.');
+      }
+
+      // Re-throw if it's already our custom error
+      if (apiError.message.includes('Invalid Cashfree credentials') || 
+          apiError.message.includes('App ID and Secret Key')) {
+        throw apiError;
+      }
+
+      // Unknown error
+      throw new Error(`Cashfree API connection failed: ${apiError.message}`);
     }
 
+    // If we reach here, credentials are valid (404 case handled in catch)
     return {
       success: true,
       message: 'Cashfree credentials are valid',
@@ -968,9 +1028,17 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
     };
   } catch (error) {
     logger.error('Cashfree credentials test error:', error);
-    if (error.message.includes('Invalid Cashfree credentials')) {
+    
+    // If it's already a formatted error message, throw it as is
+    if (error.message.includes('Invalid Cashfree') || 
+        error.message.includes('App ID and Secret Key') ||
+        error.message.includes('Cashfree API') ||
+        error.message.includes('Connection timeout') ||
+        error.message.includes('Unable to connect')) {
       throw error;
     }
+    
+    // Otherwise, wrap it
     throw new Error(`Cashfree credentials test failed: ${error.message}`);
   }
 };
