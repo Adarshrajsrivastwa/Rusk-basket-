@@ -1,6 +1,7 @@
 const PaymentGateway = require('../models/PaymentGateway');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { testPaymentGatewayCredentials } = require('../services/paymentService');
 
 /**
  * Get all payment gateways
@@ -310,7 +311,6 @@ exports.testPaymentGatewayCredentials = async (req, res, next) => {
       });
     }
 
-    const { testPaymentGatewayCredentials } = require('../services/paymentService');
     const result = await testPaymentGatewayCredentials(gatewayName, credentials, isTestMode);
 
     res.status(200).json({
