@@ -929,10 +929,18 @@ router.post(
           if (response.data && response.data.payment_session_id) {
             logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
 
+            // Get payment_session_id and clean it (remove any extra characters)
+            let paymentSessionId = response.data.payment_session_id;
+            
+            // Remove "payment" suffix if it exists (some API versions may return it)
+            if (paymentSessionId.endsWith('payment')) {
+              paymentSessionId = paymentSessionId.slice(0, -7); // Remove "payment" (7 characters)
+              logger.warn(`Cashfree payment_session_id had 'payment' suffix, removed it: ${paymentSessionId}`);
+            }
+
             // Cashfree payment URL format: https://payments.cashfree.com/forms/pay/{payment_session_id}
-            const paymentUrl = paymentGateway.testMode
-              ? `https://payments.cashfree.com/forms/pay/${response.data.payment_session_id}`
-              : `https://payments.cashfree.com/forms/pay/${response.data.payment_session_id}`;
+            // For both test and production, use the same URL format
+            const paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
 
             // Simple response format for Flutter
             res.status(200).json({
@@ -942,7 +950,7 @@ router.post(
               amount: amountInPaise / 100,
               currency: 'INR',
               order_id: response.data.order_id,
-              payment_session_id: response.data.payment_session_id,
+              payment_session_id: paymentSessionId,
             });
           } else {
             throw new Error('Cashfree payment initialization failed: Invalid response from Cashfree API');
