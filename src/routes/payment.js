@@ -866,6 +866,34 @@ router.post(
         const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
         const amountInPaise = Math.round(parseFloat(amount) * 100);
 
+        // Cashfree requires HTTPS URLs for notify_url
+        // Get API URL and ensure it's HTTPS
+        let apiBaseUrl = process.env.API_URL || process.env.BACKEND_URL;
+        
+        if (!apiBaseUrl) {
+          // If API_URL is not set, use production URL
+          apiBaseUrl = 'https://api.rushbaskets.com';
+          logger.warn(`Cashfree notify_url: API_URL not set. Using production URL: ${apiBaseUrl}`);
+        } else if (apiBaseUrl.startsWith('http://')) {
+          // If API_URL is HTTP, convert to HTTPS
+          if (apiBaseUrl.includes('localhost') || apiBaseUrl.includes('127.0.0.1')) {
+            // For localhost, use production URL or a tunnel service
+            // You can set CASHFREE_WEBHOOK_URL environment variable for local development
+            apiBaseUrl = process.env.CASHFREE_WEBHOOK_URL || 'https://api.rushbaskets.com';
+            logger.warn(`Cashfree notify_url: Localhost detected. Using: ${apiBaseUrl}. For local development, set CASHFREE_WEBHOOK_URL to your ngrok/tunnel HTTPS URL.`);
+          } else {
+            // For other HTTP URLs, convert to HTTPS
+            apiBaseUrl = apiBaseUrl.replace('http://', 'https://');
+            logger.warn(`Cashfree notify_url: Converted HTTP to HTTPS: ${apiBaseUrl}`);
+          }
+        }
+        
+        // Ensure notify_url is HTTPS
+        const notifyUrl = `${apiBaseUrl}/api/payment/cashfree/callback`;
+        if (!notifyUrl.startsWith('https://')) {
+          throw new Error('Cashfree requires HTTPS URL for notify_url. Please set API_URL environment variable to HTTPS URL (e.g., https://api.rushbaskets.com).');
+        }
+
         const payload = {
           order_id: orderId,
           order_amount: amountInPaise,
@@ -879,7 +907,7 @@ router.post(
           },
           order_meta: {
             return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback?order_id={order_id}`,
-            notify_url: `${process.env.API_URL || 'http://localhost:3000'}/api/payment/cashfree/callback`,
+            notify_url: notifyUrl,
           },
         };
 
