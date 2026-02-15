@@ -1,5 +1,6 @@
 const Admin = require('../models/Admin');
 const ReferralSettings = require('../models/ReferralSettings');
+const CashbackSettings = require('../models/CashbackSettings');
 const { validationResult } = require('express-validator');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const { sendAdminPushNotification } = require('../utils/firebaseNotification');
@@ -657,6 +658,104 @@ exports.updateReferralSettings = async (req, res, next) => {
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to update referral settings',
+    });
+  }
+};
+
+/**
+ * Get cashback settings
+ */
+exports.getCashbackSettings = async (req, res, next) => {
+  try {
+    const settings = await CashbackSettings.getSettings();
+    
+    res.status(200).json({
+      success: true,
+      data: settings,
+    });
+  } catch (error) {
+    logger.error('Get cashback settings error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to get cashback settings',
+    });
+  }
+};
+
+/**
+ * Update cashback settings
+ */
+exports.updateCashbackSettings = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const {
+      cashbackPercentage,
+      minimumOrderAmount,
+      maximumCashbackPerOrder,
+      minimumCashbackToUse,
+      maxCashbackUsagePercentage,
+      maxCashbackUsageAmount,
+      isActive,
+    } = req.body;
+
+    let settings = await CashbackSettings.findOne();
+    
+    if (!settings) {
+      settings = await CashbackSettings.create({
+        cashbackPercentage: cashbackPercentage || 5,
+        minimumOrderAmount: minimumOrderAmount || 100,
+        maximumCashbackPerOrder: maximumCashbackPerOrder || 0,
+        minimumCashbackToUse: minimumCashbackToUse || 50,
+        maxCashbackUsagePercentage: maxCashbackUsagePercentage || 20,
+        maxCashbackUsageAmount: maxCashbackUsageAmount || 0,
+        isActive: isActive !== undefined ? isActive : true,
+        updatedBy: req.admin._id,
+      });
+    } else {
+      if (cashbackPercentage !== undefined) {
+        settings.cashbackPercentage = parseFloat(cashbackPercentage);
+      }
+      if (minimumOrderAmount !== undefined) {
+        settings.minimumOrderAmount = parseFloat(minimumOrderAmount);
+      }
+      if (maximumCashbackPerOrder !== undefined) {
+        settings.maximumCashbackPerOrder = parseFloat(maximumCashbackPerOrder);
+      }
+      if (minimumCashbackToUse !== undefined) {
+        settings.minimumCashbackToUse = parseFloat(minimumCashbackToUse);
+      }
+      if (maxCashbackUsagePercentage !== undefined) {
+        settings.maxCashbackUsagePercentage = parseFloat(maxCashbackUsagePercentage);
+      }
+      if (maxCashbackUsageAmount !== undefined) {
+        settings.maxCashbackUsageAmount = parseFloat(maxCashbackUsageAmount);
+      }
+      if (isActive !== undefined) {
+        settings.isActive = isActive === true || isActive === 'true';
+      }
+      settings.updatedBy = req.admin._id;
+      await settings.save();
+    }
+
+    logger.info(`Cashback settings updated by Admin: ${req.admin.email || req.admin.mobile}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Cashback settings updated successfully',
+      data: settings,
+    });
+  } catch (error) {
+    logger.error('Update cashback settings error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to update cashback settings',
     });
   }
 };

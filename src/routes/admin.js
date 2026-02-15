@@ -7,7 +7,7 @@ const { getAllProductsList, getProductByIdAdmin } = require('../controllers/prod
 const { addProduct } = require('../controllers/productAdd');
 const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
-const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins, getReferralSettings, updateReferralSettings } = require('../controllers/admin');
+const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins, getReferralSettings, updateReferralSettings, getCashbackSettings, updateCashbackSettings } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest, getAllRidersWallets, updateRiderCommission } = require('../controllers/rider');
@@ -1268,6 +1268,49 @@ router.put(
       .withMessage('isActive must be a boolean'),
   ],
   updateReferralSettings
+);
+
+// Cashback Settings Routes (Admin only)
+router.get(
+  '/cashback-settings',
+  protect,
+  getCashbackSettings
+);
+
+router.put(
+  '/cashback-settings',
+  protect,
+  [
+    body('cashbackPercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Cashback percentage must be between 0 and 100'),
+    body('minimumOrderAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Minimum order amount must be greater than or equal to 0'),
+    body('maximumCashbackPerOrder')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Maximum cashback per order must be greater than or equal to 0'),
+    body('minimumCashbackToUse')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Minimum cashback to use must be greater than or equal to 0'),
+    body('maxCashbackUsagePercentage')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Max cashback usage percentage must be between 0 and 100'),
+    body('maxCashbackUsageAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Max cashback usage amount must be greater than or equal to 0'),
+    body('isActive')
+      .optional()
+      .isBoolean()
+      .withMessage('isActive must be a boolean'),
+  ],
+  updateCashbackSettings
 );
 
 module.exports = router;
