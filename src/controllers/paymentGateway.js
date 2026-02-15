@@ -303,10 +303,10 @@ exports.testPaymentGatewayCredentials = async (req, res, next) => {
       });
     }
 
-    if (!['razorpay', 'phonepay', 'shopify'].includes(gatewayName.toLowerCase())) {
+    if (!['razorpay', 'phonepay', 'shopify', 'cashfree'].includes(gatewayName.toLowerCase())) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid gateway name. Must be one of: razorpay, phonepay, shopify',
+        error: 'Invalid gateway name. Must be one of: razorpay, phonepay, shopify, cashfree',
       });
     }
 
