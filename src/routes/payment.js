@@ -664,31 +664,11 @@ router.post(
   protect,
   [
     body('amount')
-      .optional()
+      .notEmpty()
+      .withMessage('Amount is required')
+      .bail()
       .isFloat({ min: 0.01 })
       .withMessage('Amount must be greater than 0'),
-    body('shippingAddress')
-      .optional()
-      .trim()
-      .isLength({ min: 5, max: 500 })
-      .withMessage('Shipping address must be between 5 and 500 characters'),
-    body('paymentMethod')
-      .optional()
-      .isIn(['cod', 'prepaid', 'wallet', 'upi', 'card'])
-      .withMessage('Payment method must be cod, prepaid, wallet, upi, or card'),
-    body('lat')
-      .optional()
-      .isFloat({ min: -90, max: 90 })
-      .withMessage('Latitude must be a valid number between -90 and 90'),
-    body('long')
-      .optional()
-      .isFloat({ min: -180, max: 180 })
-      .withMessage('Longitude must be a valid number between -180 and 180'),
-    body('deliveryInstruction')
-      .optional()
-      .trim()
-      .isLength({ max: 500 })
-      .withMessage('Delivery instruction cannot be more than 500 characters'),
     body('name')
       .optional()
       .trim()
@@ -737,134 +717,11 @@ router.post(
         gateway,
         notes,
         notify,
-        shippingAddress,
-        paymentMethod,
-        lat,
-        long,
-        deliveryInstruction,
       } = req.body;
 
       const userId = req.user._id;
       const userEmail = req.user.email || email;
       const userName = req.user.name || name || '';
-
-      // Validate: Either amount OR (shippingAddress + paymentMethod) must be provided
-      if (!amount && (!shippingAddress || !paymentMethod)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Either amount (for direct payment) or shippingAddress + paymentMethod (for order creation) must be provided',
-        });
-      }
-
-      // If shippingAddress is provided, create order first from cart
-      let order = null;
-      let orderAmount = amount ? parseFloat(amount) : 0;
-      
-      if (shippingAddress && paymentMethod) {
-        try {
-          const checkoutService = require('../services/checkoutService');
-          const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
-          const User = require('../models/User');
-          
-          // Parse the address string: "C22/54 Kabir Chaura,Varanasi,221001"
-          const addressParts = shippingAddress.split(',').map(part => part.trim());
-          
-          if (addressParts.length < 3) {
-            return res.status(400).json({
-              success: false,
-              error: 'Invalid address format. Expected format: "Address Line, City, PIN Code"',
-            });
-          }
-
-          const line1 = addressParts[0];
-          const city = addressParts[1];
-          const pinCode = addressParts[2];
-
-          // Validate PIN code format
-          if (!/^[0-9]{6}$/.test(pinCode)) {
-            return res.status(400).json({
-              success: false,
-              error: 'Invalid PIN code format. Must be 6 digits',
-            });
-          }
-
-          // Get state from PIN code
-          const postOfficeData = await getPostOfficeDetails(pinCode);
-          
-          if (!postOfficeData.success) {
-            return res.status(400).json({
-              success: false,
-              error: postOfficeData.error || 'Invalid PIN code. Could not fetch location details.',
-            });
-          }
-
-          // Get user's contact number
-          const user = await User.findById(userId).select('contactNumber');
-          
-          if (!user || !user.contactNumber) {
-            return res.status(400).json({
-              success: false,
-              error: 'User contact number not found. Please update your profile.',
-            });
-          }
-
-          // Build shipping address object
-          const shippingAddressObj = {
-            line1: line1,
-            line2: '',
-            pinCode: pinCode,
-            city: postOfficeData.city || city,
-            state: postOfficeData.state,
-            phone: user.contactNumber,
-            latitude: lat ? parseFloat(lat) : undefined,
-            longitude: long ? parseFloat(long) : undefined,
-          };
-
-          // Combine notes and deliveryInstruction
-          let combinedNotes = '';
-          if (notes) {
-            combinedNotes = typeof notes === 'string' ? notes.trim() : JSON.stringify(notes);
-          }
-          if (deliveryInstruction) {
-            if (combinedNotes) {
-              combinedNotes += `\n\nDelivery Instruction: ${deliveryInstruction.trim()}`;
-            } else {
-              combinedNotes = `Delivery Instruction: ${deliveryInstruction.trim()}`;
-            }
-          }
-
-          // Create order from cart
-          order = await checkoutService.createOrder(
-            userId,
-            shippingAddressObj,
-            paymentMethod,
-            combinedNotes || undefined
-          );
-
-          // Use order amount instead of provided amount
-          orderAmount = order.payment.amount;
-          
-          logger.info(`Order created: ${order.orderNumber} before payment link generation`);
-
-          // Send push notification
-          try {
-            const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
-            await sendOrderStatusNotification(userId, {
-              orderId: order._id,
-              orderNumber: order.orderNumber,
-              status: 'order_placed',
-            });
-          } catch (pushError) {
-            logger.error('Error sending push notification:', pushError);
-          }
-        } catch (orderError) {
-          logger.error('Order creation error:', orderError);
-          return res.status(400).json({
-            success: false,
-            error: orderError.message || 'Failed to create order',
-          });
-        }
-      }
 
       // Get payment gateway from database based on priority and availability
       // If gateway is specified, use that; otherwise get active gateway with highest priority
@@ -1006,11 +863,8 @@ router.post(
           : 'https://api.cashfree.com/pg';
 
         const apiVersion = credentials.cashfreeApiVersion || '2022-09-01';
-        // Use order ID if order was created, otherwise generate a new one
-        const cashfreeOrderId = order 
-          ? `ORDER_${order._id}_${Date.now()}`
-          : `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-        const amountInPaise = Math.round(orderAmount * 100);
+        const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+        const amountInPaise = Math.round(parseFloat(amount) * 100);
 
         // Cashfree requires HTTPS URLs for notify_url
         // Get API URL and ensure it's HTTPS
@@ -1073,14 +927,7 @@ router.post(
           );
 
           if (response.data && response.data.payment_session_id) {
-            logger.info(`Payment link created for user ${userId} via Cashfree: ${cashfreeOrderId}`);
-            
-            // If order was created, update it with payment transaction ID
-            if (order) {
-              order.payment.transactionId = response.data.order_id;
-              order.payment.status = 'processing';
-              await order.save();
-            }
+            logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
 
             // Get payment_session_id and clean it (remove any extra characters)
             let paymentSessionId = response.data.payment_session_id;
@@ -1095,29 +942,16 @@ router.post(
             // For both test and production, use the same URL format
             const paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
 
-            // Get API base URL for redirect link
-            const apiBaseUrl = process.env.API_URL || process.env.BACKEND_URL || 'https://api.rushbaskets.com';
-            const redirectUrl = `${apiBaseUrl}/api/payment/redirect/cashfree/${paymentSessionId}`;
-
             // Simple response format for Flutter
-            const responseData = {
+            res.status(200).json({
               success: true,
               payment_url: paymentUrl,
-              redirect_url: redirectUrl, // Direct link that opens Cashfree payment page
               gateway: 'cashfree',
               amount: amountInPaise / 100,
               currency: 'INR',
               order_id: response.data.order_id,
               payment_session_id: paymentSessionId,
-            };
-            
-            // Include order details if order was created
-            if (order) {
-              responseData.order_number = order.orderNumber;
-              responseData.db_order_id = order._id.toString();
-            }
-            
-            res.status(200).json(responseData);
+            });
           } else {
             throw new Error('Cashfree payment initialization failed: Invalid response from Cashfree API');
           }
@@ -1168,46 +1002,6 @@ router.post(
       res.status(500).json({
         success: false,
         message: errorMessage,
-      });
-    }
-  }
-);
-
-/**
- * Redirect to Cashfree payment page
- * GET /api/payment/redirect/cashfree/:payment_session_id
- */
-router.get(
-  '/redirect/cashfree/:payment_session_id',
-  async (req, res, next) => {
-    try {
-      const { payment_session_id } = req.params;
-      
-      if (!payment_session_id) {
-        return res.status(400).json({
-          success: false,
-          error: 'Payment session ID is required',
-        });
-      }
-
-      // Clean payment_session_id (remove any extra characters)
-      let cleanSessionId = payment_session_id;
-      
-      // Remove "payment" suffix if it exists
-      if (cleanSessionId.endsWith('payment')) {
-        cleanSessionId = cleanSessionId.slice(0, -7);
-      }
-
-      // Cashfree payment URL format
-      const paymentUrl = `https://payments.cashfree.com/forms/pay/${cleanSessionId}`;
-      
-      // Redirect directly to Cashfree payment page
-      res.redirect(302, paymentUrl);
-    } catch (error) {
-      logger.error('Cashfree redirect error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to redirect to payment page',
       });
     }
   }
