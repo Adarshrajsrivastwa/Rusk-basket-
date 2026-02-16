@@ -147,6 +147,11 @@ const InvoiceSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Handling charge must be greater than or equal to 0'],
     },
+    deliveryCharges: {
+      type: Number,
+      default: 0,
+      min: [0, 'Delivery charges must be greater than or equal to 0'],
+    },
     totalAmount: {
       type: Number,
       required: true,

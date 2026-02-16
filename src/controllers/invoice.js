@@ -29,6 +29,50 @@ const formatResponse = (obj) => {
 };
 
 /**
+ * Helper function to calculate delivery charges and update pricing
+ * @param {Object} invoice - Invoice object
+ * @param {Object} orderPricing - Order pricing object with deliveryAmount
+ * @param {Number} orderSubtotal - Total order subtotal
+ * @param {Number} invoiceCount - Number of invoices for the order (optional)
+ * @returns {Object} Updated pricing object with deliveryCharges and totalAmount
+ */
+const calculateDeliveryChargesAndUpdatePricing = (invoice, orderPricing, orderSubtotal, invoiceCount = null) => {
+  const totalDeliveryAmount = orderPricing?.deliveryAmount || 0;
+  const vendorSubtotal = invoice.pricing?.subtotal || invoice.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+  
+  // Calculate proportional delivery charge for this vendor
+  let deliveryCharges = 0;
+  if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
+    // Calculate proportional delivery charge based on vendor's subtotal
+    const deliveryChargeRatio = vendorSubtotal / orderSubtotal;
+    deliveryCharges = parseFloat((totalDeliveryAmount * deliveryChargeRatio).toFixed(2));
+  } else if (totalDeliveryAmount > 0 && invoiceCount === 1) {
+    // If only one vendor, use full delivery amount
+    deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
+  }
+  
+  // Get base pricing from invoice
+  const basePricing = invoice.pricing || {
+    subtotal: vendorSubtotal,
+    discount: 0,
+    itemCost: vendorSubtotal,
+    tax: 0,
+    handlingCharge: 0,
+    totalAmount: invoice.amount,
+    totalCashback: 0,
+  };
+  
+  // Calculate updated total amount including delivery charges
+  const updatedTotalAmount = parseFloat((basePricing.totalAmount + deliveryCharges).toFixed(2));
+  
+  return {
+    ...basePricing,
+    deliveryCharges: deliveryCharges,
+    totalAmount: updatedTotalAmount,
+  };
+};
+
+/**
  * Create invoice (usually called automatically when order is placed)
  * Extracts all pricing information directly from order:
  * - Subtotal (calculated from vendor items)
@@ -77,9 +121,29 @@ exports.createInvoice = async (orderId, vendorId) => {
     const discount = orderPricing.discount || 0;
     const handlingCharge = orderPricing.handlingCharge || 0;
     const cashback = orderPricing.totalCashback || 0;
+    const totalDeliveryAmount = orderPricing.deliveryAmount || 0;
+    const orderSubtotal = orderPricing.subtotal || 0;
     
-    // Calculate total amount: subtotal + handlingCharge + tax - discount
-    const vendorTotal = vendorSubtotal + handlingCharge + vendorTax - discount;
+    // Calculate proportional delivery charge for this vendor
+    let deliveryCharges = 0;
+    if (totalDeliveryAmount > 0) {
+      if (orderSubtotal > 0) {
+        // Calculate proportional delivery charge based on vendor's subtotal
+        const deliveryChargeRatio = vendorSubtotal / orderSubtotal;
+        deliveryCharges = parseFloat((totalDeliveryAmount * deliveryChargeRatio).toFixed(2));
+      } else {
+        // If no subtotal available, check if this is the only invoice for the order
+        const existingInvoiceCount = await Invoice.countDocuments({ order: orderId });
+        if (existingInvoiceCount === 0) {
+          // If this is the first invoice being created, use full delivery amount
+          deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
+        }
+        // If other invoices exist but orderSubtotal is 0, deliveryCharges remains 0
+      }
+    }
+    
+    // Calculate total amount: subtotal + handlingCharge + tax + deliveryCharges - discount
+    const vendorTotal = vendorSubtotal + handlingCharge + vendorTax + deliveryCharges - discount;
     
     // Set due date (30 days from invoice date)
     const invoiceDate = order.createdAt;
@@ -148,7 +212,9 @@ exports.createInvoice = async (orderId, vendorId) => {
         tax: Math.round(vendorTax * 100) / 100,
         // Handling Charge: Direct from order pricing
         handlingCharge: Math.round(handlingCharge * 100) / 100,
-        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax - discount)
+        // Delivery Charges: Proportional delivery charge for this vendor
+        deliveryCharges: Math.round(deliveryCharges * 100) / 100,
+        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax + deliveryCharges - discount)
         totalAmount: Math.round(vendorTotal * 100) / 100,
         // Total Cashback: Direct from order pricing
         totalCashback: Math.round(cashback * 100) / 100,
@@ -159,7 +225,7 @@ exports.createInvoice = async (orderId, vendorId) => {
 
     // Log invoice creation with pricing details
     logger.info(`Invoice created: ${invoiceNumber} for Order: ${order.orderNumber}, Vendor: ${vendorId}`);
-    logger.info(`Invoice pricing extracted from order - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
+    logger.info(`Invoice pricing extracted from order - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Delivery Charges: ${invoice.pricing.deliveryCharges}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
 
     return invoice;
   } catch (error) {
@@ -245,22 +311,29 @@ exports.getInvoiceById = async (req, res, next) => {
       };
     }
 
+    // Get order pricing with delivery amount
+    const orderPricing = formattedOrder?.pricing || invoiceData.order?.pricing || {};
+    const orderSubtotal = orderPricing.subtotal || 0;
+
+    // Check if this is the only invoice for the order
+    const invoiceCount = await Invoice.countDocuments({ order: invoice.order });
+
+    // Calculate delivery charges and update pricing
+    const updatedPricing = calculateDeliveryChargesAndUpdatePricing(
+      invoice,
+      orderPricing,
+      orderSubtotal,
+      invoiceCount
+    );
+
     const formattedInvoice = formatResponse({
       ...invoiceData,
       code: invoice.code,
       order: formattedOrder,
       user: formattedUser,
       vendor: formattedVendor,
-      // Ensure pricing is included
-      pricing: invoice.pricing || {
-        subtotal: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
-        discount: 0,
-        itemCost: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
-        tax: 0,
-        handlingCharge: 0,
-        totalAmount: invoice.amount,
-        totalCashback: 0,
-      },
+      // Ensure pricing is included with delivery charges
+      pricing: updatedPricing,
       // Ensure due date is set
       dueDate: invoice.dueDate || (() => {
         const dueDate = new Date(invoice.date);
@@ -289,7 +362,7 @@ exports.getInvoicesByOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
 
-    // Get order details with items and pricing
+    // Get order details with items and pricing (including deliveryAmount)
     const order = await Order.findById(orderId).select('orderNumber status items pricing').lean();
 
     const invoices = await Invoice.find({ order: orderId })
@@ -302,6 +375,10 @@ exports.getInvoicesByOrder = async (req, res, next) => {
       .populate('items.product', 'productName description thumbnail skuHsn skus')
       .sort({ createdAt: -1 })
       .lean();
+
+    // Get order pricing with delivery amount
+    const orderPricing = order?.pricing || {};
+    const orderSubtotal = orderPricing.subtotal || 0;
 
     // Format invoices with complete details
     const formattedInvoices = invoices.map(invoice => {
@@ -358,22 +435,22 @@ exports.getInvoicesByOrder = async (req, res, next) => {
         };
       }
 
+      // Calculate delivery charges and update pricing
+      const updatedPricing = calculateDeliveryChargesAndUpdatePricing(
+        invoice,
+        orderPricing,
+        orderSubtotal,
+        invoices.length
+      );
+
       return formatResponse({
         ...invoiceData,
         code: invoice.code,
         order: formattedOrder,
         user: formattedUser,
         vendor: formattedVendor,
-        // Ensure pricing is included
-        pricing: invoice.pricing || {
-          subtotal: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
-          discount: 0,
-          itemCost: invoice.items.reduce((sum, item) => sum + item.totalPrice, 0),
-          tax: 0,
-          handlingCharge: 0,
-          totalAmount: invoice.amount,
-          totalCashback: 0,
-        },
+        // Ensure pricing is included with delivery charges
+        pricing: updatedPricing,
         // Ensure due date is set
         dueDate: invoice.dueDate || (() => {
           const dueDate = new Date(invoice.date);
@@ -829,9 +906,22 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
       const discount = orderPricing.discount || 0;
       const handlingCharge = orderPricing.handlingCharge || 0;
       const cashback = orderPricing.totalCashback || 0;
+      const totalDeliveryAmount = orderPricing.deliveryAmount || 0;
+      const orderSubtotal = orderPricing.subtotal || 0;
       
-      // Calculate total amount: subtotal + handlingCharge + tax - discount
-      const vendorTotal = vendorSubtotal + handlingCharge + vendorTax - discount;
+      // Calculate proportional delivery charge for this vendor
+      let deliveryCharges = 0;
+      if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
+        // Calculate proportional delivery charge based on vendor's subtotal
+        const deliveryChargeRatio = vendorSubtotal / orderSubtotal;
+        deliveryCharges = parseFloat((totalDeliveryAmount * deliveryChargeRatio).toFixed(2));
+      } else if (totalDeliveryAmount > 0 && invoices.length === 1) {
+        // If only one vendor, use full delivery amount
+        deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
+      }
+      
+      // Calculate total amount: subtotal + handlingCharge + tax + deliveryCharges - discount
+      const vendorTotal = vendorSubtotal + handlingCharge + vendorTax + deliveryCharges - discount;
 
       // Update invoice pricing with all fields directly from order
       invoice.pricing = {
@@ -845,7 +935,9 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
         tax: Math.round(vendorTax * 100) / 100,
         // Handling Charge: Direct from order pricing
         handlingCharge: Math.round(handlingCharge * 100) / 100,
-        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax - discount)
+        // Delivery Charges: Proportional delivery charge for this vendor
+        deliveryCharges: Math.round(deliveryCharges * 100) / 100,
+        // Total Amount: Final amount after all calculations (subtotal + handlingCharge + tax + deliveryCharges - discount)
         totalAmount: Math.round(vendorTotal * 100) / 100,
         // Total Cashback: Direct from order pricing
         totalCashback: Math.round(cashback * 100) / 100,
@@ -872,7 +964,7 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
       updatedInvoices.push(formattedInvoice);
 
       logger.info(`Invoice updated from order: ${invoice.invoiceNumber} for Order: ${order.orderNumber}, Vendor: ${invoice.vendor}`);
-      logger.info(`Updated pricing - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
+      logger.info(`Updated pricing - Subtotal: ${invoice.pricing.subtotal}, Discount: ${invoice.pricing.discount}, Tax: ${invoice.pricing.tax}, Handling Charge: ${invoice.pricing.handlingCharge}, Delivery Charges: ${invoice.pricing.deliveryCharges}, Total: ${invoice.pricing.totalAmount}, Cashback: ${invoice.pricing.totalCashback}`);
     }
 
     res.status(200).json({
