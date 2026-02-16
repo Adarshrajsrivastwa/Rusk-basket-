@@ -1042,11 +1042,61 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
       });
     }
 
+    // Get invoice for this vendor to use correct pricing with delivery charges
+    const invoice = await Invoice.findOne({ 
+      order: order._id, 
+      vendor: vendorId 
+    });
+
     // Prepare order data for PDF generation
+    // Use invoice pricing if available (includes delivery charges), otherwise use order pricing
+    const pricing = invoice?.pricing || order.pricing || {};
+    
+    // If invoice exists, use invoice data; otherwise calculate delivery charges
+    let finalPricing = pricing;
+    if (!invoice && order.pricing) {
+      // Calculate delivery charges for this vendor
+      const vendorItems = order.items.filter(item => {
+        const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+        return itemVendorId === vendorId;
+      });
+      const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+      const orderSubtotal = order.pricing.subtotal || 0;
+      const totalDeliveryAmount = order.pricing.deliveryAmount || 0;
+      
+      let deliveryCharges = 0;
+      if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
+        const deliveryChargeRatio = vendorSubtotal / orderSubtotal;
+        deliveryCharges = parseFloat((totalDeliveryAmount * deliveryChargeRatio).toFixed(2));
+      } else if (totalDeliveryAmount > 0) {
+        const invoiceCount = await Invoice.countDocuments({ order: order._id });
+        if (invoiceCount === 0) {
+          deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
+        }
+      }
+      
+      // Update pricing with delivery charges
+      finalPricing = {
+        ...order.pricing,
+        deliveryCharges: deliveryCharges,
+        totalAmount: (order.pricing.total || 0) + deliveryCharges,
+      };
+    }
+
     const orderData = {
       ...order.toObject(),
       vendor: vendor,
       user: order.user,
+      pricing: finalPricing,
+      // Use invoice code and number if available
+      invoiceCode: invoice?.code || `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
+      invoiceNumber: invoice?.invoiceNumber || `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
+      invoiceDate: invoice?.date || order.createdAt,
+      dueDate: invoice?.dueDate || (() => {
+        const date = new Date(order.createdAt);
+        date.setDate(date.getDate() + 30);
+        return date;
+      })(),
     };
 
     // Generate PDF buffer

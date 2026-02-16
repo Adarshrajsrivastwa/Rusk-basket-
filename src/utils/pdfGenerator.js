@@ -36,12 +36,15 @@ const generateInvoicePDF = async (orderData) => {
       const pricing = order.pricing || {};
       const payment = order.payment || {};
 
-      // Generate invoice code and number
-      const invoiceCode = `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
-      const invoiceNumber = `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
-      const invoiceDate = order.createdAt ? new Date(order.createdAt) : new Date();
-      const dueDate = new Date(invoiceDate);
-      dueDate.setDate(dueDate.getDate() + 30); // 30 days from invoice date
+      // Use invoice code and number from orderData if available, otherwise generate
+      const invoiceCode = order.invoiceCode || `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
+      const invoiceNumber = order.invoiceNumber || `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`;
+      const invoiceDate = order.invoiceDate ? new Date(order.invoiceDate) : (order.createdAt ? new Date(order.createdAt) : new Date());
+      const dueDate = order.dueDate ? new Date(order.dueDate) : (() => {
+        const date = new Date(invoiceDate);
+        date.setDate(date.getDate() + 30);
+        return date;
+      })();
 
       // ========== HEADER SECTION (Orange Background) ==========
       const headerHeight = 120;
@@ -298,7 +301,8 @@ const generateInvoicePDF = async (orderData) => {
 
       // Item Cost
       doc.text('Item Cost:', summaryX, yPos);
-      doc.text(`₹${(pricing.subtotal || 0).toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+      const itemCost = pricing.itemCost || pricing.subtotal || 0;
+      doc.text(`₹${itemCost.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
       yPos += 20;
 
       // Total GST
@@ -312,6 +316,13 @@ const generateInvoicePDF = async (orderData) => {
       if (pricing.handlingCharge > 0) {
         doc.text('Handling Charges:', summaryX, yPos);
         doc.text(`₹${pricing.handlingCharge.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+        yPos += 20;
+      }
+
+      // Delivery Charges
+      if (pricing.deliveryCharges > 0) {
+        doc.text('Delivery Charges:', summaryX, yPos);
+        doc.text(`₹${pricing.deliveryCharges.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
         yPos += 20;
       }
 
@@ -330,7 +341,9 @@ const generateInvoicePDF = async (orderData) => {
          .font('Helvetica-Bold')
          .fillColor(ORANGE)
          .text('Total Amount:', summaryX, yPos);
-      doc.text(`₹${(pricing.total || 0).toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
+      // Use totalAmount which includes delivery charges, fallback to total if not available
+      const finalTotal = pricing.totalAmount || pricing.total || 0;
+      doc.text(`₹${finalTotal.toFixed(2)}`, summaryX + summaryWidth, yPos, { align: 'right' });
 
       // ========== FOOTER ==========
       doc.fontSize(8)

@@ -473,21 +473,24 @@ exports.getNearbyProducts = async (req, res, next) => {
       // Calculate distance for each product and filter by user query radius OR vendor serviceRadius
       // Product will be shown if:
       // 1. Product location is within user's query radius, OR
-      // 2. User location is within vendor's serviceRadius (even if product is not in user's query radius)
+      // 2. Vendor store is within user's query radius, OR
+      // 3. User location is within vendor's serviceRadius (if vendorServiceRadius > 0)
+      // This ensures products from ALL vendors within radius are returned, not just nearest vendor
       const productsWithDistance = products
         .map(product => {
-          // Check if vendor exists and has storeAddress with coordinates and serviceRadius
+          // Check if vendor exists and has storeAddress with coordinates
           if (!product.vendor || !product.vendor.storeAddress) {
             return null;
           }
 
           const vendorLat = product.vendor.storeAddress.latitude;
           const vendorLon = product.vendor.storeAddress.longitude;
-          const vendorServiceRadius = product.vendor.serviceRadius || 0;
 
-          if (!vendorLat || !vendorLon || vendorServiceRadius <= 0) {
+          if (!vendorLat || !vendorLon) {
             return null;
           }
+
+          const vendorServiceRadius = product.vendor.serviceRadius || 0;
 
           // Calculate distance from user location to vendor store location
           const vendorStoreDistance = calculateDistance(
@@ -508,9 +511,10 @@ exports.getNearbyProducts = async (req, res, next) => {
             );
           }
 
-          // Product should be shown if EITHER:
-          // 1. Product is within user's query radius, OR
-          // 2. User is within vendor's serviceRadius (regardless of product location)
+          // Product should be shown if ANY of these conditions are met:
+          // 1. Product location is within user's query radius, OR
+          // 2. Vendor store is within user's query radius, OR
+          // 3. User is within vendor's serviceRadius (if vendorServiceRadius > 0)
           let shouldShow = false;
           let displayDistance = null;
 
@@ -519,11 +523,15 @@ exports.getNearbyProducts = async (req, res, next) => {
             shouldShow = true;
             displayDistance = productDistance;
           }
-          // Check if user is within vendor's serviceRadius
-          else if (vendorStoreDistance <= vendorServiceRadius) {
+          // Check if vendor store is within user's query radius
+          else if (vendorStoreDistance <= searchRadius) {
             shouldShow = true;
-            // Use vendor store distance for sorting if product distance is not available
-            displayDistance = productDistance !== null ? productDistance : vendorStoreDistance;
+            displayDistance = vendorStoreDistance;
+          }
+          // Check if user is within vendor's serviceRadius (if vendor has serviceRadius set)
+          else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
+            shouldShow = true;
+            displayDistance = vendorStoreDistance;
           }
 
           if (!shouldShow) {
