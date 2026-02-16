@@ -286,11 +286,9 @@ router.post(
   protect,
   [
     body('cashbackAmount')
-      .notEmpty()
-      .withMessage('Cashback amount is required')
-      .bail()
+      .optional()  // Amount is optional - if not provided, max possible will be applied
       .isFloat({ min: 0.01 })
-      .withMessage('Cashback amount must be greater than 0'),
+      .withMessage('Cashback amount must be greater than 0 if provided'),
   ],
   applyCashback
 );

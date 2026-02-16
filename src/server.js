@@ -355,6 +355,68 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
     
     // Start scheduling subscription commission check
     scheduleSubscriptionCommissionCheck();
+
+    // Schedule daily offer notifications to run every 30 minutes
+    const { sendDailyOfferNotificationsToUsers } = require('./services/dailyOfferNotificationService');
+    
+    const scheduleDailyOfferNotifications = () => {
+      const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes in milliseconds
+      
+      // Function to run the notification job
+      const runNotificationJob = () => {
+        sendDailyOfferNotificationsToUsers()
+          .then(result => {
+            if (result.success) {
+              logger.info(
+                `Daily offer notifications completed: ${result.sent} sent, ${result.processed} processed, ${result.skipped} skipped, ${result.errors} errors`
+              );
+            } else {
+              logger.error(`Daily offer notifications failed: ${result.error}`);
+            }
+          })
+          .catch(error => {
+            logger.error('Error in daily offer notification process:', error);
+          });
+      };
+      
+      // Calculate next run time (next 30-minute interval: :00 or :30)
+      const now = new Date();
+      const minutes = now.getMinutes();
+      const nextRun = new Date(now);
+      
+      if (minutes < 30) {
+        // Next run at :30 of current hour
+        nextRun.setMinutes(30, 0, 0);
+      } else {
+        // Next run at :00 of next hour
+        nextRun.setHours(nextRun.getHours() + 1);
+        nextRun.setMinutes(0, 0, 0);
+      }
+      
+      const msUntilNextRun = nextRun.getTime() - now.getTime();
+      
+      logger.info(`Daily offer notifications scheduled to run at ${nextRun.toISOString()} (in ${Math.round(msUntilNextRun / 1000 / 60)} minutes)`);
+      
+      // Schedule first run
+      setTimeout(() => {
+        // Run immediately
+        runNotificationJob();
+        
+        // Then run every 30 minutes
+        const intervalId = setInterval(runNotificationJob, INTERVAL_MS);
+        
+        // Store interval ID for potential cleanup
+        if (global.dailyOfferNotificationInterval) {
+          clearInterval(global.dailyOfferNotificationInterval);
+        }
+        global.dailyOfferNotificationInterval = intervalId;
+        
+        logger.info('Daily offer notification interval started (every 30 minutes)');
+      }, msUntilNextRun);
+    };
+    
+    // Start scheduling daily offer notifications
+    scheduleDailyOfferNotifications();
   });
 })
 .catch((error) => {

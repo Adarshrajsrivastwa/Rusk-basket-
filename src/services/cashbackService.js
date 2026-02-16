@@ -54,24 +54,54 @@ exports.applyCashbackToCart = async (userId, cashbackAmount) => {
 
   const maxUsable = maxUsableResult.availableCashback;
 
-  // Validate requested amount
-  let finalCashbackAmount = parseFloat(cashbackAmount);
+  // If cashbackAmount not provided, automatically use maximum possible amount
+  let finalCashbackAmount;
+  let wasAdjusted = false;
+  let adjustmentReason = null;
+  let originalRequestedAmount = null;
   
-  if (finalCashbackAmount <= 0) {
-    throw new Error('Cashback amount must be greater than 0');
+  if (!cashbackAmount || cashbackAmount === null || cashbackAmount === undefined || cashbackAmount === '') {
+    // Auto-apply maximum possible cashback
+    finalCashbackAmount = maxUsable;
+    wasAdjusted = true;
+    adjustmentReason = `Auto-applied maximum possible cashback: ₹${maxUsable}`;
+    originalRequestedAmount = null; // No specific amount was requested
+    logger.info(`Auto-applying maximum cashback: ₹${maxUsable} for user ${userId}`);
+  } else {
+    // Validate and auto-adjust requested amount
+    finalCashbackAmount = parseFloat(cashbackAmount);
+    originalRequestedAmount = finalCashbackAmount;
+    
+    if (finalCashbackAmount <= 0 || isNaN(finalCashbackAmount)) {
+      throw new Error('Cashback amount must be greater than 0');
+    }
   }
 
+  // Auto-adjust: Don't exceed user's cashback balance
   if (finalCashbackAmount > userCashback) {
-    throw new Error(`Insufficient cashback balance. You have ₹${userCashback} available`);
+    finalCashbackAmount = userCashback;
+    wasAdjusted = true;
+    adjustmentReason = `Adjusted to available balance: ₹${userCashback}`;
+    const logAmount = originalRequestedAmount !== null ? `₹${originalRequestedAmount}` : 'auto-requested';
+    logger.info(`Cashback amount adjusted from ${logAmount} to ₹${finalCashbackAmount} (user balance limit)`);
   }
 
+  // Auto-adjust: Don't exceed maximum usable cashback
   if (finalCashbackAmount > maxUsable) {
-    throw new Error(`Maximum ₹${maxUsable} cashback can be used for this order`);
+    finalCashbackAmount = maxUsable;
+    wasAdjusted = true;
+    adjustmentReason = `Adjusted to maximum usable: ₹${maxUsable}`;
+    const logAmount = originalRequestedAmount !== null ? `₹${originalRequestedAmount}` : 'auto-requested';
+    logger.info(`Cashback amount adjusted from ${logAmount} to ₹${finalCashbackAmount} (max usable limit)`);
   }
 
-  // Don't exceed order total
+  // Auto-adjust: Don't exceed order total
   if (finalCashbackAmount > orderTotal) {
     finalCashbackAmount = orderTotal;
+    wasAdjusted = true;
+    adjustmentReason = `Adjusted to order total: ₹${orderTotal}`;
+    const logAmount = originalRequestedAmount !== null ? `₹${originalRequestedAmount}` : 'auto-requested';
+    logger.info(`Cashback amount adjusted from ${logAmount} to ₹${finalCashbackAmount} (order total limit)`);
   }
 
   // Apply cashback to cart
@@ -85,6 +115,12 @@ exports.applyCashbackToCart = async (userId, cashbackAmount) => {
     cart,
     totals: updatedTotals,
     cashbackApplied: cart.cashbackUsage,
+    requestedAmount: originalRequestedAmount, // null if auto-applied
+    wasAutoApplied: originalRequestedAmount === null, // true if no amount was sent
+    wasAdjusted: wasAdjusted,
+    adjustmentReason: adjustmentReason,
+    maxUsableCashback: maxUsable,
+    userCashbackBalance: userCashback,
   };
 };
 

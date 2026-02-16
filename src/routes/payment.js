@@ -858,57 +858,58 @@ router.post(
           throw new Error('Cashfree App ID and Secret Key cannot be empty');
         }
 
-        const baseUrl = paymentGateway.testMode
-          ? 'https://sandbox.cashfree.com/pg'
-          : 'https://api.cashfree.com/pg';
-
-        // Use newer API version (2023-08-01) which includes payment_link in response
-        const apiVersion = credentials.cashfreeApiVersion || '2023-08-01';
-        const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-        const amountInPaise = Math.round(parseFloat(amount) * 100);
-
-        // Cashfree requires HTTPS URLs for notify_url
-        // Get API URL and ensure it's HTTPS
-        let apiBaseUrl = process.env.API_URL || process.env.BACKEND_URL;
+        // CRITICAL: Detect environment correctly to avoid 403 Forbidden error
+        // STRICT RULE: App ID pattern determines environment (keys must match URL)
+        // If App ID starts with TEST → it's a sandbox key → MUST use sandbox URL
+        // If App ID doesn't start with TEST → it's a production key → MUST use production URL
+        // This ensures payment URL always matches the actual keys being used
+        let isTestEnvironment = false;
+        let detectionMethod = '';
         
-        if (!apiBaseUrl) {
-          // If API_URL is not set, use production URL
-          apiBaseUrl = 'https://api.rushbaskets.com';
-          logger.warn(`Cashfree notify_url: API_URL not set. Using production URL: ${apiBaseUrl}`);
-        } else if (apiBaseUrl.startsWith('http://')) {
-          // If API_URL is HTTP, convert to HTTPS
-          if (apiBaseUrl.includes('localhost') || apiBaseUrl.includes('127.0.0.1')) {
-            // For localhost, use production URL or a tunnel service
-            // You can set CASHFREE_WEBHOOK_URL environment variable for local development
-            apiBaseUrl = process.env.CASHFREE_WEBHOOK_URL || 'https://api.rushbaskets.com';
-            logger.warn(`Cashfree notify_url: Localhost detected. Using: ${apiBaseUrl}. For local development, set CASHFREE_WEBHOOK_URL to your ngrok/tunnel HTTPS URL.`);
-          } else {
-            // For other HTTP URLs, convert to HTTPS
-            apiBaseUrl = apiBaseUrl.replace('http://', 'https://');
-            logger.warn(`Cashfree notify_url: Converted HTTP to HTTPS: ${apiBaseUrl}`);
+        if (appId.toUpperCase().startsWith('TEST')) {
+          // App ID starts with TEST → Sandbox key → MUST use sandbox
+          isTestEnvironment = true;
+          detectionMethod = 'App ID pattern (starts with TEST)';
+          logger.info(`✅ Cashfree environment: SANDBOX (TEST keys detected from App ID)`);
+        } else {
+          // App ID does NOT start with TEST → Production key → MUST use production
+          isTestEnvironment = false;
+          detectionMethod = 'App ID pattern (does NOT start with TEST)';
+          logger.info(`✅ Cashfree environment: PRODUCTION (LIVE keys detected from App ID)`);
+          
+          // Warn if CASHFREE_ENV is set to TEST but keys are production
+          if (process.env.CASHFREE_ENV && process.env.CASHFREE_ENV.toUpperCase() === 'TEST') {
+            logger.error(`❌ MISMATCH DETECTED: CASHFREE_ENV=TEST but App ID indicates PRODUCTION keys!`);
+            logger.error(`❌ This will cause 403 Forbidden. Update CASHFREE_ENV=PROD or use TEST keys.`);
           }
         }
         
-        // Ensure notify_url is HTTPS
-        const notifyUrl = `${apiBaseUrl}/api/payment/cashfree/callback`;
-        if (!notifyUrl.startsWith('https://')) {
-          throw new Error('Cashfree requires HTTPS URL for notify_url. Please set API_URL environment variable to HTTPS URL (e.g., https://api.rushbaskets.com).');
-        }
+        // Log final decision with App ID info
+        logger.info(`Cashfree Environment Decision: ${isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)'} | Method: ${detectionMethod}`);
+        logger.info(`App ID: ${appId.substring(0, 20)}... | Payment URL will be: ${isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com'}`);
+
+        const baseUrl = isTestEnvironment
+          ? 'https://sandbox.cashfree.com/pg'
+          : 'https://api.cashfree.com/pg';
+
+        // CRITICAL: Use API version 2023-08-01 (MANDATORY for valid sessions)
+        // If missing or wrong version → session generates but becomes INVALID on payment page
+        // This causes "client session is invalid" error
+        const apiVersion = credentials.cashfreeApiVersion || '2023-08-01';
+        const orderId = `order_${Date.now()}`;
+        const amountInPaise = Math.round(parseFloat(amount) * 100);
 
         const payload = {
           order_id: orderId,
           order_amount: amountInPaise,
           order_currency: 'INR',
-          order_note: description || 'Payment',
           customer_details: {
             customer_id: userId.toString(),
-            customer_name: userName,
-            customer_email: userEmail,
-            customer_phone: contact || req.user.contactNumber || '',
+            customer_email: userEmail || 'test@gmail.com',
+            customer_phone: contact || req.user.contactNumber || '9999999999',
           },
           order_meta: {
-            return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
-            notify_url: notifyUrl,
+            return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment-success?order_id=${orderId}`,
           },
         };
 
@@ -921,7 +922,7 @@ router.post(
             {
               headers: {
                 'Content-Type': 'application/json',
-                'x-api-version': apiVersion, // Must be 2023-08-01
+                'x-api-version': apiVersion,
                 'x-client-id': appId,
                 'x-client-secret': secretKey,
               },
@@ -931,42 +932,213 @@ router.post(
 
           // Log full response for debugging
           logger.info('Cashfree Orders API Response:', JSON.stringify(response.data, null, 2));
+          logger.info(`Cashfree API Environment: ${isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)'}`);
+          logger.info(`Cashfree API Base URL: ${baseUrl}`);
+          logger.info(`Cashfree API Version: ${apiVersion}`);
+          logger.info(`Cashfree App ID: ${appId.substring(0, 10)}... (starts with TEST: ${appId.toUpperCase().startsWith('TEST')})`);
 
           if (!response.data || !response.data.payment_session_id) {
             logger.error('Cashfree /orders response missing payment_session_id. Full response:', JSON.stringify(response.data, null, 2));
             throw new Error(`Cashfree payment initialization failed: Invalid response from Cashfree API. Available fields: ${Object.keys(response.data || {}).join(', ')}`);
           }
 
-          // Get payment_session_id from response
+          // Verify order was created successfully
+          if (response.data.order_status && response.data.order_status !== 'ACTIVE') {
+            logger.warn(`Cashfree order status is: ${response.data.order_status} (expected: ACTIVE)`);
+          }
+
+          // VERY IMPORTANT: Get payment_session_id from response
           const paymentSessionId = response.data.payment_session_id;
 
-          // Check for payment_link in response (may or may not be present depending on API version)
-          let paymentUrl = response.data.payment_link || 
-                         response.data.payment_url || 
-                         response.data.paymentLink ||
-                         response.data.paymentUrl;
+          if (!paymentSessionId) {
+            logger.error('Cashfree /orders response missing payment_session_id. Full response:', JSON.stringify(response.data, null, 2));
+            throw new Error(`Cashfree payment initialization failed: Invalid response from Cashfree API. Available fields: ${Object.keys(response.data || {}).join(', ')}`);
+          }
 
-          // If payment_link is not in response, we need to construct it
-          // Cashfree payment URL format: https://payments.cashfree.com/forms/pay/{payment_session_id}
+          // Try to use payment_link or link_url from API response first (if available)
+          // Cashfree API may return payment_link, link_url, or payment_url in different versions
+          let paymentUrl = response.data.payment_link || 
+                          response.data.link_url ||
+                          response.data.payment_url || 
+                          response.data.paymentLink ||
+                          response.data.paymentUrl;
+
+          // If payment_link is not in response, construct it from payment_session_id
+          // IMPORTANT: Cashfree payment URL is the same for both sandbox and production
+          // The session ID itself determines which environment it belongs to
           if (!paymentUrl) {
-            logger.warn('Cashfree response does not contain payment_link. Constructing URL from payment_session_id.');
-            // For Cashfree, payment link is constructed from payment_session_id
-            // Format: https://payments.cashfree.com/forms/pay/{payment_session_id}
-            paymentUrl = `https://payments.cashfree.com/forms/pay/${paymentSessionId}`;
+            logger.info('Cashfree response does not contain payment_link/link_url. Constructing URL from payment_session_id.');
+            // Ensure payment_session_id is a string and properly formatted
+            let sessionId = String(paymentSessionId).trim();
+            
+            // Remove any trailing "payment" text that might have been accidentally appended
+            // Session IDs should end with alphanumeric characters, not "payment"
+            if (sessionId.toLowerCase().endsWith('payment')) {
+              logger.warn(`Session ID has 'payment' suffix, removing it. Original: ${sessionId.substring(sessionId.length - 20)}`);
+              sessionId = sessionId.replace(/payment$/i, '').trim();
+            }
+            
+            // Validate session ID format (should be a long alphanumeric string, typically starts with 'session_')
+            if (!sessionId || sessionId.length < 10) {
+              logger.error(`Invalid payment_session_id format: ${sessionId}`);
+              throw new Error('Invalid payment_session_id received from Cashfree API');
+            }
+            
+            // Log session ID for debugging
+            logger.info(`Session ID validated. Length: ${sessionId.length}, Starts with: ${sessionId.substring(0, 10)}, Ends with: ${sessionId.substring(sessionId.length - 10)}`);
+            
+            // CRITICAL: Correct URL format for Cashfree PG Order API (V3 Flow)
+            // Environment-specific payment URLs (MUST match backend environment)
+            // Sandbox (TEST keys): https://sandbox.cashfree.com/pg/view/payment/{payment_session_id}
+            // Production (LIVE keys): https://cashfree.com/pg/view/payment/{payment_session_id}
+            // 
+            // IMPORTANT: Payment URL MUST match the environment where order was created
+            // Mismatch causes 403 Forbidden error
+            // 
+            // WRONG URLs (causes errors):
+            // ❌ https://payments.cashfree.com/order/#{sessionId} (internal web link, not for SDK/hosted checkout)
+            // ❌ https://payments.cashfree.com/pg/view/payment/{sessionId} (wrong domain)
+            // ❌ https://payments.cashfree.com/forms/pay/session_XXXX (Payment Link API, not PG Order API)
+            // ❌ TEST key session opened on cashfree.com → 403 Forbidden
+            // ❌ LIVE key session opened on sandbox.cashfree.com → 403 Forbidden
+            
+            // Construct payment URL - session ID should be used as-is (Cashfree handles it)
+            // Ensure session ID doesn't have any whitespace or invalid characters
+            const cleanSessionId = sessionId.replace(/\s+/g, ''); // Remove any whitespace
+            
+            // CRITICAL: Construct URL with correct domain (NO www prefix)
+            // www.cashfree.com causes 403 Forbidden - must use cashfree.com or sandbox.cashfree.com
+            if (isTestEnvironment) {
+              // Sandbox environment (TEST keys) - use sandbox payment page
+              // Domain: sandbox.cashfree.com (NOT www.sandbox.cashfree.com)
+              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${cleanSessionId}`;
+            } else {
+              // Production environment (LIVE keys) - use production payment page
+              // Domain: cashfree.com (NOT www.cashfree.com or payments.cashfree.com)
+              paymentUrl = `https://cashfree.com/pg/view/payment/${cleanSessionId}`;
+            }
+            
+            // CRITICAL: Force remove www. prefix if present (causes 403 Forbidden)
+            // Multiple replacements to handle all cases
+            const originalUrl = paymentUrl;
+            paymentUrl = paymentUrl
+              .replace(/https:\/\/www\./g, 'https://')  // Remove www. after https://
+              .replace(/http:\/\/www\./g, 'http://')    // Remove www. after http://
+              .replace(/www\.cashfree\.com/g, 'cashfree.com')  // Direct domain replacement
+              .replace(/www\.sandbox\.cashfree\.com/g, 'sandbox.cashfree.com');  // Sandbox domain
+            
+            if (originalUrl !== paymentUrl) {
+              logger.error(`❌ ERROR: Payment URL contained 'www.' prefix! This causes 403 Forbidden.`);
+              logger.error(`❌ Original URL: ${originalUrl}`);
+              logger.warn(`✅ Fixed URL (removed www): ${paymentUrl}`);
+            }
+            
+            // Additional validation: Ensure domain is exactly correct
+            if (paymentUrl.includes('www.')) {
+              logger.error(`❌ CRITICAL: URL still contains 'www.' after cleanup!`);
+              logger.error(`❌ URL: ${paymentUrl}`);
+              // Force fix by replacing the entire domain
+              if (isTestEnvironment) {
+                paymentUrl = paymentUrl.replace(/https?:\/\/[^\/]+/, 'https://sandbox.cashfree.com');
+              } else {
+                paymentUrl = paymentUrl.replace(/https?:\/\/[^\/]+/, 'https://cashfree.com');
+              }
+              logger.warn(`🔧 Force-fixed URL: ${paymentUrl}`);
+            }
+            
+            // Validate URL format
+            try {
+              const urlObj = new URL(paymentUrl);
+              if (urlObj.protocol !== 'https:') {
+                throw new Error('Payment URL must use HTTPS protocol');
+              }
+              logger.info(`✅ Constructed payment URL for ${isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)'} environment.`);
+              logger.info(`📋 Full Payment URL: ${paymentUrl}`);
+              logger.info(`🔑 Session ID: ${sessionId.substring(0, 50)}... (length: ${sessionId.length})`);
+              logger.info(`🌐 Domain: ${urlObj.hostname} | Path: ${urlObj.pathname}`);
+            } catch (urlError) {
+              logger.error(`❌ ERROR: Invalid URL format: ${paymentUrl}`);
+              logger.error(`❌ URL Error: ${urlError.message}`);
+              throw new Error(`Invalid payment URL format: ${urlError.message}`);
+            }
+          } else {
+            logger.info('Using payment_link/link_url directly from Cashfree API response');
           }
           
-          logger.info(`Payment link created for user ${userId} via Cashfree: ${orderId}`);
+          // Final check: Ensure payment URL is valid and can be opened
+          if (!paymentUrl || !paymentUrl.startsWith('https://')) {
+            logger.error(`❌ ERROR: Invalid payment URL: ${paymentUrl}`);
+            throw new Error('Failed to generate valid payment URL');
+          }
+          
+          // CRITICAL: Final validation - ensure NO www. in URL (causes 403)
+          if (paymentUrl.includes('www.')) {
+            logger.error(`❌ CRITICAL ERROR: Payment URL still contains 'www.' - this will cause 403 Forbidden!`);
+            logger.error(`❌ Invalid URL: ${paymentUrl}`);
+            // Extract session ID from current URL and rebuild
+            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+            const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
+            // Force fix based on environment
+            if (isTestEnvironment) {
+              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${sessionIdForFix}`;
+            } else {
+              paymentUrl = `https://cashfree.com/pg/view/payment/${sessionIdForFix}`;
+            }
+            logger.warn(`🔧 Force-corrected URL: ${paymentUrl}`);
+          }
+          
+          // Verify domain is correct
+          let urlObj;
+          let expectedDomain = isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com';
+          try {
+            urlObj = new URL(paymentUrl);
+            if (urlObj.hostname !== expectedDomain) {
+              logger.error(`❌ ERROR: Domain mismatch! Expected: ${expectedDomain}, Got: ${urlObj.hostname}`);
+              logger.error(`❌ This will cause 403 Forbidden. Fixing...`);
+              const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+              const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
+              paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
+              logger.warn(`🔧 Corrected URL: ${paymentUrl}`);
+              // Re-parse after fix
+              urlObj = new URL(paymentUrl);
+            }
+            logger.info(`✅ Domain verified: ${urlObj.hostname} (Expected: ${expectedDomain})`);
+          } catch (urlError) {
+            logger.error(`❌ ERROR: Failed to validate URL: ${urlError.message}`);
+            logger.error(`❌ Invalid URL: ${paymentUrl}`);
+            // Try to rebuild URL
+            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+            const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
+            paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
+            try {
+              urlObj = new URL(paymentUrl);
+              logger.warn(`🔧 Rebuilt URL after error: ${paymentUrl}`);
+            } catch (rebuildError) {
+              logger.error(`❌ CRITICAL: Failed to rebuild valid URL: ${rebuildError.message}`);
+              throw new Error(`Invalid payment URL: ${rebuildError.message}`);
+            }
+          }
+          
+          logger.info(`✅ Payment link created for user ${userId} via Cashfree: ${orderId}`);
+          logger.info(`🔗 Final Payment URL: ${paymentUrl}`);
+          if (urlObj) {
+            logger.info(`✅ Final Domain: ${urlObj.hostname}`);
+          }
 
-          // Simple response format - orderId not required for standalone payment links
           res.status(200).json({
             success: true,
-            payment_url: paymentUrl, // Use payment_link directly from API
+            payment_url: paymentUrl, // This URL should be directly openable in browser
+            orderId: orderId,
             gateway: 'cashfree',
             amount: amountInPaise / 100,
             currency: 'INR',
-            // order_id removed - not required for standalone payment links
-            // Cashfree order_id is for internal tracking only
             payment_session_id: paymentSessionId,
+            // Debug info to help identify environment mismatch
+            environment: isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)',
+            app_id_prefix: appId.substring(0, 10),
+            warning: isTestEnvironment 
+              ? 'Using TEST keys - ensure payment URL is sandbox.cashfree.com'
+              : 'Using LIVE keys - ensure payment URL is cashfree.com (NOT www.cashfree.com)',
           });
         } catch (apiError) {
           logger.error('Cashfree API error:', apiError.response?.data || apiError.message);
