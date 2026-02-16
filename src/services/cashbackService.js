@@ -106,14 +106,32 @@ exports.applyCashbackToCart = async (userId, cashbackAmount) => {
 
   // Apply cashback to cart
   cart.cashbackUsage = Math.round(finalCashbackAmount * 100) / 100;
+  cart.discount = Math.max(0, (cart.coupon?.discount || 0) + cart.cashbackUsage);
+  cart.totaldiscount = cart.discount;
   await cart.save();
 
   // Recalculate totals with cashback
   const updatedTotals = await cart.calculateTotals();
 
+  // Calculate total before cashback for clarity
+  const totalBeforeCashback = updatedTotals.pricing.subtotal 
+    - (updatedTotals.pricing.discount - cart.cashbackUsage) 
+    + updatedTotals.pricing.tax 
+    + updatedTotals.pricing.handlingCharge;
+  
+  // Total after cashback (already calculated in updatedTotals.pricing.total)
+  const totalAfterCashback = updatedTotals.pricing.total;
+
   return {
     cart,
-    totals: updatedTotals,
+    totals: {
+      ...updatedTotals,
+      pricing: {
+        ...updatedTotals.pricing,
+        totalBeforeCashback: parseFloat(totalBeforeCashback.toFixed(2)),
+        totalAfterCashback: parseFloat(totalAfterCashback.toFixed(2)),
+      },
+    },
     cashbackApplied: cart.cashbackUsage,
     requestedAmount: originalRequestedAmount, // null if auto-applied
     wasAutoApplied: originalRequestedAmount === null, // true if no amount was sent
@@ -135,6 +153,8 @@ exports.removeCashbackFromCart = async (userId) => {
   }
 
   cart.cashbackUsage = 0;
+  cart.discount = Math.max(0, cart.coupon?.discount || 0);
+  cart.totaldiscount = cart.discount;
   await cart.save();
 
   // Recalculate totals

@@ -368,6 +368,7 @@ exports.clearCart = async (userId) => {
 
   cart.items = [];
   cart.coupon = undefined;
+  cart.discount = Math.max(0, cart.cashbackUsage || 0);
   await cart.save();
 
   return cart;
@@ -434,7 +435,10 @@ exports.applyCoupon = async (userId, couponCode) => {
   cart.coupon = {
     couponId: coupon._id,
     code: coupon.code,
+    discount: discountResult.discount,
   };
+  cart.discount = Math.max(0, discountResult.discount + (cart.cashbackUsage || 0));
+  cart.totaldiscount = cart.discount;
 
   await cart.save();
 
@@ -458,6 +462,8 @@ exports.removeCoupon = async (userId) => {
   }
 
   cart.coupon = undefined;
+  cart.discount = Math.max(0, cart.cashbackUsage || 0);
+  cart.totaldiscount = cart.discount;
   await cart.save();
 
   return await Cart.findById(cart._id);
@@ -911,23 +917,20 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   // Get cashback usage from cart
   const cashbackUsage = cart.cashbackUsage || 0;
   
-  // Apply cashback discount to final total
-  const orderTotalBeforeCashback = totals.pricing.total + totalDeliveryCharge;
-  const finalTotal = Math.max(0, orderTotalBeforeCashback - cashbackUsage);
+  // Calculate coupon discount (excluding cashback)
+  const couponDiscount = totals.pricing.discount - cashbackUsage;
+  
+  // Calculate final total: ONLY subtotal + delivery charge (no tax, no handling, no discount deduction)
+  const finalTotal = parseFloat((totals.pricing.subtotal + totalDeliveryCharge).toFixed(2));
 
-  // Update pricing with delivery charge and cashback discount
+  // Update pricing with delivery charge and show all breakdown components
   const finalPricing = {
     ...totals.pricing,
     deliveryAmount: parseFloat(totalDeliveryCharge.toFixed(2)),
     riderAmount: parseFloat(totalDeliveryCharge.toFixed(2)), // riderAmount is same as deliveryAmount (what rider earns)
-    cashbackDiscount: parseFloat(cashbackUsage.toFixed(2)),
-    total: parseFloat(finalTotal.toFixed(2)),
+    total: finalTotal,
+    discount: Math.max(0, couponDiscount + cashbackUsage), // Combined discount (coupon + cashback)
   };
-  
-  // Remove cashbackDiscount from discount (since it's already included in totals.pricing.discount)
-  // The discount in totals.pricing already includes cashback, so we need to separate them
-  const couponDiscount = totals.pricing.discount - cashbackUsage;
-  finalPricing.discount = Math.max(0, couponDiscount);
 
   // Create order
   const order = await Order.create({
@@ -938,7 +941,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     coupon: cart.coupon ? {
       couponId: cart.coupon.couponId,
       code: cart.coupon.code,
-      discount: totals.pricing.discount - cashbackUsage, // Discount from coupon only (excluding cashback)
+      discount: Math.max(0, couponDiscount), // Discount from coupon only (excluding cashback)
     } : undefined,
     cashbackUsed: cashbackUsage > 0 ? {
       amount: cashbackUsage,

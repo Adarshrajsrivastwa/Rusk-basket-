@@ -231,12 +231,17 @@ exports.applyCoupon = async (req, res, next) => {
 
     const totals = await cart.calculateTotals();
 
+    // Refetch cart to get the updated totalPrice after calculateTotals
+    const Cart = require('../models/Cart');
+    const updatedCart = await Cart.findById(cart._id).populate('coupon.couponId');
+
     res.status(200).json({
       success: true,
       message: 'Coupon applied successfully',
       data: {
-        cart,
+        cart: updatedCart,
         ...totals,
+        couponDiscount: totals.pricing.couponDiscount || 0, // Explicitly show coupon discount amount
       },
     });
   } catch (error) {
@@ -258,11 +263,15 @@ exports.removeCoupon = async (req, res, next) => {
 
     const totals = await cart.calculateTotals();
 
+    // Refetch cart to get the updated totalPrice after calculateTotals
+    const Cart = require('../models/Cart');
+    const updatedCart = await Cart.findById(cart._id);
+
     res.status(200).json({
       success: true,
       message: 'Coupon removed successfully',
       data: {
-        cart,
+        cart: updatedCart,
         ...totals,
       },
     });

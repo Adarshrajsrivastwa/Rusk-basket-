@@ -58,11 +58,26 @@ const CartSchema = new mongoose.Schema({
       trim: true,
       uppercase: true,
     },
+    discount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Coupon discount cannot be negative'],
+    },
   },
   cashbackUsage: {
     type: Number,
     default: 0,
     min: [0, 'Cashback usage cannot be negative'],
+  },
+  discount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Discount cannot be negative'],
+  },
+  totaldiscount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Total discount cannot be negative'],
   },
   totalPrice: {
     type: Number,
@@ -75,17 +90,46 @@ const CartSchema = new mongoose.Schema({
   },
 });
 
-CartSchema.pre('save', function (next) {
+CartSchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
   
-  let itemsTotal = 0;
+  // Calculate subtotal (price) from items
+  let subtotal = 0;
   if (this.items && this.items.length > 0) {
-    itemsTotal = this.items.reduce((sum, item) => {
+    subtotal = this.items.reduce((sum, item) => {
       return sum + (item.totalPrice || (item.unitPrice || item.price || 0) * item.quantity || 0);
     }, 0);
   }
   
-  this.totalPrice = itemsTotal;
+  // Calculate discount from coupon only (separate from cashbackUsage)
+  let couponDiscount = 0;
+  if (this.coupon && this.coupon.couponId) {
+    couponDiscount = this.coupon.discount || 0;
+    if (couponDiscount === 0) {
+      try {
+        const Coupon = mongoose.model('Coupon');
+        const coupon = await Coupon.findById(this.coupon.couponId);
+        if (coupon && coupon.isValid()) {
+          const discountResult = coupon.calculateDiscount(subtotal);
+          if (discountResult.valid) {
+            couponDiscount = discountResult.discount;
+          }
+        }
+      } catch (error) {
+        // If coupon fetch fails, discount remains 0
+        // This can happen if coupon was deleted, etc.
+      }
+    }
+  }
+  
+  // Get cashback usage
+  const cashbackUsage = this.cashbackUsage || 0;
+  
+  // Store combined discount and calculate total price
+  this.discount = Math.max(0, couponDiscount + cashbackUsage);
+  this.totaldiscount = this.discount;
+  this.totalPrice = Math.max(0, subtotal - couponDiscount - cashbackUsage);
+  
   next();
 });
 
@@ -230,20 +274,26 @@ CartSchema.methods.calculateTotals = async function () {
   }
 
   // Calculate discount from coupon
-  let discount = 0;
+  let couponDiscount = 0;
   if (this.coupon && this.coupon.couponId) {
-    const coupon = await Coupon.findById(this.coupon.couponId);
-    if (coupon && coupon.isValid()) {
-      const discountResult = coupon.calculateDiscount(subtotal);
-      if (discountResult.valid) {
-        discount = discountResult.discount;
+    // Use the stored discount amount from coupon
+    couponDiscount = this.coupon.discount || 0;
+    
+    // If discount is not stored (for backwards compatibility), calculate it
+    if (couponDiscount === 0) {
+      const coupon = await Coupon.findById(this.coupon.couponId);
+      if (coupon && coupon.isValid()) {
+        const discountResult = coupon.calculateDiscount(subtotal);
+        if (discountResult.valid) {
+          couponDiscount = discountResult.discount;
+        }
       }
     }
   }
 
   // Add cashback usage as discount
   const cashbackDiscount = this.cashbackUsage || 0;
-  discount += cashbackDiscount;
+  const discount = couponDiscount + cashbackDiscount;
 
   // Calculate handling charge based on vendor's handling charge percentage
   // Get unique vendor IDs from items
@@ -299,6 +349,7 @@ CartSchema.methods.calculateTotals = async function () {
     pricing: {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discount: parseFloat(discount.toFixed(2)),
+      couponDiscount: parseFloat(couponDiscount.toFixed(2)),
       cashbackDiscount: parseFloat(cashbackDiscount.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
       handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
