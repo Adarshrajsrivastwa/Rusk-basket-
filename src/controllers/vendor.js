@@ -218,7 +218,17 @@ exports.getVendors = async (req, res, next) => {
 
 exports.getVendor = async (req, res, next) => {
   try {
-    const vendor = await Vendor.findById(req.params.id).populate('createdBy', 'name email');
+    const vendorId = req.params.id;
+    
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
+    const vendor = await Vendor.findById(vendorObjectId).populate('createdBy', 'name email');
 
     if (!vendor) {
       return res.status(404).json({
@@ -227,11 +237,256 @@ exports.getVendor = async (req, res, next) => {
       });
     }
 
+    // Convert to plain object
+    const vendorData = vendor.toObject ? vendor.toObject() : vendor;
+
+    // Get metrics in parallel
+    const [
+      categoryUsage,
+      subCategoryUsage,
+      totalProducts,
+      publishedProducts,
+      productsInReview,
+      totalOrders,
+      totalDeliveredOrders,
+      totalCancelledOrders,
+      revenueData,
+      inventoryData,
+      totalRiders,
+      ratings,
+      allOrders,
+      riders,
+      invoices,
+    ] = await Promise.all([
+      // Category and SubCategory usage
+      Product.distinct('category', { vendor: vendorObjectId }),
+      Product.distinct('subCategory', { vendor: vendorObjectId }),
+      // Product counts
+      Product.countDocuments({ vendor: vendorObjectId }),
+      Product.countDocuments({ 
+        vendor: vendorObjectId, 
+        approvalStatus: 'approved',
+        isActive: true 
+      }),
+      Product.countDocuments({ 
+        vendor: vendorObjectId, 
+        approvalStatus: 'pending' 
+      }),
+      // Order counts
+      Order.countDocuments({ 'items.vendor': vendorObjectId }),
+      Order.countDocuments({ 
+        'items.vendor': vendorObjectId,
+        status: 'delivered'
+      }),
+      Order.countDocuments({ 
+        'items.vendor': vendorObjectId,
+        status: { $in: ['cancelled', 'refunded'] }
+      }),
+      // Revenue calculation
+      Order.aggregate([
+        { $match: { 'items.vendor': vendorObjectId, status: { $nin: ['cancelled', 'refunded'] } } },
+        { $unwind: '$items' },
+        { $match: { 'items.vendor': vendorObjectId } },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$items.totalPrice' },
+          },
+        },
+      ]),
+      // Inventory calculation
+      Product.aggregate([
+        { $match: { vendor: vendorObjectId, isActive: true } },
+        {
+          $group: {
+            _id: null,
+            totalInventory: { $sum: '$inventory' },
+          },
+        },
+      ]),
+      // Rider count
+      Rider.countDocuments({ vendor: vendorObjectId }),
+      // Ratings (placeholder - would need ratings model)
+      Promise.resolve(0),
+      // All orders for status distribution
+      Order.find({ 'items.vendor': vendorObjectId }).select('status').lean(),
+      // Delivery partners (riders)
+      Rider.find({ vendor: vendorObjectId })
+        .select('fullName mobileNumber approvalStatus isActive createdAt')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+      // Invoices
+      Invoice.find({ vendor: vendorObjectId })
+        .populate('user', 'userName contactNumber')
+        .populate('order', 'orderNumber')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+    ]);
+
+    // Calculate order status distribution
+    const statusCounts = {
+      completed: 0,
+      in_progress: 0,
+      pending: 0,
+      cancelled: 0,
+    };
+    
+    allOrders.forEach(order => {
+      const status = order.status;
+      if (status === 'delivered') {
+        statusCounts.completed++;
+      } else if (['processing', 'ready', 'out_for_delivery', 'confirmed'].includes(status)) {
+        statusCounts.in_progress++;
+      } else if (status === 'pending') {
+        statusCounts.pending++;
+      } else if (['cancelled', 'refunded'].includes(status)) {
+        statusCounts.cancelled++;
+      }
+    });
+
+    const totalOrdersCount = allOrders.length;
+    const statusDistribution = totalOrdersCount > 0 ? {
+      completed: {
+        count: statusCounts.completed,
+        percentage: Math.round((statusCounts.completed / totalOrdersCount) * 100),
+      },
+      in_progress: {
+        count: statusCounts.in_progress,
+        percentage: Math.round((statusCounts.in_progress / totalOrdersCount) * 100),
+      },
+      pending: {
+        count: statusCounts.pending,
+        percentage: Math.round((statusCounts.pending / totalOrdersCount) * 100),
+      },
+      cancelled: {
+        count: statusCounts.cancelled,
+        percentage: Math.round((statusCounts.cancelled / totalOrdersCount) * 100),
+      },
+    } : {
+      completed: { count: 0, percentage: 0 },
+      in_progress: { count: 0, percentage: 0 },
+      pending: { count: 0, percentage: 0 },
+      cancelled: { count: 0, percentage: 0 },
+    };
+
+    // Get recent orders for orderList
+    const recentOrders = await Order.find({ 'items.vendor': vendorObjectId })
+      .populate('user', 'userName contactNumber')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    const orderList = recentOrders.map(order => ({
+      id: order._id ? order._id.toString() : null,
+      orderNumber: order.orderNumber || null,
+      customerName: order.user?.userName || 'Unknown',
+      status: order.status || null,
+      total: order.pricing?.total || order.payment?.amount || 0,
+      createdAt: order.createdAt || null,
+    }));
+
+    // Format delivery partners
+    const deliveryPartners = riders.map(rider => {
+      let status = 'In Active';
+      let statusColor = 'red';
+      
+      if (rider.approvalStatus === 'approved' && rider.isActive) {
+        status = 'Online';
+        statusColor = 'blue';
+      } else if (rider.approvalStatus === 'approved' && !rider.isActive) {
+        status = 'In Active';
+        statusColor = 'red';
+      } else if (rider.approvalStatus === 'pending') {
+        status = 'Pending';
+        statusColor = 'yellow';
+      }
+
+      return {
+        id: rider._id ? rider._id.toString() : null,
+        name: rider.fullName || 'Unknown',
+        mobileNumber: rider.mobileNumber || null,
+        status: status,
+        statusColor: statusColor,
+        joinedDate: rider.createdAt || null,
+      };
+    });
+
+    // Format invoices
+    const formattedInvoices = invoices.map(invoice => ({
+      id: invoice._id ? invoice._id.toString() : null,
+      invoiceNumber: invoice.invoiceNumber || null,
+      orderNumber: invoice.order?.orderNumber || invoice.orderNumber || null,
+      customerName: invoice.user?.userName || 'Unknown',
+      amount: invoice.amount || 0,
+      status: invoice.status || null,
+      date: invoice.date || invoice.createdAt || null,
+    }));
+
+    // Get wallet information
+    const earningWallet = vendorData.earningWallet !== undefined && vendorData.earningWallet !== null 
+      ? Number(vendorData.earningWallet) 
+      : 0;
+
+    // Get store info
+    const storeInfo = {
+      storeName: vendorData.storeName || null,
+      storeImage: vendorData.storeImage || [],
+      storeDescription: vendorData.storeDescription || null,
+      serviceRadius: vendorData.serviceRadius || 0,
+      handlingChargePercentage: vendorData.handlingChargePercentage || 0,
+    };
+
+    // Get store address
+    const storeAddress = vendorData.storeAddress || {
+      line1: null,
+      line2: null,
+      city: null,
+      state: null,
+      pinCode: null,
+      latitude: null,
+      longitude: null,
+    };
+
+    // Prepare response
+    const totalRevenue = revenueData[0]?.totalRevenue || 0;
+    const totalInventory = inventoryData[0]?.totalInventory || 0;
+
     res.status(200).json({
       success: true,
-      data: vendor,
+      data: {
+        metrics: {
+          categoryUse: categoryUsage.length,
+          subCategoryUse: subCategoryUsage.length,
+          totalProducts: totalProducts,
+          productPublished: publishedProducts,
+          productInReview: productsInReview,
+          totalOrder: totalOrders,
+          totalDeliveredOrder: totalDeliveredOrders,
+          totalCanceledOrder: totalCancelledOrders,
+          totalRiders: totalRiders,
+          ratings: ratings,
+          inventory: totalInventory,
+          amount: totalRevenue,
+        },
+        orderOverview: {
+          statusDistribution: statusDistribution,
+          orderList: orderList,
+        },
+        vendor: vendorData,
+        storeInfo: storeInfo,
+        storeAddress: storeAddress,
+        wallet: {
+          earningWallet: earningWallet,
+          walletTransactions: vendorData.walletTransactions || [],
+        },
+        deliveryPartners: deliveryPartners,
+        invoices: formattedInvoices,
+      },
     });
   } catch (error) {
+    logger.error('Get vendor error:', error);
     next(error);
   }
 };
