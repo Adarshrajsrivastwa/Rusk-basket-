@@ -258,9 +258,15 @@ exports.getVendor = async (req, res, next) => {
       riders,
       invoices,
     ] = await Promise.all([
-      // Category and SubCategory usage
-      Product.distinct('category', { vendor: vendorObjectId }),
-      Product.distinct('subCategory', { vendor: vendorObjectId }),
+      // Category and SubCategory usage - filter out null/undefined
+      Product.distinct('category', { 
+        vendor: vendorObjectId,
+        category: { $exists: true, $ne: null }
+      }),
+      Product.distinct('subCategory', { 
+        vendor: vendorObjectId,
+        subCategory: { $exists: true, $ne: null }
+      }),
       // Product counts
       Product.countDocuments({ vendor: vendorObjectId }),
       Product.countDocuments({ 
@@ -453,12 +459,16 @@ exports.getVendor = async (req, res, next) => {
     const totalRevenue = revenueData[0]?.totalRevenue || 0;
     const totalInventory = inventoryData[0]?.totalInventory || 0;
 
+    // Filter out null/undefined values from category and subcategory usage
+    const validCategories = categoryUsage.filter(cat => cat !== null && cat !== undefined);
+    const validSubCategories = subCategoryUsage.filter(subCat => subCat !== null && subCat !== undefined);
+
     res.status(200).json({
       success: true,
       data: {
         metrics: {
-          categoryUse: categoryUsage.length,
-          subCategoryUse: subCategoryUsage.length,
+          categoryUse: validCategories.length,
+          subCategoryUse: validSubCategories.length,
           totalProducts: totalProducts,
           productPublished: publishedProducts,
           productInReview: productsInReview,
