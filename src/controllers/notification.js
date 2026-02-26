@@ -440,13 +440,25 @@ exports.markAdminNotificationAsRead = async (req, res, next) => {
       });
     }
 
-    notification.isRead = true;
-    notification.readAt = new Date();
-    await notification.save();
+    // Only update if not already read
+    if (!notification.isRead) {
+      notification.isRead = true;
+      notification.readAt = new Date();
+      await notification.save();
+    }
+
+    // Get updated unread count
+    const unreadCount = await Notification.countDocuments({
+      recipient: adminId,
+      recipientModel: 'Admin',
+      isActive: true,
+      isRead: false,
+    });
 
     res.status(200).json({
       success: true,
       message: 'Notification marked as read',
+      unreadCount,
       data: notification,
     });
   } catch (error) {
@@ -489,9 +501,18 @@ exports.markAllAdminNotificationsAsRead = async (req, res, next) => {
       }
     );
 
+    // Get updated unread count (should be 0 after marking all as read)
+    const unreadCount = await Notification.countDocuments({
+      recipient: adminId,
+      recipientModel: 'Admin',
+      isActive: true,
+      isRead: false,
+    });
+
     res.status(200).json({
       success: true,
       message: 'All notifications marked as read',
+      unreadCount,
       updatedCount: result.modifiedCount,
     });
   } catch (error) {

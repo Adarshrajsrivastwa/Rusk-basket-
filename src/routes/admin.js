@@ -1106,8 +1106,22 @@ router.get(
 // Get admin unread notification count
 router.get('/notifications/unread-count', protect, getAdminUnreadCount);
 
-// Mark admin notification as read
+// Mark admin notification as read (support both PATCH and PUT)
 router.patch(
+  '/notifications/:notificationId/read',
+  protect,
+  [
+    param('notificationId')
+      .notEmpty()
+      .withMessage('Notification ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid notification ID format'),
+  ],
+  markAdminNotificationAsRead
+);
+
+router.put(
   '/notifications/:notificationId/read',
   protect,
   [
