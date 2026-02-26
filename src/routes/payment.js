@@ -948,11 +948,27 @@ router.post(
           }
 
           // VERY IMPORTANT: Get payment_session_id from response
-          const paymentSessionId = response.data.payment_session_id;
+          let paymentSessionId = response.data.payment_session_id;
 
           if (!paymentSessionId) {
             logger.error('Cashfree /orders response missing payment_session_id. Full response:', JSON.stringify(response.data, null, 2));
             throw new Error(`Cashfree payment initialization failed: Invalid response from Cashfree API. Available fields: ${Object.keys(response.data || {}).join(', ')}`);
+          }
+
+          // CRITICAL: Clean session ID immediately to remove any trailing "payment" text
+          // This can happen due to API response formatting issues
+          paymentSessionId = String(paymentSessionId).trim();
+          if (paymentSessionId.toLowerCase().endsWith('payment')) {
+            logger.warn(`Session ID has 'payment' suffix, removing it. Original ending: ${paymentSessionId.substring(paymentSessionId.length - 20)}`);
+            paymentSessionId = paymentSessionId.replace(/payment$/i, '').trim();
+          }
+          // Remove any whitespace
+          paymentSessionId = paymentSessionId.replace(/\s+/g, '');
+
+          // Validate cleaned session ID
+          if (!paymentSessionId || paymentSessionId.length < 10) {
+            logger.error(`Invalid payment_session_id format after cleaning: ${paymentSessionId}`);
+            throw new Error('Invalid payment_session_id received from Cashfree API');
           }
 
           // Try to use payment_link or link_url from API response first (if available)
@@ -962,30 +978,45 @@ router.post(
                           response.data.payment_url || 
                           response.data.paymentLink ||
                           response.data.paymentUrl;
+          
+          // If payment URL is provided by API, validate and clean it
+          if (paymentUrl) {
+            // Remove www. prefix if present (causes 403 Forbidden)
+            const originalUrl = paymentUrl;
+            paymentUrl = String(paymentUrl).trim()
+              .replace(/https:\/\/www\./g, 'https://')
+              .replace(/http:\/\/www\./g, 'http://')
+              .replace(/www\.cashfree\.com/g, 'cashfree.com')
+              .replace(/www\.sandbox\.cashfree\.com/g, 'sandbox.cashfree.com');
+            
+            if (originalUrl !== paymentUrl) {
+              logger.warn(`Cleaned payment URL from API response. Removed www. prefix.`);
+            }
+            
+            // Extract and validate session ID from URL if it contains one
+            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+            if (sessionIdMatch) {
+              let extractedSessionId = sessionIdMatch[1];
+              // Clean extracted session ID
+              if (extractedSessionId.toLowerCase().endsWith('payment')) {
+                extractedSessionId = extractedSessionId.replace(/payment$/i, '').trim();
+              }
+              // Use cleaned session ID from URL if it's different
+              if (extractedSessionId !== paymentSessionId && extractedSessionId.length >= 10) {
+                logger.info(`Using cleaned session ID from payment URL`);
+                paymentSessionId = extractedSessionId;
+              }
+            }
+          }
 
           // If payment_link is not in response, construct it from payment_session_id
           // IMPORTANT: Cashfree payment URL is the same for both sandbox and production
           // The session ID itself determines which environment it belongs to
           if (!paymentUrl) {
             logger.info('Cashfree response does not contain payment_link/link_url. Constructing URL from payment_session_id.');
-            // Ensure payment_session_id is a string and properly formatted
-            let sessionId = String(paymentSessionId).trim();
-            
-            // Remove any trailing "payment" text that might have been accidentally appended
-            // Session IDs should end with alphanumeric characters, not "payment"
-            if (sessionId.toLowerCase().endsWith('payment')) {
-              logger.warn(`Session ID has 'payment' suffix, removing it. Original: ${sessionId.substring(sessionId.length - 20)}`);
-              sessionId = sessionId.replace(/payment$/i, '').trim();
-            }
-            
-            // Validate session ID format (should be a long alphanumeric string, typically starts with 'session_')
-            if (!sessionId || sessionId.length < 10) {
-              logger.error(`Invalid payment_session_id format: ${sessionId}`);
-              throw new Error('Invalid payment_session_id received from Cashfree API');
-            }
             
             // Log session ID for debugging
-            logger.info(`Session ID validated. Length: ${sessionId.length}, Starts with: ${sessionId.substring(0, 10)}, Ends with: ${sessionId.substring(sessionId.length - 10)}`);
+            logger.info(`Session ID validated. Length: ${paymentSessionId.length}, Starts with: ${paymentSessionId.substring(0, 10)}, Ends with: ${paymentSessionId.substring(paymentSessionId.length - 10)}`);
             
             // CRITICAL: Correct URL format for Cashfree PG Order API (V3 Flow)
             // Environment-specific payment URLs (MUST match backend environment)
@@ -1002,20 +1033,17 @@ router.post(
             // ❌ TEST key session opened on cashfree.com → 403 Forbidden
             // ❌ LIVE key session opened on sandbox.cashfree.com → 403 Forbidden
             
-            // Construct payment URL - session ID should be used as-is (Cashfree handles it)
-            // Ensure session ID doesn't have any whitespace or invalid characters
-            const cleanSessionId = sessionId.replace(/\s+/g, ''); // Remove any whitespace
-            
             // CRITICAL: Construct URL with correct domain (NO www prefix)
             // www.cashfree.com causes 403 Forbidden - must use cashfree.com or sandbox.cashfree.com
+            // paymentSessionId is already cleaned above
             if (isTestEnvironment) {
               // Sandbox environment (TEST keys) - use sandbox payment page
               // Domain: sandbox.cashfree.com (NOT www.sandbox.cashfree.com)
-              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${cleanSessionId}`;
+              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${paymentSessionId}`;
             } else {
               // Production environment (LIVE keys) - use production payment page
               // Domain: cashfree.com (NOT www.cashfree.com or payments.cashfree.com)
-              paymentUrl = `https://cashfree.com/pg/view/payment/${cleanSessionId}`;
+              paymentUrl = `https://cashfree.com/pg/view/payment/${paymentSessionId}`;
             }
             
             // CRITICAL: Force remove www. prefix if present (causes 403 Forbidden)
@@ -1054,7 +1082,7 @@ router.post(
               }
               logger.info(`✅ Constructed payment URL for ${isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)'} environment.`);
               logger.info(`📋 Full Payment URL: ${paymentUrl}`);
-              logger.info(`🔑 Session ID: ${sessionId.substring(0, 50)}... (length: ${sessionId.length})`);
+              logger.info(`🔑 Session ID: ${paymentSessionId.substring(0, 50)}... (length: ${paymentSessionId.length})`);
               logger.info(`🌐 Domain: ${urlObj.hostname} | Path: ${urlObj.pathname}`);
             } catch (urlError) {
               logger.error(`❌ ERROR: Invalid URL format: ${paymentUrl}`);
@@ -1071,53 +1099,71 @@ router.post(
             throw new Error('Failed to generate valid payment URL');
           }
           
-          // CRITICAL: Final validation - ensure NO www. in URL (causes 403)
-          if (paymentUrl.includes('www.')) {
-            logger.error(`❌ CRITICAL ERROR: Payment URL still contains 'www.' - this will cause 403 Forbidden!`);
-            logger.error(`❌ Invalid URL: ${paymentUrl}`);
-            // Extract session ID from current URL and rebuild
-            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
-            const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
-            // Force fix based on environment
-            if (isTestEnvironment) {
-              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${sessionIdForFix}`;
-            } else {
-              paymentUrl = `https://cashfree.com/pg/view/payment/${sessionIdForFix}`;
-            }
-            logger.warn(`🔧 Force-corrected URL: ${paymentUrl}`);
-          }
-          
-          // Verify domain is correct
-          let urlObj;
-          let expectedDomain = isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com';
-          try {
-            urlObj = new URL(paymentUrl);
-            if (urlObj.hostname !== expectedDomain) {
-              logger.error(`❌ ERROR: Domain mismatch! Expected: ${expectedDomain}, Got: ${urlObj.hostname}`);
-              logger.error(`❌ This will cause 403 Forbidden. Fixing...`);
+            // CRITICAL: Final validation - ensure NO www. in URL (causes 403)
+            if (paymentUrl.includes('www.')) {
+              logger.error(`❌ CRITICAL ERROR: Payment URL still contains 'www.' - this will cause 403 Forbidden!`);
+              logger.error(`❌ Invalid URL: ${paymentUrl}`);
+              // Extract session ID from current URL, clean it, or use already cleaned paymentSessionId
               const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
-              const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
-              paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
-              logger.warn(`🔧 Corrected URL: ${paymentUrl}`);
-              // Re-parse after fix
-              urlObj = new URL(paymentUrl);
+              let sessionIdForFix = paymentSessionId; // Use already cleaned session ID
+              if (sessionIdMatch) {
+                let extractedId = sessionIdMatch[1].trim();
+                // Clean extracted ID if needed
+                if (extractedId.toLowerCase().endsWith('payment')) {
+                  extractedId = extractedId.replace(/payment$/i, '').trim();
+                }
+                if (extractedId.length >= 10) {
+                  sessionIdForFix = extractedId;
+                }
+              }
+              // Force fix based on environment
+              if (isTestEnvironment) {
+                paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${sessionIdForFix}`;
+              } else {
+                paymentUrl = `https://cashfree.com/pg/view/payment/${sessionIdForFix}`;
+              }
+              logger.warn(`🔧 Force-corrected URL: ${paymentUrl}`);
             }
-            logger.info(`✅ Domain verified: ${urlObj.hostname} (Expected: ${expectedDomain})`);
-          } catch (urlError) {
-            logger.error(`❌ ERROR: Failed to validate URL: ${urlError.message}`);
-            logger.error(`❌ Invalid URL: ${paymentUrl}`);
-            // Try to rebuild URL
-            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
-            const sessionIdForFix = sessionIdMatch ? sessionIdMatch[1] : paymentSessionId;
-            paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
+            
+            // Verify domain is correct
+            let urlObj;
+            let expectedDomain = isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com';
             try {
               urlObj = new URL(paymentUrl);
-              logger.warn(`🔧 Rebuilt URL after error: ${paymentUrl}`);
-            } catch (rebuildError) {
-              logger.error(`❌ CRITICAL: Failed to rebuild valid URL: ${rebuildError.message}`);
-              throw new Error(`Invalid payment URL: ${rebuildError.message}`);
+              if (urlObj.hostname !== expectedDomain) {
+                logger.error(`❌ ERROR: Domain mismatch! Expected: ${expectedDomain}, Got: ${urlObj.hostname}`);
+                logger.error(`❌ This will cause 403 Forbidden. Fixing...`);
+                // Extract and clean session ID from URL or use already cleaned paymentSessionId
+                const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+                let sessionIdForFix = paymentSessionId; // Use already cleaned session ID
+                if (sessionIdMatch) {
+                  let extractedId = sessionIdMatch[1].trim();
+                  if (extractedId.toLowerCase().endsWith('payment')) {
+                    extractedId = extractedId.replace(/payment$/i, '').trim();
+                  }
+                  if (extractedId.length >= 10) {
+                    sessionIdForFix = extractedId;
+                  }
+                }
+                paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
+                logger.warn(`🔧 Corrected URL: ${paymentUrl}`);
+                // Re-parse after fix
+                urlObj = new URL(paymentUrl);
+              }
+              logger.info(`✅ Domain verified: ${urlObj.hostname} (Expected: ${expectedDomain})`);
+            } catch (urlError) {
+              logger.error(`❌ ERROR: Failed to validate URL: ${urlError.message}`);
+              logger.error(`❌ Invalid URL: ${paymentUrl}`);
+              // Try to rebuild URL using cleaned session ID
+              paymentUrl = `https://${expectedDomain}/pg/view/payment/${paymentSessionId}`;
+              try {
+                urlObj = new URL(paymentUrl);
+                logger.warn(`🔧 Rebuilt URL after error: ${paymentUrl}`);
+              } catch (rebuildError) {
+                logger.error(`❌ CRITICAL: Failed to rebuild valid URL: ${rebuildError.message}`);
+                throw new Error(`Invalid payment URL: ${rebuildError.message}`);
+              }
             }
-          }
           
           logger.info(`✅ Payment link created for user ${userId} via Cashfree: ${orderId}`);
           logger.info(`🔗 Final Payment URL: ${paymentUrl}`);
@@ -1132,7 +1178,7 @@ router.post(
             gateway: 'cashfree',
             amount: amountInPaise / 100,
             currency: 'INR',
-            payment_session_id: paymentSessionId,
+            payment_session_id: paymentSessionId, // Cleaned session ID (no trailing "payment")
             // Debug info to help identify environment mismatch
             environment: isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)',
             app_id_prefix: appId.substring(0, 10),
