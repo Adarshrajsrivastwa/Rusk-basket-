@@ -9,7 +9,7 @@ const { updateProduct } = require('../controllers/productUpdate');
 const { getAllOrders } = require('../controllers/checkout');
 const { getAdminProfile, updateAdminProfile, updateFCMToken, removeFCMToken, testNotification, addAdmin, getAllAdmins, getReferralSettings, updateReferralSettings, getCashbackSettings, updateCashbackSettings } = require('../controllers/admin');
 const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = require('../controllers/ticket');
-const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets } = require('../controllers/vendor');
+const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets, getVendorOrdersForAdmin } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest, getAllRidersWallets, updateRiderCommission } = require('../controllers/rider');
 const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
 
@@ -801,6 +801,38 @@ router.put(
       .withMessage('Rejection reason cannot be more than 500 characters'),
   ],
   rejectVendorWithdrawalRequest
+);
+
+// Get vendor orders (admin only) - must be before /vendors/:id to avoid route conflict
+router.get(
+  '/vendors/:vendorId/orders',
+  protect,
+  [
+    param('vendorId')
+      .notEmpty()
+      .withMessage('Vendor ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid vendor ID format'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('status')
+      .optional()
+      .isIn(['pending', 'confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'])
+      .withMessage('Invalid order status'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 200 })
+      .withMessage('Search query must be between 1 and 200 characters'),
+  ],
+  getVendorOrdersForAdmin
 );
 
 // Get single vendor (admin only)

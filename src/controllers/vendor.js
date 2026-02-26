@@ -853,6 +853,115 @@ exports.getVendorOrders = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all orders for a vendor (Admin only)
+ * GET /api/admin/vendors/:vendorId/orders
+ */
+exports.getVendorOrdersForAdmin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        errors: errors.array(),
+      });
+    }
+
+    const vendorId = req.params.vendorId;
+    
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
+    
+    // Verify vendor exists
+    const vendor = await Vendor.findById(vendorObjectId);
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    const status = req.query.status;
+    const search = req.query.search;
+
+    let query = {
+      'items.vendor': vendorObjectId,
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (search) {
+      query.$or = [
+        { orderNumber: { $regex: search, $options: 'i' } },
+        { 'user.userName': { $regex: search, $options: 'i' } },
+        { 'user.contactNumber': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const orders = await Order.find(query)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName description images')
+      .populate('rider', 'fullName mobileNumber')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Filter items to show only vendor's items
+    const filteredOrders = orders.map((order) => {
+      const vendorItems = order.items.filter((item) => {
+        const itemVendorId = item.vendor?._id || item.vendor;
+        return itemVendorId && itemVendorId.toString() === vendorObjectId.toString();
+      });
+      
+      const vendorSubtotal = vendorItems.reduce(
+        (sum, item) => sum + (item.totalPrice || 0),
+        0
+      );
+
+      return {
+        ...order,
+        items: vendorItems,
+        vendorSubtotal,
+      };
+    });
+
+    const total = await Order.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor orders fetched successfully',
+      count: filteredOrders.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: filteredOrders,
+    });
+  } catch (error) {
+    logger.error('Get vendor orders for admin error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch vendor orders',
+      message: error.message || 'An error occurred',
+    });
+  }
+};
+
 exports.getVendorOrderById = async (req, res, next) => {
   try {
     const vendorId = req.vendor._id;
