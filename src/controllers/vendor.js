@@ -1609,6 +1609,111 @@ exports.getVendorProfile = async (req, res, next) => {
   }
 };
 
+// Admin-only: Update vendor details (profile, store, bank, basic settings)
+exports.updateVendorByAdmin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const vendorId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vendor ID format',
+      });
+    }
+
+    const vendor = await Vendor.findById(vendorId);
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vendor not found',
+      });
+    }
+
+    // If email is being updated, ensure uniqueness
+    if (req.body.email && req.body.email !== vendor.email) {
+      const existingEmail = await Vendor.findOne({
+        email: req.body.email,
+        _id: { $ne: vendor._id },
+      });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email already exists',
+        });
+      }
+    }
+
+    // Normalize files: admin can update storeImage & profileImage here.
+    const filteredFiles = {};
+    if (req.files) {
+      const storeImageVariations = [
+        'storeImage', 'storeImage ', ' storeImage',
+        'storeImage[]', 'storeImage[] ', ' storeImage[]',
+      ];
+      for (const variation of storeImageVariations) {
+        if (req.files[variation]) {
+          filteredFiles.storeImage = req.files[variation];
+          break;
+        }
+      }
+
+      const profileImageVariations = [
+        'profileImage', 'profileImage ', ' profileImage',
+        'profileImage[]', 'profileImage[] ', ' profileImage[]',
+      ];
+      for (const variation of profileImageVariations) {
+        if (req.files[variation]) {
+          filteredFiles.profileImage = req.files[variation];
+          break;
+        }
+      }
+    }
+
+    // Use shared service to apply updates
+    await updateVendorData(
+      vendor,
+      req.body,
+      Object.keys(filteredFiles).length > 0 ? filteredFiles : null
+    );
+
+    await vendor.save();
+
+    const populatedVendor = await Vendor.findById(vendor._id).populate(
+      'createdBy',
+      'name email'
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Vendor updated successfully',
+      data: populatedVendor,
+    });
+  } catch (error) {
+    if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 exports.updateVendorProfile = async (req, res, next) => {
   try {
     const errors = validationResult(req);
