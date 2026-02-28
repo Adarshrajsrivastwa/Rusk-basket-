@@ -4,6 +4,10 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
+  if (file.fieldname === 'profile') {
+    return cb(null, true);
+  }
+
   const allowedTypes = /jpeg|jpg|png|pdf/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
   const mimetype = allowedTypes.test(file.mimetype);
@@ -20,7 +24,7 @@ const deliveryImageFileFilter = (req, file, cb) => {
   const allowedExtensions = /\.(jpeg|jpg|png|webp)$/i;
   // Allow image/jpeg, image/jpg, image/png, image/webp
   const allowedMimeTypes = /^image\/(jpeg|jpg|png|webp|x-png)$/i;
-  
+
   const extname = allowedExtensions.test(file.originalname);
   const mimetype = allowedMimeTypes.test(file.mimetype);
 
@@ -135,7 +139,7 @@ const uploadDeliveryImageWithErrorHandling = (req, res, next) => {
         error: err.message || 'File upload error',
       });
     }
-    
+
     // Normalize file to req.file for single file uploads
     // Check both field names and set req.file to whichever is present
     if (req.files) {
@@ -145,12 +149,12 @@ const uploadDeliveryImageWithErrorHandling = (req, res, next) => {
         req.file = req.files.deliveredImage[0];
       }
     }
-    
+
     next();
   });
 };
 
-module.exports = { 
+module.exports = {
   uploadRiderFiles: uploadRiderFilesWithErrorHandling,
   uploadDeliveryImage: uploadDeliveryImageWithErrorHandling
 };

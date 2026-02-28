@@ -4,6 +4,11 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
+  // If the field name contains 'profile', allow any file format
+  if (file.fieldname && file.fieldname.toLowerCase().includes('profile')) {
+    return cb(null, true);
+  }
+
   const allowedTypes = /jpeg|jpg|png|pdf/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
   const mimetype = allowedTypes.test(file.mimetype);
