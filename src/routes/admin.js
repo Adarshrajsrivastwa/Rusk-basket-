@@ -12,6 +12,8 @@ const { getAllTickets, getAdminTicket, updateTicketStatus, addAdminMessage } = r
 const { getVendors, getVendor, suspendVendor, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, deleteVendor, getVendorWithdrawalRequests, approveVendorWithdrawalRequest, rejectVendorWithdrawalRequest, getAllVendorsWallets, getVendorOrdersForAdmin } = require('../controllers/vendor');
 const { getRiders, getRider, approveRider, suspendRider, getPendingRiders, getWithdrawalRequests, approveWithdrawalRequest, rejectWithdrawalRequest, getAllRidersWallets, updateRiderCommission } = require('../controllers/rider');
 const { getAdminNotifications, markAdminNotificationAsRead, markAllAdminNotificationsAsRead, deleteAdminNotification, deleteAllAdminNotifications, getAdminUnreadCount } = require('../controllers/notification');
+const { sendCustomPushNotification } = require('../controllers/adminPushNotification');
+
 
 // Middleware
 const { protect } = require('../middleware/adminAuth');
@@ -1210,7 +1212,50 @@ router.post(
   updateFCMToken
 );
 
+// Send custom push notification (Admin only)
+router.post(
+  '/send-custom-push-notification',
+  protect,
+  uploadFields,
+  [
+    body('title')
+      .trim()
+      .notEmpty()
+      .withMessage('Title is required')
+      .isLength({ max: 200 })
+      .withMessage('Title cannot exceed 200 characters'),
+    body('message')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ max: 1000 })
+      .withMessage('Message cannot exceed 1000 characters'),
+    body('targetGroup')
+      .notEmpty()
+      .withMessage('Target group is required (User, Vendor, Rider)'),
+    body('specificIds')
+      .optional()
+      .custom((value) => {
+        if (value) {
+          try {
+            if (typeof value === 'string') {
+              const parsed = JSON.parse(value);
+              if (!Array.isArray(parsed) && typeof parsed !== 'string') {
+                throw new Error('specificIds must be an array or a single ID');
+              }
+            }
+          } catch (e) {
+            // If it's not JSON, it could be a single ID string, which is fine
+          }
+        }
+        return true;
+      }),
+  ],
+  sendCustomPushNotification
+);
+
 // Remove FCM token
+
 router.post(
   '/fcm-token/remove',
   protect,

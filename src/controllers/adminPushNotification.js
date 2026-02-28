@@ -9,6 +9,8 @@ const {
     sendRiderPushNotification
 } = require('../utils/firebaseNotification');
 const logger = require('../utils/logger');
+const { validationResult } = require('express-validator');
+
 
 // Background functions for sending bulk notifications
 const processPushNotificationsForUsers = async (userIds, title, message, imageUrl) => {
@@ -97,16 +99,13 @@ const processPushNotificationsForRiders = async (riderIds, title, message, image
 
 exports.sendCustomPushNotification = async (req, res) => {
     try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, errors: errors.array() });
+        }
+
         const { title, message, targetGroup, specificIds } = req.body;
         let imageUrl = null;
-
-        if (!title || !message) {
-            return res.status(400).json({ success: false, error: 'Title and message are required' });
-        }
-
-        if (!targetGroup) {
-            return res.status(400).json({ success: false, error: 'Target group is required (User, Vendor, Rider)' });
-        }
 
         // Process image upload
         if (req.files && req.files['image'] && req.files['image'][0]) {
