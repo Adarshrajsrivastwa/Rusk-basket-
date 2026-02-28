@@ -15,6 +15,7 @@ const {
   getAllInventory,
   getVendorProductsList,
   getVendorsWithRidersNoOrders,
+  getProductSalesReport,
 } = require('../controllers/analytics');
 const { protect } = require('../middleware/adminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
@@ -300,6 +301,28 @@ router.get(
   '/vendor/riders/no-orders',
   protectVendor,
   getVendorsWithRidersNoOrders
+);
+
+// Get product sales report (GST compliance) - Vendor can view their own, Admin can view any
+router.get(
+  '/vendor/product-sales-report',
+  protectVendor,
+  [
+    query('startDate').optional().isISO8601().withMessage('Valid start date required'),
+    query('endDate').optional().isISO8601().withMessage('Valid end date required'),
+  ],
+  getProductSalesReport
+);
+
+router.get(
+  '/admin/product-sales-report',
+  protect,
+  [
+    query('startDate').optional().isISO8601().withMessage('Valid start date required'),
+    query('endDate').optional().isISO8601().withMessage('Valid end date required'),
+    query('vendorId').optional().isMongoId().withMessage('Valid Vendor ID required'),
+  ],
+  getProductSalesReport
 );
 
 module.exports = router;

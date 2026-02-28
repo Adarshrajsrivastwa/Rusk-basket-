@@ -25,3 +25,7 @@ exports.updateStock = inventoryManagement.updateStock;
 exports.getProductInventory = inventoryManagement.getProductInventory;
 exports.getAllInventory = inventoryManagement.getAllInventory;
 exports.getVendorProductsList = inventoryManagement.getVendorProductsList;
+
+// Re-export product sales report
+const productSalesReport = require('./analytics/productSalesReport');
+exports.getProductSalesReport = productSalesReport.getProductSalesReport;
