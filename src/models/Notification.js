@@ -43,6 +43,10 @@ const NotificationSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Message cannot exceed 1000 characters'],
   },
+  imageUrl: {
+    type: String,
+    default: null,
+  },
   data: {
     type: mongoose.Schema.Types.Mixed,
     default: {},
@@ -81,7 +85,7 @@ NotificationSchema.index({ order: 1 });
 NotificationSchema.index({ type: 1 });
 
 // Update the updatedAt field before saving
-NotificationSchema.pre('save', function(next) {
+NotificationSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });

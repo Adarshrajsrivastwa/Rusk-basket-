@@ -58,7 +58,7 @@ const sendPushNotification = async (userId, notificationData) => {
 
     // Get user with FCM tokens
     const user = await User.findById(userId).select('fcmToken fcmTokens isActive');
-    
+
     if (!user) {
       logger.warn(`User ${userId} not found for push notification`);
       return { success: false, error: 'User not found' };
@@ -71,12 +71,12 @@ const sendPushNotification = async (userId, notificationData) => {
 
     // Collect all FCM tokens
     const tokens = [];
-    
+
     // Add single fcmToken if exists (for backward compatibility)
     if (user.fcmToken) {
       tokens.push(user.fcmToken);
     }
-    
+
     // Add tokens from fcmTokens array
     if (user.fcmTokens && user.fcmTokens.length > 0) {
       user.fcmTokens.forEach(tokenObj => {
@@ -96,6 +96,7 @@ const sendPushNotification = async (userId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets',
         body: notificationData.message || notificationData.body || '',
+        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -258,7 +259,7 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
 
     // Get vendor with FCM tokens
     const vendor = await Vendor.findById(vendorId).select('fcmToken fcmTokens isActive');
-    
+
     if (!vendor) {
       logger.warn(`Vendor ${vendorId} not found for push notification`);
       return { success: false, error: 'Vendor not found' };
@@ -271,11 +272,11 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
 
     // Collect all FCM tokens
     const tokens = [];
-    
+
     if (vendor.fcmToken) {
       tokens.push(vendor.fcmToken);
     }
-    
+
     if (vendor.fcmTokens && vendor.fcmTokens.length > 0) {
       vendor.fcmTokens.forEach(tokenObj => {
         if (tokenObj.token && !tokens.includes(tokenObj.token)) {
@@ -294,6 +295,7 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets',
         body: notificationData.message || notificationData.body || '',
+        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -366,7 +368,7 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
 const sendAdminPushNotification = async (adminId, notificationData) => {
   try {
     logger.info(`[FCM] Starting push notification to admin ${adminId}`);
-    
+
     if (!firebaseInitialized) {
       logger.error('[FCM] Firebase not initialized. Skipping push notification.');
       return { success: false, error: 'Firebase not initialized' };
@@ -375,7 +377,7 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
 
     // Get admin with FCM tokens
     const adminUser = await Admin.findById(adminId).select('fcmToken fcmTokens isActive name email');
-    
+
     if (!adminUser) {
       logger.warn(`[FCM] Admin ${adminId} not found for push notification`);
       return { success: false, error: 'Admin not found' };
@@ -389,12 +391,12 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
 
     // Collect all FCM tokens
     const tokens = [];
-    
+
     if (adminUser.fcmToken) {
       tokens.push(adminUser.fcmToken);
       logger.info(`[FCM] Found single fcmToken for admin ${adminId}`);
     }
-    
+
     if (adminUser.fcmTokens && adminUser.fcmTokens.length > 0) {
       adminUser.fcmTokens.forEach(tokenObj => {
         if (tokenObj.token && !tokens.includes(tokenObj.token)) {
@@ -416,6 +418,7 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets Admin',
         body: notificationData.message || notificationData.body || '',
+        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -456,7 +459,7 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
     logger.info(`[FCM] Sending notification to ${tokens.length} token(s) for admin ${adminId}`);
     logger.info(`[FCM] Notification title: ${message.notification.title}`);
     logger.info(`[FCM] Notification body: ${message.notification.body}`);
-    
+
     const response = await admin.messaging().sendEachForMulticast(message);
 
     logger.info(`[FCM] Firebase response for admin ${adminId}: Success: ${response.successCount}, Failed: ${response.failureCount}`);
@@ -558,7 +561,7 @@ const sendRiderPushNotification = async (riderId, notificationData) => {
 
     // Get rider with FCM tokens
     const rider = await Rider.findById(riderId).select('fcmToken fcmTokens isActive fullName mobileNumber');
-    
+
     if (!rider) {
       logger.warn(`Rider ${riderId} not found for push notification`);
       return { success: false, error: 'Rider not found' };
@@ -571,11 +574,11 @@ const sendRiderPushNotification = async (riderId, notificationData) => {
 
     // Collect all FCM tokens
     const tokens = [];
-    
+
     if (rider.fcmToken) {
       tokens.push(rider.fcmToken);
     }
-    
+
     if (rider.fcmTokens && rider.fcmTokens.length > 0) {
       rider.fcmTokens.forEach(tokenObj => {
         if (tokenObj.token && !tokens.includes(tokenObj.token)) {
@@ -594,6 +597,7 @@ const sendRiderPushNotification = async (riderId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets Rider',
         body: notificationData.message || notificationData.body || '',
+        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
