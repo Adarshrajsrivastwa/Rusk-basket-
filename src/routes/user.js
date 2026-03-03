@@ -198,6 +198,11 @@ router.post(
       .optional()
       .isFloat()
       .withMessage('Longitude must be a valid number'),
+    body('type')
+      .optional()
+      .trim()
+      .isIn(['home', 'work', 'other'])
+      .withMessage('Type must be home, work, or other'),
     body('isDefault')
       .optional()
       .isBoolean()
@@ -244,6 +249,11 @@ router.put(
       .optional()
       .isFloat()
       .withMessage('Longitude must be a valid number'),
+    body('type')
+      .optional()
+      .trim()
+      .isIn(['home', 'work', 'other'])
+      .withMessage('Type must be home, work, or other'),
     body('isDefault')
       .optional()
       .isBoolean()
@@ -422,9 +432,9 @@ router.patch(
       })
       .withMessage('Invalid order ID format'),
     body().custom((value) => {
-      const hasFields = value.complaint !== undefined || 
-                       value.category !== undefined || 
-                       value.orderId !== undefined;
+      const hasFields = value.complaint !== undefined ||
+        value.category !== undefined ||
+        value.orderId !== undefined;
       if (!hasFields) {
         throw new Error('At least one field (complaint, category, or orderId) must be provided');
       }

@@ -4,20 +4,8 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  // If the field name contains 'profile', allow any file format
-  if (file.fieldname && file.fieldname.toLowerCase().includes('profile')) {
-    return cb(null, true);
-  }
-
-  const allowedTypes = /jpeg|jpg|png|pdf/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
-    return cb(null, true);
-  } else {
-    cb(new Error('Only image files (jpeg, jpg, png) and PDF files are allowed'));
-  }
+  // Allow all file formats
+  cb(null, true);
 };
 
 const upload = multer({

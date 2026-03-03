@@ -60,6 +60,12 @@ const UserSchema = new mongoose.Schema({
       trim: true,
       default: 'Home',
     },
+    type: {
+      type: String,
+      trim: true,
+      enum: ['home', 'work', 'other'],
+      default: 'home',
+    },
     line1: {
       type: String,
       required: true,
@@ -174,27 +180,27 @@ UserSchema.pre('save', function (next) {
     }
     this.age = age;
   }
-  
+
   // Ensure email is undefined (not null) if it's null or empty (to avoid index issues)
   // Email is optional, so we set it to undefined to prevent MongoDB from indexing null values
   if (this.email === null || this.email === '') {
     delete this.email;
   }
-  
+
   // Generate referral code if not exists (will be made unique by index)
   if (!this.referralCode && this.isNew) {
     // Generate referral code: USER + random string
     const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
     this.referralCode = `USER${randomStr}`;
   }
-  
+
   this.updatedAt = Date.now();
   next();
 });
 
 UserSchema.methods.generateOTP = function () {
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
-  
+
   this.otp = {
     code: otpCode,
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),

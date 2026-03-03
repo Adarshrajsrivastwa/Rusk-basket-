@@ -16,7 +16,7 @@ exports.getProfile = async (req, res, next) => {
     }
 
     // Find default address from addresses array
-    const defaultAddress = user.addresses && user.addresses.length > 0 
+    const defaultAddress = user.addresses && user.addresses.length > 0
       ? user.addresses.find(addr => addr.isDefault === true) || user.addresses[0]
       : null;
 
@@ -89,9 +89,9 @@ exports.updateProfile = async (req, res, next) => {
     const { email } = req.body;
     // Only check for duplicate email if email is provided and not null/empty
     if (email && email.trim() !== '' && email !== user.email) {
-      const existingEmail = await User.findOne({ 
-        email: email.trim().toLowerCase(), 
-        _id: { $ne: user._id } 
+      const existingEmail = await User.findOne({
+        email: email.trim().toLowerCase(),
+        _id: { $ne: user._id }
       });
       if (existingEmail) {
         return res.status(400).json({
@@ -106,9 +106,9 @@ exports.updateProfile = async (req, res, next) => {
 
     // Reload user to get updated data
     const updatedUser = await User.findById(req.user._id);
-    
+
     // Find default address from addresses array
-    const defaultAddress = updatedUser.addresses && updatedUser.addresses.length > 0 
+    const defaultAddress = updatedUser.addresses && updatedUser.addresses.length > 0
       ? updatedUser.addresses.find(addr => addr.isDefault === true) || updatedUser.addresses[0]
       : null;
 
@@ -210,7 +210,19 @@ exports.addAddress = async (req, res, next) => {
       });
     }
 
-    const { label, line1, line2, pinCode, latitude, longitude, isDefault } = req.body;
+    const { label, type, line1, line2, pinCode, latitude, longitude, isDefault } = req.body;
+    const addressType = type || 'home';
+
+    // Ensure only one Home and Work address exists
+    if (addressType === 'home' || addressType === 'work') {
+      const existingAddress = user.addresses.find(addr => addr.type === addressType);
+      if (existingAddress) {
+        return res.status(400).json({
+          success: false,
+          error: `A ${addressType} address already exists. Please update the existing one or delete it first.`,
+        });
+      }
+    }
 
     // Validate PIN code and get city/state
     const postOfficeData = await getPostOfficeDetails(pinCode);
@@ -224,6 +236,7 @@ exports.addAddress = async (req, res, next) => {
     // Create new address object
     const newAddress = {
       label: label || 'Home',
+      type: type || 'home',
       line1: line1.trim(),
       line2: line2 ? line2.trim() : '',
       pinCode: pinCode.trim(),
@@ -303,7 +316,20 @@ exports.updateAddress = async (req, res, next) => {
     }
 
     const { addressId } = req.params;
-    const { label, line1, line2, pinCode, latitude, longitude, isDefault } = req.body;
+    const { label, type, line1, line2, pinCode, latitude, longitude, isDefault } = req.body;
+
+    // Ensure only one Home and Work address exists when updating type
+    if (type && (type === 'home' || type === 'work')) {
+      const existingAddress = user.addresses.find(
+        (addr) => addr.type === type && addr._id.toString() !== addressId
+      );
+      if (existingAddress) {
+        return res.status(400).json({
+          success: false,
+          error: `Another address is already set as ${type}.`,
+        });
+      }
+    }
 
     // Find the address in user's addresses array
     const address = user.addresses.id(addressId);
@@ -331,6 +357,7 @@ exports.updateAddress = async (req, res, next) => {
 
     // Update address fields
     if (label !== undefined) address.label = label.trim() || 'Home';
+    if (type !== undefined) address.type = type.trim() || 'home';
     if (line1 !== undefined) address.line1 = line1.trim();
     if (line2 !== undefined) address.line2 = line2 ? line2.trim() : '';
     if (pinCode !== undefined) address.pinCode = pinCode.trim();
