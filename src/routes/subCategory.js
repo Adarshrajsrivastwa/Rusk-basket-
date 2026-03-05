@@ -9,6 +9,7 @@ const {
   toggleSubCategoryStatus,
   getSubCategoriesByCategory,
   getSubCategoriesByLocation,
+  getNearbySubCategories,
 } = require('../controllers/subCategory');
 const { protect } = require('../middleware/adminAuth');
 const { uploadSingle } = require('../middleware/subCategoryUpload');
@@ -70,6 +71,8 @@ router.get(
 );
 
 router.get('/by-category/:categoryId', getSubCategoriesByCategory);
+
+router.get('/nearby', getNearbySubCategories);
 
 router.get('/:id', getSubCategory);
 

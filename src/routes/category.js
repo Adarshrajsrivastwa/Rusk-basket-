@@ -7,6 +7,7 @@ const {
   updateCategory,
   deleteCategory,
   toggleCategoryStatus,
+  getNearbyCategories,
 } = require('../controllers/category');
 const { protect } = require('../middleware/adminAuth');
 const { uploadSingle } = require('../middleware/categoryUpload');
@@ -34,6 +35,8 @@ router.post(
 );
 
 router.get('/', getCategories);
+
+router.get('/nearby', getNearbyCategories);
 
 router.get('/:id', getCategory);
 
