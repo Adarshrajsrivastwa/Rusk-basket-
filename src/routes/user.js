@@ -47,6 +47,17 @@ router.post(
       .bail()
       .matches(/^[0-9]{4}$/)
       .withMessage('OTP must be a 4-digit number'),
+    body('fcmToken')
+      .optional()
+      .trim(),
+    body('deviceId')
+      .optional()
+      .trim(),
+    body('platform')
+      .optional()
+      .trim()
+      .isIn(['android', 'ios', 'web'])
+      .withMessage('Platform must be android, ios, or web'),
   ],
   userVerifyOTP
 );

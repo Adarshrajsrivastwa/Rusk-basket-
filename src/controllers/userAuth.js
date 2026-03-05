@@ -31,10 +31,10 @@ exports.userLogin = async (req, res, next) => {
         isActive: true,
         // Email is optional - don't set it at all
       });
-      
+
       // Ensure email is not included in the document
       user.email = undefined;
-      
+
       // Handle referral code if provided (only for new users)
       if (referralCode) {
         const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
@@ -51,7 +51,7 @@ exports.userLogin = async (req, res, next) => {
           referralCodeMessage = 'Invalid referral code';
         }
       }
-      
+
       try {
         await user.save({ validateBeforeSave: false });
         logger.info(`New user created with contact number: ${contactNumber}`);
@@ -59,7 +59,7 @@ exports.userLogin = async (req, res, next) => {
         // Handle duplicate key error for email/phone (E11000) - auto-fix
         if (saveError.code === 11000 && (saveError.keyPattern?.email || saveError.keyPattern?.phone || saveError.message?.includes('email') || saveError.message?.includes('phone'))) {
           logger.warn(`Index issue detected (email/phone), attempting to fix: ${contactNumber}`);
-          
+
           try {
             // Try to fix the index issue
             const mongoose = require('mongoose');
@@ -74,7 +74,7 @@ exports.userLogin = async (req, res, next) => {
                   logger.error('Error dropping email index:', dropError);
                 }
               }
-              
+
               // Drop phone index
               try {
                 await db.collection('users').dropIndex('phone_1');
@@ -85,7 +85,7 @@ exports.userLogin = async (req, res, next) => {
                 }
               }
             }
-            
+
             // Retry user creation
             user = new User({
               contactNumber: contactNumber,
@@ -160,18 +160,18 @@ exports.userLogin = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('User login error:', error);
-    
+
     // Handle duplicate key error (contact number already exists)
     if (error.code === 11000 && error.keyPattern?.contactNumber) {
       // Retry by finding the existing user
       try {
         const { contactNumber } = req.body;
         const user = await User.findOne({ contactNumber });
-        
+
         if (user && user.isActive) {
           const otpCode = user.generateOTP();
           await user.save({ validateBeforeSave: false });
-          
+
           try {
             await sendOTP(contactNumber, otpCode);
             return res.status(200).json({
@@ -197,7 +197,7 @@ exports.userLogin = async (req, res, next) => {
         logger.error('Retry error:', retryError);
       }
     }
-    
+
     next(error);
   }
 };
@@ -243,6 +243,31 @@ exports.userVerifyOTP = async (req, res, next) => {
     const wasVerified = user.contactNumberVerified;
     user.contactNumberVerified = true;
     user.clearOTP();
+
+    // Collect device token if provided
+    const { fcmToken, deviceId, platform } = req.body;
+    if (fcmToken) {
+      user.fcmToken = fcmToken;
+
+      // Update fcmTokens array for multi-device support
+      const deviceIndex = user.fcmTokens.findIndex(
+        (t) => (deviceId && t.deviceId === deviceId) || t.token === fcmToken
+      );
+
+      if (deviceIndex > -1) {
+        user.fcmTokens[deviceIndex].token = fcmToken;
+        user.fcmTokens[deviceIndex].lastUsed = new Date();
+        if (platform) user.fcmTokens[deviceIndex].platform = platform;
+      } else {
+        user.fcmTokens.push({
+          token: fcmToken,
+          deviceId: deviceId || `device_${Date.now()}`,
+          platform: platform || 'android',
+          lastUsed: new Date(),
+        });
+      }
+    }
+
     await user.save({ validateBeforeSave: false });
 
     // Process referral if user was referred and this is first verification
@@ -261,7 +286,7 @@ exports.userVerifyOTP = async (req, res, next) => {
             // Credit to referrer - add to cashback
             if (settings.userReferrerAmount > 0) {
               referrer.cashback = (referrer.cashback || 0) + settings.userReferrerAmount;
-              
+
               // Update referrer stats
               referrer.referralCount = (referrer.referralCount || 0) + 1;
               await referrer.save();
@@ -297,7 +322,7 @@ exports.userVerifyOTP = async (req, res, next) => {
     };
 
     logger.info(`Response headers before send:`, res.getHeaders());
-    
+
     res.status(200).json(responseData);
   } catch (error) {
     logger.error('User OTP verification error:', error);

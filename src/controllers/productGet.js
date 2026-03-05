@@ -36,10 +36,10 @@ const calculateDiscountPercentage = (regularPrice, salePrice) => {
 const applyOfferToProducts = async (products) => {
   const productArray = Array.isArray(products) ? products : [products];
   const now = new Date();
-  
+
   const productsWithOffers = productArray.map(product => {
     let isOfferActive = false;
-    
+
     if (product.offerEnabled && product.offerDiscountPercentage > 0) {
       if (product.offerStartDate && product.offerEndDate) {
         const startDate = new Date(product.offerStartDate);
@@ -55,7 +55,7 @@ const applyOfferToProducts = async (products) => {
         isOfferActive = true;
       }
     }
-    
+
     if (isOfferActive) {
       return {
         ...product,
@@ -69,14 +69,14 @@ const applyOfferToProducts = async (products) => {
         discountPercentage: product.offerDiscountPercentage,
       };
     }
-    
+
     return {
       ...product,
       hasOffer: false,
       discountPercentage: calculateDiscountPercentage(product.regularPrice, product.salePrice),
     };
   });
-  
+
   return Array.isArray(products) ? productsWithOffers : productsWithOffers[0];
 };
 
@@ -513,8 +513,7 @@ exports.getNearbyProducts = async (req, res, next) => {
 
           // Product should be shown if ANY of these conditions are met:
           // 1. Product location is within user's query radius, OR
-          // 2. Vendor store is within user's query radius, OR
-          // 3. User is within vendor's serviceRadius (if vendorServiceRadius > 0)
+          // 2. Vendor store is within user's query radius
           let shouldShow = false;
           let displayDistance = null;
 
@@ -525,11 +524,6 @@ exports.getNearbyProducts = async (req, res, next) => {
           }
           // Check if vendor store is within user's query radius
           else if (vendorStoreDistance <= searchRadius) {
-            shouldShow = true;
-            displayDistance = vendorStoreDistance;
-          }
-          // Check if user is within vendor's serviceRadius (if vendor has serviceRadius set)
-          else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
             shouldShow = true;
             displayDistance = vendorStoreDistance;
           }
@@ -547,8 +541,24 @@ exports.getNearbyProducts = async (req, res, next) => {
         .filter(product => product !== null)
         .sort((a, b) => a.distance - b.distance); // Sort by distance (nearest first)
 
-      total = productsWithDistance.length;
-      finalProducts = productsWithDistance;
+      if (productsWithDistance.length > 0) {
+        // Find the absolute nearest distance
+        const nearestDistance = productsWithDistance[0].distance;
+
+        // Filter products to only include those from the nearest vendor(s)
+        // We use a small epsilon or just the first vendor's ID to be strict
+        const nearestVendorId = productsWithDistance[0].vendor._id.toString();
+
+        const filteredProducts = productsWithDistance.filter(
+          product => product.vendor._id.toString() === nearestVendorId
+        );
+
+        total = filteredProducts.length;
+        finalProducts = filteredProducts;
+      } else {
+        total = 0;
+        finalProducts = [];
+      }
     } else {
       // No location provided, sort by creation date (newest first)
       finalProducts = products
@@ -712,7 +722,7 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
 
         // Product should be shown if EITHER:
         // 1. Product location is within user's query radius, OR
-        // 2. User is within vendor's serviceRadius (even if product is not in user's query radius)
+        // 2. Vendor store location is within user's query radius
         let shouldShow = false;
         let displayDistance = null;
 
@@ -721,17 +731,7 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
           shouldShow = true;
           displayDistance = productDistance;
         }
-        // Check if user is within vendor's serviceRadius
-        else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
-          shouldShow = true;
-          // Use vendor store distance for sorting if product distance is not available
-          displayDistance = productDistance !== null ? productDistance : vendorStoreDistance;
-        }
-        // If no service radius, use product distance or vendor distance within search radius
-        else if (productDistance !== null && productDistance <= searchRadius) {
-          shouldShow = true;
-          displayDistance = productDistance;
-        }
+        // Check if vendor store location is within user's query radius
         else if (vendorStoreDistance <= searchRadius) {
           shouldShow = true;
           displayDistance = vendorStoreDistance;
@@ -750,7 +750,20 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
       .filter(product => product !== null)
       .sort((a, b) => a.distance - b.distance); // Sort by distance (nearest first)
 
-    const total = productsWithDistance.length;
+    if (productsWithDistance.length > 0) {
+      // Find the nearest vendor among those who have the searched product
+      const nearestVendorId = productsWithDistance[0].vendor._id.toString();
+
+      const filteredProducts = productsWithDistance.filter(
+        product => product.vendor._id.toString() === nearestVendorId
+      );
+
+      finalProducts = filteredProducts;
+      total = filteredProducts.length;
+    } else {
+      finalProducts = [];
+      total = 0;
+    }
 
     // Apply pagination
     const paginatedProducts = productsWithDistance.slice(skip, skip + limitNum);

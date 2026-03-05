@@ -572,21 +572,18 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
       storeId: { $exists: true },
     }).select('_id storeAddress storeName vendorName serviceRadius');
 
-    // Filter vendors within the specified radius
-    const nearbyVendorIds = [];
-    vendors.forEach((vendor) => {
-      const vendorLat = vendor.storeAddress.latitude;
-      const vendorLon = vendor.storeAddress.longitude;
-      const distance = calculateDistance(latitude, longitude, vendorLat, vendorLon);
+    // For getSubCategoriesByLocation, we also restrict to ONLY the nearest vendor
+    if (vendors.length > 0) {
+      const vendorsWithDistance = vendors.map(v => {
+        const d = calculateDistance(latitude, longitude, v.storeAddress.latitude, v.storeAddress.longitude);
+        return { ...v.toObject(), distance: d };
+      }).sort((a, b) => a.distance - b.distance);
 
-      // Check if vendor is within radius (considering both user radius and vendor service radius)
-      const vendorServiceRadius = vendor.serviceRadius || 5;
-      const maxRadius = Math.max(radius, vendorServiceRadius);
-
-      if (distance <= maxRadius) {
-        nearbyVendorIds.push(vendor._id);
+      // Only take the nearest vendor if they are within radius
+      if (vendorsWithDistance[0].distance <= radius) {
+        nearbyVendorIds.push(vendorsWithDistance[0]._id);
       }
-    });
+    }
 
     // If no vendors found within radius, return empty result
     if (nearbyVendorIds.length === 0) {
@@ -743,25 +740,14 @@ exports.getNearbySubCategories = async (req, res, next) => {
     let nearbyProductSubCategoryIds = new Set();
 
     if (hasLocation) {
-      // Filter products by distance
-      products.forEach(product => {
-        // Optimization: skip if already in set
-        if (product.subCategory && nearbyProductSubCategoryIds.has(String(product.subCategory))) {
-          return;
-        }
-
-        if (!product.vendor || !product.vendor.storeAddress) {
-          return;
-        }
+      // 1. Calculate distances for all products
+      const productsWithDistance = products.map(product => {
+        if (!product.vendor || !product.vendor.storeAddress) return null;
 
         const vendorLat = product.vendor.storeAddress.latitude;
         const vendorLon = product.vendor.storeAddress.longitude;
+        if (!vendorLat || !vendorLon) return null;
 
-        if (!vendorLat || !vendorLon) {
-          return;
-        }
-
-        const vendorServiceRadius = product.vendor.serviceRadius || 0;
         const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
 
         let productDistance = null;
@@ -769,19 +755,26 @@ exports.getNearbySubCategories = async (req, res, next) => {
           productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
         }
 
-        let isNearby = false;
-        if (productDistance !== null && productDistance <= searchRadius) {
-          isNearby = true;
-        } else if (vendorStoreDistance <= searchRadius) {
-          isNearby = true;
-        } else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
-          isNearby = true;
-        }
+        const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
 
-        if (isNearby && product.subCategory) {
-          nearbyProductSubCategoryIds.add(String(product.subCategory));
+        if (minDistance <= searchRadius) {
+          return { ...product, minDistance };
         }
-      });
+        return null;
+      }).filter(p => p !== null);
+
+      // 2. Shortest distance waale vendor ko pehchano
+      if (productsWithDistance.length > 0) {
+        productsWithDistance.sort((a, b) => a.minDistance - b.minDistance);
+        const nearestVendorId = productsWithDistance[0].vendor._id.toString();
+
+        // 3. Sirf us vendor ki subcategories collect karo
+        productsWithDistance.forEach(product => {
+          if (product.vendor._id.toString() === nearestVendorId && product.subCategory) {
+            nearbyProductSubCategoryIds.add(String(product.subCategory));
+          }
+        });
+      }
     } else {
       // If no location provided, use all approved/active products matching criteria
       products.forEach(product => {

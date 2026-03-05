@@ -3,6 +3,7 @@ const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
+const { updateRiderFCMToken, removeRiderFCMToken, testRiderNotification } = require('../controllers/riderNotification');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -49,6 +50,17 @@ router.post(
       .bail()
       .matches(/^[0-9]{4}$/)
       .withMessage('OTP must be a 4-digit number'),
+    body('fcmToken')
+      .optional()
+      .trim(),
+    body('deviceId')
+      .optional()
+      .trim(),
+    body('platform')
+      .optional()
+      .trim()
+      .isIn(['android', 'ios', 'web'])
+      .withMessage('Platform must be android, ios, or web'),
   ],
   riderVerifyOTP
 );
@@ -201,6 +213,40 @@ router.put(
   ],
   updateProfile
 );
+
+// FCM Token routes (protected)
+router.post(
+  '/fcm-token',
+  protect,
+  [
+    body('token')
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .trim(),
+    body('deviceId')
+      .optional()
+      .trim(),
+    body('platform')
+      .optional()
+      .isIn(['android', 'ios', 'web'])
+      .withMessage('Platform must be android, ios, or web'),
+  ],
+  updateRiderFCMToken
+);
+
+router.post(
+  '/fcm-token/remove',
+  protect,
+  [
+    body('token')
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .trim(),
+  ],
+  removeRiderFCMToken
+);
+
+router.post('/fcm-token/test', protect, testRiderNotification);
 
 // Referral routes (protected - must be before /:id route to avoid conflict)
 router.get('/referral', protect, getRiderReferral);
@@ -427,8 +473,8 @@ router.get('/websocket/status', protect, (req, res) => {
       data: {
         connected,
         totalConnectedRiders: totalConnected,
-        message: connected 
-          ? 'You are connected to the real-time order assignment service' 
+        message: connected
+          ? 'You are connected to the real-time order assignment service'
           : 'You are not connected. Please connect to receive real-time order assignments.',
       },
     });

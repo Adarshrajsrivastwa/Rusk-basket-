@@ -31,7 +31,7 @@ exports.riderLogin = async (req, res, next) => {
         isActive: true,
         approvalStatus: 'pending',
       });
-      
+
       // Handle referral code if provided (only for new riders)
       if (referralCode) {
         const referrer = await Rider.findOne({ referralCode: referralCode.toUpperCase() });
@@ -48,7 +48,7 @@ exports.riderLogin = async (req, res, next) => {
           referralCodeMessage = 'Invalid referral code';
         }
       }
-      
+
       await rider.save({ validateBeforeSave: false });
       logger.info(`New rider created with mobile number: ${mobileNumber}`);
     }
@@ -99,18 +99,18 @@ exports.riderLogin = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('Rider login error:', error);
-    
+
     // Handle duplicate key error (mobile number already exists)
     if (error.code === 11000 && error.keyPattern?.mobileNumber) {
       // Retry by finding the existing rider
       try {
         const { mobileNumber } = req.body;
         const rider = await Rider.findOne({ mobileNumber });
-        
+
         if (rider && rider.isActive) {
           const otpCode = rider.generateOTP();
           await rider.save({ validateBeforeSave: false });
-          
+
           try {
             await sendOTP(mobileNumber, otpCode);
             return res.status(200).json({
@@ -134,7 +134,7 @@ exports.riderLogin = async (req, res, next) => {
         logger.error('Retry error:', retryError);
       }
     }
-    
+
     next(error);
   }
 };
@@ -177,6 +177,31 @@ exports.riderVerifyOTP = async (req, res, next) => {
     }
 
     rider.clearOTP();
+
+    // Collect device token if provided
+    const { fcmToken, deviceId, platform } = req.body;
+    if (fcmToken) {
+      rider.fcmToken = fcmToken;
+
+      // Update fcmTokens array for multi-device support
+      const deviceIndex = rider.fcmTokens.findIndex(
+        (t) => (deviceId && t.deviceId === deviceId) || t.token === fcmToken
+      );
+
+      if (deviceIndex > -1) {
+        rider.fcmTokens[deviceIndex].token = fcmToken;
+        rider.fcmTokens[deviceIndex].lastUsed = new Date();
+        if (platform) rider.fcmTokens[deviceIndex].platform = platform;
+      } else {
+        rider.fcmTokens.push({
+          token: fcmToken,
+          deviceId: deviceId || `device_${Date.now()}`,
+          platform: platform || 'android',
+          lastUsed: new Date(),
+        });
+      }
+    }
+
     await rider.save({ validateBeforeSave: false });
 
     // Process referral if rider was referred and this is first verification
@@ -205,7 +230,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
                 amount: settings.riderReferrerAmount,
                 description: `Referral bonus for referring rider ${rider.mobileNumber}`,
               });
-              
+
               // Update referrer stats
               referrer.referralCount = (referrer.referralCount || 0) + 1;
               await referrer.save();
@@ -246,7 +271,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
 exports.riderLogout = async (req, res, next) => {
   try {
     const riderId = req.rider?._id || req.rider?.id;
-    const mobileNumber = req.rider?.mobileNumber;    clearTokenCookie(res);    logger.info(`Rider logged out successfully: ${mobileNumber || riderId}`);    res.status(200).json({
+    const mobileNumber = req.rider?.mobileNumber; clearTokenCookie(res); logger.info(`Rider logged out successfully: ${mobileNumber || riderId}`); res.status(200).json({
       success: true,
       message: 'Logged out successfully',
     });

@@ -235,25 +235,13 @@ exports.getNearbyCategories = async (req, res, next) => {
     let nearbyProductCategoryIds = new Set();
 
     if (hasLocation) {
-      // Filter products by distance
-      products.forEach(product => {
-        // If we already have this product's category in our set, bypass distance calculation to save processing
-        if (product.category && nearbyProductCategoryIds.has(String(product.category))) {
-          return;
-        }
-
-        if (!product.vendor || !product.vendor.storeAddress) {
-          return;
-        }
+      // 1. Calculate distances for all products
+      const productsWithDistance = products.map(product => {
+        if (!product.vendor || !product.vendor.storeAddress) return null;
 
         const vendorLat = product.vendor.storeAddress.latitude;
         const vendorLon = product.vendor.storeAddress.longitude;
-
-        if (!vendorLat || !vendorLon) {
-          return;
-        }
-
-        const vendorServiceRadius = product.vendor.serviceRadius || 0;
+        if (!vendorLat || !vendorLon) return null;
 
         const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
 
@@ -262,20 +250,26 @@ exports.getNearbyCategories = async (req, res, next) => {
           productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
         }
 
-        let isNearby = false;
+        const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
 
-        if (productDistance !== null && productDistance <= searchRadius) {
-          isNearby = true;
-        } else if (vendorStoreDistance <= searchRadius) {
-          isNearby = true;
-        } else if (vendorServiceRadius > 0 && vendorStoreDistance <= vendorServiceRadius) {
-          isNearby = true;
+        if (minDistance <= searchRadius) {
+          return { ...product, minDistance };
         }
+        return null;
+      }).filter(p => p !== null);
 
-        if (isNearby && product.category) {
-          nearbyProductCategoryIds.add(String(product.category));
-        }
-      });
+      // 2. Shortest distance waale vendor ko pehchano
+      if (productsWithDistance.length > 0) {
+        productsWithDistance.sort((a, b) => a.minDistance - b.minDistance);
+        const nearestVendorId = productsWithDistance[0].vendor._id.toString();
+
+        // 3. Sirf us vendor ki categories collect karo
+        productsWithDistance.forEach(product => {
+          if (product.vendor._id.toString() === nearestVendorId && product.category) {
+            nearbyProductCategoryIds.add(String(product.category));
+          }
+        });
+      }
     } else {
       // If no location provided, just use categories from all approved/active products
       products.forEach(product => {
