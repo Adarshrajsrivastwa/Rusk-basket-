@@ -10,7 +10,6 @@ const CouponSchema = new mongoose.Schema({
   offerId: {
     type: String,
     required: [true, 'Offer ID is required'],
-    unique: true,
     trim: true,
     uppercase: true,
   },
@@ -23,7 +22,6 @@ const CouponSchema = new mongoose.Schema({
   code: {
     type: String,
     required: [true, 'Coupon code is required'],
-    unique: true,
     trim: true,
     uppercase: true,
     match: [/^[A-Z0-9]+$/, 'Coupon code must contain only uppercase letters and numbers'],
@@ -151,8 +149,8 @@ const CouponSchema = new mongoose.Schema({
 });
 
 // Index for faster queries
-CouponSchema.index({ code: 1 });
-CouponSchema.index({ offerId: 1 });
+CouponSchema.index({ code: 1 }, { unique: true });
+CouponSchema.index({ offerId: 1 }, { unique: true });
 CouponSchema.index({ status: 1, isActive: 1 });
 CouponSchema.index({ validFrom: 1, validUntil: 1 });
 

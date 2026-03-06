@@ -121,7 +121,7 @@ const sendPushNotification = async (userId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets',
         body: notificationData.message || notificationData.body || '',
-        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
+        ...(notificationData.imageUrl ? { image: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -323,7 +323,7 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets',
         body: notificationData.message || notificationData.body || '',
-        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
+        ...(notificationData.imageUrl ? { image: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -449,7 +449,7 @@ const sendAdminPushNotification = async (adminId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets Admin',
         body: notificationData.message || notificationData.body || '',
-        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
+        ...(notificationData.imageUrl ? { image: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',
@@ -631,7 +631,7 @@ const sendRiderPushNotification = async (riderId, notificationData) => {
       notification: {
         title: notificationData.title || 'Rush Baskets Rider',
         body: notificationData.message || notificationData.body || '',
-        ...(notificationData.imageUrl ? { imageUrl: notificationData.imageUrl } : {}),
+        ...(notificationData.imageUrl ? { image: notificationData.imageUrl } : {}),
       },
       data: {
         type: notificationData.type || 'general',

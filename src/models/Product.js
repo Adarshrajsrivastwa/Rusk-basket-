@@ -3,9 +3,6 @@ const mongoose = require('mongoose');
 const ProductSchema = new mongoose.Schema({
   productNumber: {
     type: String,
-    unique: true,
-    sparse: true,
-    index: true,
   },
   productName: {
     type: String,
@@ -215,16 +212,16 @@ const ProductSchema = new mongoose.Schema({
 
 ProductSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
-  
+
   const now = new Date();
   const regularPrice = parseFloat(this.regularPrice) || 0;
-  
+
   if (this.isNew || (this.isModified('salePrice') && !this.isModified('offerEnabled'))) {
     if (!this.originalSalePrice && this.salePrice) {
       this.originalSalePrice = parseFloat(this.salePrice);
     }
   }
-  
+
   if (this.offerEnabled === false) {
     this.offerStartDate = undefined;
     this.offerEndDate = undefined;
@@ -233,7 +230,7 @@ ProductSchema.pre('save', function (next) {
       this.originalSalePrice = undefined;
     }
   }
-  
+
   if (this.offerEnabled && this.offerEndDate) {
     const endDate = new Date(this.offerEndDate);
     if (now > endDate) {
@@ -246,10 +243,10 @@ ProductSchema.pre('save', function (next) {
       }
     }
   }
-  
+
   if (this.offerEnabled && this.offerDiscountPercentage > 0 && regularPrice > 0) {
     let isWithinDateRange = true;
-    
+
     if (this.offerStartDate || this.offerEndDate) {
       if (this.offerStartDate) {
         const startDate = new Date(this.offerStartDate);
@@ -257,7 +254,7 @@ ProductSchema.pre('save', function (next) {
           isWithinDateRange = false;
         }
       }
-      
+
       if (this.offerEndDate) {
         const endDate = new Date(this.offerEndDate);
         if (now > endDate) {
@@ -265,12 +262,12 @@ ProductSchema.pre('save', function (next) {
         }
       }
     }
-    
+
     if (isWithinDateRange) {
       if (!this.originalSalePrice && this.salePrice) {
         this.originalSalePrice = parseFloat(this.salePrice);
       }
-      
+
       const discountAmount = (regularPrice * this.offerDiscountPercentage) / 100;
       const newSalePrice = regularPrice - discountAmount;
       if (this.salePrice !== newSalePrice) {
@@ -286,11 +283,11 @@ ProductSchema.pre('save', function (next) {
     this.salePrice = this.originalSalePrice;
     this.originalSalePrice = undefined;
   }
-  
+
   if (this.regularPrice != null && this.salePrice != null) {
     const regularPriceCalc = parseFloat(this.regularPrice);
     const salePriceCalc = parseFloat(this.salePrice);
-    
+
     if (regularPriceCalc > 0 && salePriceCalc < regularPriceCalc) {
       this.discountPercentage = parseFloat((((regularPriceCalc - salePriceCalc) / regularPriceCalc) * 100).toFixed(2));
     } else {
@@ -299,31 +296,31 @@ ProductSchema.pre('save', function (next) {
   } else {
     this.discountPercentage = 0;
   }
-  
+
   if (this.offerStartDate || this.offerEndDate) {
     let isWithinDateRange = true;
-    
+
     if (this.offerStartDate) {
       const startDate = new Date(this.offerStartDate);
       if (now < startDate) {
         isWithinDateRange = false;
       }
     }
-    
+
     if (this.offerEndDate) {
       const endDate = new Date(this.offerEndDate);
       if (now > endDate) {
         isWithinDateRange = false;
       }
     }
-    
+
     if (this.isModified('offerStartDate') || this.isModified('offerEndDate')) {
       if (this.offerDiscountPercentage > 0) {
         this.offerEnabled = isWithinDateRange;
       }
     }
   }
-  
+
   next();
 });
 
@@ -348,7 +345,7 @@ ProductSchema.statics.generateProductNumber = async function () {
   let exists = true;
   let attempts = 0;
   const maxAttempts = 10;
-  
+
   while (exists && attempts < maxAttempts) {
     // Generate a random number between 100 and 99999
     const randomNum = Math.floor(100 + Math.random() * 99899);
@@ -359,19 +356,19 @@ ProductSchema.statics.generateProductNumber = async function () {
     }
     attempts++;
   }
-  
+
   if (exists) {
     throw new Error('Failed to generate unique product number after multiple attempts');
   }
-  
+
   return productNumber;
 };
 
 // Create unique sparse index for productNumber (only for non-null values)
 ProductSchema.index(
   { productNumber: 1 },
-  { 
-    unique: true, 
+  {
+    unique: true,
     sparse: true,
     partialFilterExpression: { productNumber: { $exists: true, $ne: null } }
   }
