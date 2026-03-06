@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Admin = require('../models/Admin');
 const Rider = require('../models/Rider');
+const Notification = require('../models/Notification');
 
 // Initialize Firebase Admin SDK
 let firebaseInitialized = false;
@@ -47,10 +48,34 @@ const initializeFirebase = () => {
 initializeFirebase();
 
 /**
+ * Save notification to database
+ */
+const saveNotificationToDB = async (recipientId, recipientModel, notificationData) => {
+  try {
+    await Notification.create({
+      recipient: recipientId,
+      recipientModel: recipientModel,
+      type: notificationData.type || 'general',
+      title: notificationData.title || 'Rush Baskets',
+      message: notificationData.message || notificationData.body || '',
+      imageUrl: notificationData.imageUrl || null,
+      data: notificationData.data || {},
+      order: notificationData.orderId || notificationData.order || null,
+    });
+    logger.debug(`Notification saved to DB for ${recipientModel} ${recipientId}`);
+  } catch (error) {
+    logger.error(`Error saving notification to DB for ${recipientModel} ${recipientId}:`, error);
+  }
+};
+
+/**
  * Send push notification to user
  */
 const sendPushNotification = async (userId, notificationData) => {
   try {
+    // Always save to DB first so history is available even if push fails
+    await saveNotificationToDB(userId, 'User', notificationData);
+
     if (!firebaseInitialized) {
       logger.warn('Firebase not initialized. Skipping push notification.');
       return { success: false, error: 'Firebase not initialized' };
@@ -252,6 +277,9 @@ const sendOrderStatusNotification = async (userId, orderData) => {
  */
 const sendVendorPushNotification = async (vendorId, notificationData) => {
   try {
+    // Always save to DB first
+    await saveNotificationToDB(vendorId, 'Vendor', notificationData);
+
     if (!firebaseInitialized) {
       logger.warn('Firebase not initialized. Skipping push notification.');
       return { success: false, error: 'Firebase not initialized' };
@@ -368,6 +396,9 @@ const sendVendorPushNotification = async (vendorId, notificationData) => {
 const sendAdminPushNotification = async (adminId, notificationData) => {
   try {
     logger.info(`[FCM] Starting push notification to admin ${adminId}`);
+
+    // Always save to DB first
+    await saveNotificationToDB(adminId, 'Admin', notificationData);
 
     if (!firebaseInitialized) {
       logger.error('[FCM] Firebase not initialized. Skipping push notification.');
@@ -554,6 +585,9 @@ const removeInvalidAdminTokens = async (adminId, invalidTokens) => {
  */
 const sendRiderPushNotification = async (riderId, notificationData) => {
   try {
+    // Always save to DB first
+    await saveNotificationToDB(riderId, 'Rider', notificationData);
+
     if (!firebaseInitialized) {
       logger.warn('Firebase not initialized. Skipping push notification.');
       return { success: false, error: 'Firebase not initialized' };

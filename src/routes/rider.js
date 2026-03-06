@@ -3,7 +3,16 @@ const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
-const { updateRiderFCMToken, removeRiderFCMToken, testRiderNotification } = require('../controllers/riderNotification');
+const {
+  updateRiderFCMToken,
+  removeRiderFCMToken,
+  testRiderNotification,
+  getRiderNotifications,
+  getRiderUnreadCount,
+  markRiderAsRead,
+  markAllRiderAsRead,
+  deleteRiderNotification
+} = require('../controllers/riderNotification');
 const { isRiderConnected, getConnectedRidersCount } = require('../utils/socket');
 const { protect } = require('../middleware/riderAuth');
 const { protect: protectAdmin } = require('../middleware/adminAuth');
@@ -214,7 +223,13 @@ router.put(
   updateProfile
 );
 
-// FCM Token routes (protected)
+// FCM Token and Notification routes (protected)
+router.get('/notifications', protect, getRiderNotifications);
+router.get('/notifications/unread-count', protect, getRiderUnreadCount);
+router.put('/notifications/:id/read', protect, markRiderAsRead);
+router.put('/notifications/read-all', protect, markAllRiderAsRead);
+router.delete('/notifications/:id', protect, deleteRiderNotification);
+
 router.post(
   '/fcm-token',
   protect,
