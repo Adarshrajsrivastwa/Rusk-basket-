@@ -491,8 +491,8 @@ router.post(
   [
     body('orderId')
       .optional()
-      .isMongoId()
-      .withMessage('Invalid order ID format (must be MongoDB ObjectId)'),
+      .isString()
+      .withMessage('Invalid order ID format (must be a valid ID string)'),
     body('paymentData')
       .notEmpty()
       .withMessage('Payment data is required')
