@@ -51,7 +51,7 @@ const initializeRazorpayPayment = async (orderData, credentials) => {
     }
 
     const Razorpay = require('razorpay');
-    
+
     const razorpay = new Razorpay({
       key_id: credentials.razorpayKeyId.trim(),
       key_secret: credentials.razorpayKeySecret.trim(),
@@ -123,7 +123,7 @@ const createRazorpayPaymentLink = async (paymentData, credentials) => {
     }
 
     const Razorpay = require('razorpay');
-    
+
     const razorpay = new Razorpay({
       key_id: credentials.razorpayKeyId.trim(),
       key_secret: credentials.razorpayKeySecret.trim(),
@@ -171,11 +171,11 @@ const createRazorpayPaymentLink = async (paymentData, credentials) => {
 const verifyRazorpayPayment = async (paymentData, credentials) => {
   try {
     const crypto = require('crypto');
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
       razorpay_payment_link_id,
-      razorpay_signature 
+      razorpay_signature
     } = paymentData;
 
     // Validate required fields
@@ -194,86 +194,78 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
       throw new Error('Razorpay Secret Key is missing. Please configure Razorpay credentials in admin panel.');
     }
 
-    // Validate secret key format (should be alphanumeric, typically 20-40 characters)
-    if (secretKey.length < 10) {
-      logger.warn('Razorpay Secret Key seems too short', { length: secretKey.length });
-    }
+    // Flow identification and fallback attempts
+    let attempts = [];
 
-    // Check if secret key might be a Key ID instead (common mistake)
-    if (secretKey.startsWith('rzp_test_') || secretKey.startsWith('rzp_live_')) {
-      throw new Error('Invalid Razorpay Secret Key. You have provided Key ID instead of Secret Key. Please get the Secret Key from Razorpay Dashboard → Settings → API Keys');
-    }
-
-    let text;
-    let identifier;
-
-    // Check if it's Payment Link flow or Orders API flow
+    // Attempt 1: Based on provided IDs (Priority to Payment Link if present)
     if (paymentLinkId) {
-      // Payment Link flow: signature = HMAC(razorpay_payment_link_id|razorpay_payment_id)
-      // IMPORTANT: Use payment_link_id|payment_id (NOT order_id|payment_id)
-      text = `${paymentLinkId}|${paymentId}`;
-      identifier = paymentLinkId;
-      logger.info('Verifying Razorpay Payment Link flow', {
-        paymentLinkId: paymentLinkId,
-        paymentId: paymentId,
+      attempts.push({
+        name: 'Payment Link Flow',
+        text: `${paymentLinkId}|${paymentId}`,
+        id: paymentLinkId
       });
-    } else if (orderId) {
-      // Orders API flow: signature = HMAC(razorpay_order_id|razorpay_payment_id)
-      text = `${orderId}|${paymentId}`;
-      identifier = orderId;
-      logger.info('Verifying Razorpay Orders API flow', {
-        orderId: orderId,
-        paymentId: paymentId,
+    }
+
+    // Attempt 2: If order_id is present, try it as well
+    if (orderId) {
+      attempts.push({
+        name: 'Orders API Flow',
+        text: `${orderId}|${paymentId}`,
+        id: orderId
       });
-    } else {
+    }
+
+    if (attempts.length === 0) {
       throw new Error('Either razorpay_order_id (Orders API) or razorpay_payment_link_id (Payment Link) is required');
     }
 
-    // Generate signature using HMAC SHA256
-    const generatedSignature = crypto
-      .createHmac('sha256', secretKey)
-      .update(text)
-      .digest('hex');
+    let lastError = null;
+    for (const attempt of attempts) {
+      const generatedSignature = crypto
+        .createHmac('sha256', secretKey)
+        .update(attempt.text)
+        .digest('hex');
 
-    // Debug logging (compare generated vs received)
-    logger.info('Razorpay signature verification', {
-      flow: paymentLinkId ? 'Payment Link' : 'Orders API',
-      text: text,
-      generatedSignature: generatedSignature,
-      receivedSignature: signature,
-      match: generatedSignature === signature,
-    });
+      if (generatedSignature === signature) {
+        logger.info(`✅ Razorpay signature verified successfully using ${attempt.name}`, {
+          identifier: attempt.id,
+          paymentId: paymentId
+        });
 
-    // Verify signature
-    if (generatedSignature !== signature) {
-      logger.error('Razorpay signature mismatch', {
-        flow: paymentLinkId ? 'Payment Link' : 'Orders API',
-        text: text,
-        generatedSignature: generatedSignature,
-        receivedSignature: signature,
-        secretKeyLength: secretKey.length,
-        secretKeyPrefix: secretKey.substring(0, 10) + '...', // Log only prefix for security
-        secretKeySuffix: '...' + secretKey.substring(secretKey.length - 5), // Last 5 chars for debugging
+        return {
+          success: true,
+          paymentId: paymentId,
+          orderId: orderId || undefined,
+          paymentLinkId: paymentLinkId || undefined,
+          gateway: 'razorpay',
+          verificationMethod: attempt.name
+        };
+      }
+
+      logger.warn(`❌ Razorpay signature mismatch for ${attempt.name}`, {
+        text: attempt.text,
+        generated: generatedSignature.substring(0, 10) + '...',
+        received: signature.substring(0, 10) + '...'
       });
-      
-      // Provide helpful error message
-      const errorMessage = paymentLinkId 
-        ? 'Invalid payment signature. Please verify: 1) Razorpay Secret Key is correct (from Dashboard → Settings → API Keys), 2) Payment link was created with same credentials (test/production), 3) No extra spaces in payment_link_id or payment_id'
-        : 'Invalid payment signature. Please verify: 1) Razorpay Secret Key is correct, 2) Order was created with same credentials, 3) No extra spaces in order_id or payment_id';
-      
-      throw new Error(errorMessage);
+
+      lastError = `Invalid payment signature for ${attempt.name}.`;
     }
 
-    return {
-      success: true,
-      paymentId: razorpay_payment_id,
-      orderId: orderId,
-      paymentLinkId: razorpay_payment_link_id || undefined,
-      gateway: 'razorpay',
-    };
+    // Both attempts failed
+    logger.error('Razorpay verification failed after all identifier attempts', {
+      triedFlows: attempts.map(a => a.name),
+      secretKeyLength: secretKey.length,
+      secretKeyPrefix: secretKey.substring(0, 10) + '...'
+    });
+
+    const helpMsg = paymentLinkId
+      ? 'Verify: 1) Razorpay Secret Key is correct, 2) Link created with same credentials (test/prod), 3) Use plink_id|payment_id for links.'
+      : 'Verify: 1) Razorpay Secret Key is correct, 2) Order created with same credentials, 3) Use order_id|payment_id for orders.';
+
+    throw new Error(`${lastError} ${helpMsg}`);
   } catch (error) {
-    logger.error('Razorpay payment verification error:', error);
-    throw new Error(`Payment verification failed: ${error.message}`);
+    logger.error('Razorpay payment verification implementation error:', error);
+    throw error;
   }
 };
 
@@ -282,7 +274,7 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
  */
 const initializePhonePePayment = async (orderData, credentials, testMode = false) => {
   try {
-    const baseUrl = testMode 
+    const baseUrl = testMode
       ? 'https://api-preprod.phonepe.com/apis/pg-sandbox'
       : 'https://api.phonepe.com/apis/hermes';
 
@@ -563,7 +555,7 @@ const initializeCashfreePayment = async (orderData, credentials, testMode = fals
     if (response.data && response.data.payment_session_id) {
       // Use payment_link directly from Cashfree API response
       const paymentLink = response.data.payment_link;
-      
+
       if (!paymentLink) {
         logger.warn('Cashfree response missing payment_link field, using payment_session_id only');
       }
@@ -670,7 +662,7 @@ const verifyCashfreePayment = async (paymentData, credentials, testMode = false)
 const initializePayment = async (orderData) => {
   try {
     const gateway = await getActivePaymentGateway();
-    
+
     // Merge credentials - test credentials override production credentials if testMode is enabled
     let credentials = { ...gateway.credentials };
     if (gateway.testMode && gateway.testCredentials) {
@@ -689,16 +681,16 @@ const initializePayment = async (orderData) => {
     switch (gateway.name) {
       case 'razorpay':
         return await initializeRazorpayPayment(orderData, credentials);
-      
+
       case 'phonepay':
         return await initializePhonePePayment(orderData, credentials, gateway.testMode);
-      
+
       case 'shopify':
         return await initializeShopifyPayment(orderData, credentials);
-      
+
       case 'cashfree':
         return await initializeCashfreePayment(orderData, credentials, gateway.testMode);
-      
+
       default:
         throw new Error(`Unsupported payment gateway: ${gateway.name}`);
     }
@@ -714,7 +706,7 @@ const initializePayment = async (orderData) => {
 const verifyPayment = async (paymentData, gatewayName) => {
   try {
     const gateway = await PaymentGateway.findOne({ name: gatewayName, isEnabled: true });
-    
+
     if (!gateway) {
       throw new Error(`Payment gateway ${gatewayName} is not enabled`);
     }
@@ -796,13 +788,13 @@ const verifyPayment = async (paymentData, gatewayName) => {
     switch (gatewayName) {
       case 'phonepay':
         return await verifyPhonePePayment(paymentData, credentials, gateway.testMode);
-        
+
       case 'shopify':
         return await verifyShopifyPayment(paymentData, credentials);
-        
+
       case 'cashfree':
         return await verifyCashfreePayment(paymentData, credentials, gateway.testMode);
-      
+
       default:
         throw new Error(`Unsupported payment gateway: ${gatewayName}`);
     }
@@ -818,11 +810,11 @@ const verifyPayment = async (paymentData, gatewayName) => {
 const testRazorpayCredentials = async (credentials) => {
   try {
     const Razorpay = require('razorpay');
-    
+
     if (!credentials.razorpayKeyId || !credentials.razorpayKeySecret) {
       throw new Error('Key ID and Key Secret are required');
     }
-    
+
     const razorpay = new Razorpay({
       key_id: credentials.razorpayKeyId,
       key_secret: credentials.razorpayKeySecret,
@@ -840,7 +832,7 @@ const testRazorpayCredentials = async (credentials) => {
       }
       // For other errors (like 404), credentials are likely valid
     }
-    
+
     return {
       success: true,
       message: 'Razorpay credentials are valid',
@@ -866,7 +858,7 @@ const testPhonePeCredentials = async (credentials) => {
     if (!credentials.phonepayMerchantId.trim()) {
       throw new Error('Merchant ID cannot be empty');
     }
-    
+
     if (!credentials.phonepaySaltKey.trim()) {
       throw new Error('Salt Key cannot be empty');
     }
@@ -985,15 +977,15 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
       // Handle axios errors
       if (apiError.response) {
         const status = apiError.response.status;
-        
+
         // 401 or 403 means invalid credentials
         if (status === 401 || status === 403) {
-          const errorMessage = apiError.response.data?.message || 
-                              apiError.response.data?.error || 
-                              'Invalid Cashfree credentials. Please check your App ID and Secret Key.';
+          const errorMessage = apiError.response.data?.message ||
+            apiError.response.data?.error ||
+            'Invalid Cashfree credentials. Please check your App ID and Secret Key.';
           throw new Error(errorMessage);
         }
-        
+
         // 404 means credentials are valid but order doesn't exist (expected)
         if (status === 404) {
           return {
@@ -1004,9 +996,9 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
         }
 
         // Other 4xx/5xx errors
-        const errorMessage = apiError.response.data?.message || 
-                            apiError.response.data?.error || 
-                            `Cashfree API error (${status}). Please check your credentials and try again.`;
+        const errorMessage = apiError.response.data?.message ||
+          apiError.response.data?.error ||
+          `Cashfree API error (${status}). Please check your credentials and try again.`;
         throw new Error(errorMessage);
       }
 
@@ -1020,8 +1012,8 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
       }
 
       // Re-throw if it's already our custom error
-      if (apiError.message.includes('Invalid Cashfree credentials') || 
-          apiError.message.includes('App ID and Secret Key')) {
+      if (apiError.message.includes('Invalid Cashfree credentials') ||
+        apiError.message.includes('App ID and Secret Key')) {
         throw apiError;
       }
 
@@ -1037,16 +1029,16 @@ const testCashfreeCredentials = async (credentials, isTestMode = false) => {
     };
   } catch (error) {
     logger.error('Cashfree credentials test error:', error);
-    
+
     // If it's already a formatted error message, throw it as is
-    if (error.message.includes('Invalid Cashfree') || 
-        error.message.includes('App ID and Secret Key') ||
-        error.message.includes('Cashfree API') ||
-        error.message.includes('Connection timeout') ||
-        error.message.includes('Unable to connect')) {
+    if (error.message.includes('Invalid Cashfree') ||
+      error.message.includes('App ID and Secret Key') ||
+      error.message.includes('Cashfree API') ||
+      error.message.includes('Connection timeout') ||
+      error.message.includes('Unable to connect')) {
       throw error;
     }
-    
+
     // Otherwise, wrap it
     throw new Error(`Cashfree credentials test failed: ${error.message}`);
   }
@@ -1064,16 +1056,16 @@ const testPaymentGatewayCredentials = async (gatewayName, credentials, isTestMod
     switch (gatewayName.toLowerCase()) {
       case 'razorpay':
         return await testRazorpayCredentials(credentials);
-      
+
       case 'phonepay':
         return await testPhonePeCredentials(credentials);
-      
+
       case 'shopify':
         return await testShopifyCredentials(credentials);
-      
+
       case 'cashfree':
         return await testCashfreeCredentials(credentials, isTestMode);
-      
+
       default:
         throw new Error(`Unsupported payment gateway: ${gatewayName}`);
     }
