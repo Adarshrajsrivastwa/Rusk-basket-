@@ -8,7 +8,7 @@ exports.getCart = async (req, res, next) => {
     // Ensure we're getting cart for the authenticated user only
     const userId = req.user._id;
     logger.info(`Fetching cart for user: ${userId}`);
-    
+
     const result = await checkoutService.getCartWithTotals(userId);
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({
@@ -81,7 +81,7 @@ exports.updateCartItem = async (req, res, next) => {
       });
     }
     const itemId = req.params.itemId || req.query.itemId;
-    
+
     if (!itemId) {
       return res.status(400).json({
         success: false,
@@ -90,7 +90,7 @@ exports.updateCartItem = async (req, res, next) => {
     }
 
     const { quantity } = req.body;
-    
+
     // Ensure we're updating cart for the authenticated user only
     const userId = req.user._id;
     logger.info(`Updating cart item ${itemId} for user: ${userId}`);
@@ -142,7 +142,7 @@ exports.updateCartItem = async (req, res, next) => {
 exports.removeFromCart = async (req, res, next) => {
   try {
     const itemId = req.params.itemId || req.query.itemId;
-    
+
     if (!itemId) {
       return res.status(400).json({
         success: false,
@@ -187,7 +187,7 @@ exports.clearCart = async (req, res, next) => {
     // Ensure we're clearing the authenticated user's cart only
     const userId = req.user._id;
     logger.info(`Clearing cart for user: ${userId}`);
-    
+
     const cart = await checkoutService.clearCart(userId);
 
     res.status(200).json({
@@ -258,7 +258,7 @@ exports.removeCoupon = async (req, res, next) => {
     // Ensure we're removing coupon from the authenticated user's cart only
     const userId = req.user._id;
     logger.info(`Removing coupon from cart for user: ${userId}`);
-    
+
     const cart = await checkoutService.removeCoupon(userId);
 
     const totals = await cart.calculateTotals();
@@ -354,7 +354,7 @@ exports.createOrder = async (req, res, next) => {
     // Parse the address string: "C22/54 Kabir Chaura,Varanasi,221001"
     // Format: line1, city, pinCode
     const addressParts = addressString.split(',').map(part => part.trim());
-    
+
     if (addressParts.length < 3) {
       return res.status(400).json({
         success: false,
@@ -377,7 +377,7 @@ exports.createOrder = async (req, res, next) => {
     // Get state from PIN code using post office API
     const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
     const postOfficeData = await getPostOfficeDetails(pinCode);
-    
+
     if (!postOfficeData.success) {
       return res.status(400).json({
         success: false,
@@ -388,7 +388,7 @@ exports.createOrder = async (req, res, next) => {
     // Get user's contact number
     const User = require('../models/User');
     const user = await User.findById(userId).select('contactNumber');
-    
+
     if (!user || !user.contactNumber) {
       return res.status(400).json({
         success: false,
@@ -520,7 +520,7 @@ exports.createOrder = async (req, res, next) => {
       } else if (paymentError.includes('No payment gateway')) {
         userFriendlyError = 'No payment gateway is enabled. Please enable a payment gateway from admin panel.';
       }
-      
+
       responseData.payment = {
         error: userFriendlyError,
         message: 'Payment gateway initialization failed. You can retry payment using /api/payment/retry endpoint.',
@@ -654,7 +654,7 @@ exports.getVendorOrder = async (req, res, next) => {
     if (order.riderDetails || order.rider) {
       const riderDetails = order.riderDetails;
       const rider = order.rider;
-      
+
       responseData.riderInfo = {
         name: riderDetails?.riderName || rider?.fullName || null,
         mobileNumber: riderDetails?.mobileNumber || rider?.mobileNumber || null,
@@ -729,7 +729,7 @@ exports.markOutForDelivery = async (req, res, next) => {
     }
 
     // Check if order belongs to this vendor
-    const vendorItems = order.items.filter(item => 
+    const vendorItems = order.items.filter(item =>
       item.vendor && item.vendor._id.toString() === req.vendor._id.toString()
     );
 
@@ -932,41 +932,86 @@ exports.reorder = async (req, res, next) => {
   }
 };
 
+/**
+ * Confirm order as COD
+ * Sets payment method to COD and payment status to pending
+ */
+exports.confirmCOD = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id;
+
+    // Find the order
+    const Order = require('../models/Order');
+    const order = await Order.findOne({ _id: orderId, user: userId });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Update payment details
+    order.payment.method = 'cod';
+    order.payment.status = 'pending';
+
+    // Set order status to order_placed to initiate workflow
+    order.status = 'order_placed';
+
+    await order.save();
+
+    logger.info(`Order confirmed as COD: ${order.orderNumber} by User: ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Order confirmed as Cash on Delivery',
+      data: order,
+    });
+  } catch (error) {
+    logger.error('Confirm COD error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to confirm COD order',
+    });
+  }
+};
+
 exports.getAllOrders = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    
+
     const filters = {};
-    
+
     if (req.query.status) {
       filters.status = req.query.status;
     }
-    
+
     if (req.query.user) {
       filters.user = req.query.user;
     }
-    
+
     if (req.query.vendor) {
       filters.vendor = req.query.vendor;
     }
-    
+
     if (req.query.paymentStatus) {
       filters.paymentStatus = req.query.paymentStatus;
     }
-    
+
     if (req.query.paymentMethod) {
       filters.paymentMethod = req.query.paymentMethod;
     }
-    
+
     if (req.query.startDate) {
       filters.startDate = req.query.startDate;
     }
-    
+
     if (req.query.endDate) {
       filters.endDate = req.query.endDate;
     }
-    
+
     if (req.query.search) {
       filters.search = req.query.search;
     }
@@ -1086,30 +1131,30 @@ exports.getOrderInvoice = async (req, res, next) => {
         address: order.shippingAddress,
       },
 
-      vendors: req.vendor 
+      vendors: req.vendor
         ? [{
-            name: order.items[0]?.vendor?.vendorName || 'N/A',
-            storeName: order.items[0]?.vendor?.storeName || 'N/A',
-            contactNumber: order.items[0]?.vendor?.contactNumber || 'N/A',
-            email: order.items[0]?.vendor?.email || 'N/A',
-            address: order.items[0]?.vendor?.storeAddress || {},
-          }]
+          name: order.items[0]?.vendor?.vendorName || 'N/A',
+          storeName: order.items[0]?.vendor?.storeName || 'N/A',
+          contactNumber: order.items[0]?.vendor?.contactNumber || 'N/A',
+          email: order.items[0]?.vendor?.email || 'N/A',
+          address: order.items[0]?.vendor?.storeAddress || {},
+        }]
         : [...new Set(order.items.map(item => {
-            const vendor = item.vendor?._id || item.vendor;
-            return vendor?.toString();
-          }))].map(vendorId => {
-            const vendorItem = order.items.find(item => {
-              const itemVendorId = item.vendor?._id || item.vendor;
-              return itemVendorId?.toString() === vendorId;
-            });
-            return {
-              name: vendorItem?.vendor?.vendorName || 'N/A',
-              storeName: vendorItem?.vendor?.storeName || 'N/A',
-              contactNumber: vendorItem?.vendor?.contactNumber || 'N/A',
-              email: vendorItem?.vendor?.email || 'N/A',
-              address: vendorItem?.vendor?.storeAddress || {},
-            };
-          }),
+          const vendor = item.vendor?._id || item.vendor;
+          return vendor?.toString();
+        }))].map(vendorId => {
+          const vendorItem = order.items.find(item => {
+            const itemVendorId = item.vendor?._id || item.vendor;
+            return itemVendorId?.toString() === vendorId;
+          });
+          return {
+            name: vendorItem?.vendor?.vendorName || 'N/A',
+            storeName: vendorItem?.vendor?.storeName || 'N/A',
+            contactNumber: vendorItem?.vendor?.contactNumber || 'N/A',
+            email: vendorItem?.vendor?.email || 'N/A',
+            address: vendorItem?.vendor?.storeAddress || {},
+          };
+        }),
       items: order.items.map((item) => ({
         productName: item.productName,
         sku: item.sku || item.product?.skuHsn || 'N/A',

@@ -15,6 +15,7 @@ const {
   getOrder,
   cancelOrder,
   reorder,
+  confirmCOD,
   getVendorOrders,
   getVendorOrder,
   updateOrderStatus,
@@ -418,6 +419,19 @@ router.post(
       .withMessage('Invalid order ID or order number'),
   ],
   reorder
+);
+
+router.post(
+  '/order/:orderId/confirm-cod',
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  confirmCOD
 );
 
 module.exports = router;
