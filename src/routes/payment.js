@@ -520,10 +520,15 @@ router.post(
       const riderId = req.rider._id;
       let order = null;
 
-      // For Razorpay Payment Link flow: If orderId not provided, try to get it from payment link
-      if (!orderId && gateway === 'razorpay' && paymentData.razorpay_payment_link_id) {
+      // The new paymentService.js verifies signatures perfectly using orderId|paymentId OR paymentLinkId|paymentId.
+      // We don't need to fetch notes from Razorpay if we already have the orderId.
+
+      if (orderId) {
+        // If orderId is provided (either from body or Flutter), just use it
+        order = await Order.findOne({ _id: orderId, rider: riderId });
+      } else if (gateway === 'razorpay' && paymentData.razorpay_payment_link_id) {
+        // ONLY fetch from Razorpay API if we absolutely don't have the orderId
         try {
-          // Get payment gateway credentials from database
           const PaymentGateway = require('../models/PaymentGateway');
           const paymentGateway = await PaymentGateway.findOne({
             name: 'razorpay',
@@ -540,7 +545,6 @@ router.post(
               });
             }
 
-            // Fetch payment link details from Razorpay to get orderId from notes
             const Razorpay = require('razorpay');
             const razorpay = new Razorpay({
               key_id: credentials.razorpayKeyId.trim(),
@@ -549,11 +553,8 @@ router.post(
 
             const paymentLink = await razorpay.paymentLink.fetch(paymentData.razorpay_payment_link_id);
 
-            // Extract orderId from notes
             if (paymentLink.notes && paymentLink.notes.orderId) {
               const extractedOrderId = paymentLink.notes.orderId;
-
-              // Find order by extracted orderId and assigned rider
               order = await Order.findOne({ _id: extractedOrderId, rider: riderId });
 
               if (!order) {
@@ -576,9 +577,6 @@ router.post(
             error: 'Could not fetch payment link details. Please provide orderId in request body.',
           });
         }
-      } else if (orderId) {
-        // Get order by provided orderId and assigned rider
-        order = await Order.findOne({ _id: orderId, rider: riderId });
       } else {
         return res.status(400).json({
           success: false,
