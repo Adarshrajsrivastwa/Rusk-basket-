@@ -19,8 +19,8 @@ const mongoose = require('mongoose');
 const hasActiveOrder = async (riderId) => {
   const activeOrder = await Order.findOne({
     rider: riderId,
-    status: { 
-      $nin: ['delivered', 'cancelled', 'refunded'] 
+    status: {
+      $nin: ['delivered', 'cancelled', 'refunded']
     },
   });
   return !!activeOrder;
@@ -78,7 +78,7 @@ exports.updateProfile = async (req, res, next) => {
     const previousApprovalStatus = rider.approvalStatus;
 
     await updateRiderProfileData(rider, req.body, req.files);
-    
+
     // If updating profile, set status to pending for re-approval
     if (previousApprovalStatus === 'approved' || previousApprovalStatus === 'rejected') {
       rider.approvalStatus = 'pending';
@@ -122,11 +122,11 @@ exports.getRiders = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     let query = {};
-    
+
     if (req.query.approvalStatus) {
       query.approvalStatus = req.query.approvalStatus;
     }
-    
+
     if (req.query.isActive !== undefined) {
       query.isActive = req.query.isActive === 'true';
     }
@@ -354,12 +354,12 @@ exports.getAvailableOrders = async (req, res, next) => {
       if (order.rider) {
         return false;
       }
-      
+
       // Check if this rider has a pending assignment request
       const riderRequest = order.assignmentRequestSentTo?.find(
         req => req.rider?.toString() === riderId.toString() && req.status === 'pending'
       );
-      
+
       return !order.rider || riderRequest;
     });
 
@@ -602,7 +602,7 @@ exports.acceptOrderAssignment = async (req, res, next) => {
         },
         rider: populatedOrder.rider,
       };
-      
+
       notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
@@ -754,7 +754,7 @@ exports.rejectOrderAssignment = async (req, res, next) => {
 exports.getDeliveredOrders = async (req, res, next) => {
   try {
     const riderId = req.params.riderId || req.rider?._id;
-    
+
     if (!riderId) {
       return res.status(400).json({
         success: false,
@@ -807,7 +807,7 @@ exports.getDeliveredOrders = async (req, res, next) => {
 exports.getCurrentOrder = async (req, res, next) => {
   try {
     const riderId = req.params.riderId || req.rider?._id;
-    
+
     if (!riderId) {
       return res.status(400).json({
         success: false,
@@ -818,8 +818,8 @@ exports.getCurrentOrder = async (req, res, next) => {
     // Find any active order for this rider (not delivered, cancelled, or refunded)
     const query = {
       rider: riderId,
-      status: { 
-        $nin: ['delivered', 'cancelled', 'refunded'] 
+      status: {
+        $nin: ['delivered', 'cancelled', 'refunded']
       },
     };
 
@@ -899,22 +899,22 @@ exports.markOrderDelivered = async (req, res, next) => {
     order.status = 'delivered';
     order.deliveredAt = new Date();
     // Note: Wallet update now happens on payment verification, not on delivery status
-    
+
     // If COD payment, add amount to user wallet
     if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
       try {
         const Wallet = require('../models/Wallet');
-        
+
         // Find or create wallet for user
         let wallet = await Wallet.findOne({ user: order.user });
         if (!wallet) {
           wallet = await Wallet.create({ user: order.user, balance: 0 });
         }
-        
+
         // Add COD payment amount to wallet
         const codAmount = order.payment.amount;
         wallet.balance += codAmount;
-        
+
         // Add transaction record
         wallet.transactions.push({
           type: 'credit',
@@ -923,20 +923,20 @@ exports.markOrderDelivered = async (req, res, next) => {
           orderNumber: order.orderNumber,
           description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
         });
-        
+
         await wallet.save();
-        
+
         // Update order payment status
         order.payment.status = 'completed';
         order.payment.paidAt = new Date();
-        
+
         logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
       } catch (walletError) {
         logger.error('Error adding COD payment to wallet:', walletError);
         // Don't fail order status update if wallet update fails
       }
     }
-    
+
     await order.save();
 
     // Populate order details for response
@@ -950,7 +950,7 @@ exports.markOrderDelivered = async (req, res, next) => {
     try {
       const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorIds = new Set();
-      
+
       // Get all unique vendor IDs from order items
       populatedOrder.items.forEach(item => {
         const itemVendorId = item.vendor?._id || item.vendor;
@@ -1031,7 +1031,7 @@ exports.markOrderDelivered = async (req, res, next) => {
         deliveryAmount: order.deliveryAmount || 0,
         deliveredAt: order.deliveredAt,
       };
-      
+
       notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
@@ -1102,8 +1102,8 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     }
 
     // Check if body has out_for_delivery flag and order is already out_for_delivery
-    const markAsDelivered = req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true || 
-                           (order.status === 'out_for_delivery' && (req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true));
+    const markAsDelivered = req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true ||
+      (order.status === 'out_for_delivery' && (req.body.out_for_delivery === 'true' || req.body.out_for_delivery === true));
 
     // Check if order is in a valid status to upload delivery image
     const validStatuses = ['rider_assign', 'ready', 'processing', 'confirmed', 'out_for_delivery'];
@@ -1148,22 +1148,22 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     if (markAsDelivered && order.status === 'out_for_delivery') {
       order.status = 'delivered';
       order.deliveredAt = new Date();
-      
+
       // If COD payment, add amount to user wallet
       if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
         try {
           const Wallet = require('../models/Wallet');
-          
+
           // Find or create wallet for user
           let wallet = await Wallet.findOne({ user: order.user });
           if (!wallet) {
             wallet = await Wallet.create({ user: order.user, balance: 0 });
           }
-          
+
           // Add COD payment amount to wallet
           const codAmount = order.payment.amount;
           wallet.balance += codAmount;
-          
+
           // Add transaction record
           wallet.transactions.push({
             type: 'credit',
@@ -1172,13 +1172,13 @@ exports.uploadDeliveryImage = async (req, res, next) => {
             orderNumber: order.orderNumber,
             description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
           });
-          
+
           await wallet.save();
-          
+
           // Update order payment status
           order.payment.status = 'completed';
           order.payment.paidAt = new Date();
-          
+
           logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
         } catch (walletError) {
           logger.error('Error adding COD payment to wallet:', walletError);
@@ -1190,7 +1190,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       order.status = 'out_for_delivery';
       // Note: Wallet update now happens on payment verification, not on status change
     }
-    
+
     await order.save();
 
     // Populate order details for response
@@ -1210,7 +1210,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       try {
         const { sendVendorPushNotification } = require('../utils/firebaseNotification');
         const vendorIds = new Set();
-        
+
         // Get all unique vendor IDs from order items
         populatedOrder.items.forEach(item => {
           const itemVendorId = item.vendor?._id || item.vendor;
@@ -1289,7 +1289,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
           deliveryAmount: order.deliveryAmount || 0,
           deliveredAt: order.deliveredAt,
         };
-        
+
         notifyRiderOrderUpdate(riderId, orderUpdateData);
       } catch (socketError) {
         logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
@@ -1313,14 +1313,14 @@ exports.uploadDeliveryImage = async (req, res, next) => {
       try {
         const { sendVendorPushNotification } = require('../utils/firebaseNotification');
         const vendorIds = new Set();
-        
+
         // Get all unique vendor IDs from order items
         populatedOrder.items.forEach(item => {
           if (item.vendor && item.vendor._id) {
             vendorIds.add(item.vendor._id.toString());
           }
         });
-        
+
         // Send notification to each vendor
         for (const vendorId of vendorIds) {
           try {
@@ -1470,44 +1470,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     };
     order.status = 'delivered';
     order.deliveredAt = new Date();
-    
-    // If COD payment, add amount to user wallet
-    if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
-      try {
-        const Wallet = require('../models/Wallet');
-        
-        // Find or create wallet for user
-        let wallet = await Wallet.findOne({ user: order.user });
-        if (!wallet) {
-          wallet = await Wallet.create({ user: order.user, balance: 0 });
-        }
-        
-        // Add COD payment amount to wallet
-        const codAmount = order.payment.amount;
-        wallet.balance += codAmount;
-        
-        // Add transaction record
-        wallet.transactions.push({
-          type: 'credit',
-          amount: codAmount,
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          description: `COD payment received for order ${order.orderNumber} (delivered by rider)`,
-        });
-        
-        await wallet.save();
-        
-        // Update order payment status
-        order.payment.status = 'completed';
-        order.payment.paidAt = new Date();
-        
-        logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount} (delivered by rider ${riderId})`);
-      } catch (walletError) {
-        logger.error('Error adding COD payment to wallet:', walletError);
-        // Don't fail order status update if wallet update fails
-      }
-    }
-    
+
     await order.save();
 
     // Add delivery amount minus rider commission to rider's earning wallet
@@ -1522,7 +1485,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
           // Calculate commission based on rider's commission type
           let commissionAmount = 0;
           const commission = rider.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
-          
+
           if (commission.type === 'percentage') {
             commissionAmount = (deliveryAmount * (commission.percentage || 10)) / 100;
           } else if (commission.type === 'fixed') {
@@ -1541,9 +1504,9 @@ exports.uploadDeliveredImage = async (req, res, next) => {
 
           // Check if already credited for this order
           const alreadyCredited = rider.walletTransactions?.some(
-            txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
-                   txn.type === 'credit' && 
-                   txn.description && txn.description.includes('Delivery image upload')
+            txn => txn.orderId && txn.orderId.toString() === order._id.toString() &&
+              txn.type === 'credit' &&
+              txn.description && txn.description.includes('Delivery image upload')
           );
 
           if (!alreadyCredited && walletAmount > 0) {
@@ -1593,7 +1556,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
     try {
       const { sendVendorPushNotification } = require('../utils/firebaseNotification');
       const vendorIds = new Set();
-      
+
       // Get all unique vendor IDs from order items
       populatedOrder.items.forEach(item => {
         const itemVendorId = item.vendor?._id || item.vendor;
@@ -1674,7 +1637,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
         deliveryAmount: order.deliveryAmount || 0,
         deliveredAt: order.deliveredAt,
       };
-      
+
       notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
@@ -1779,7 +1742,7 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
 
     // Update rider's due balance directly in Rider model
     const riderId = order.rider._id || order.rider;
-    
+
     // Get current rider to check previous balance
     const rider = await Rider.findById(riderId);
     if (!rider) {
@@ -1822,7 +1785,7 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
     try {
       const Vendor = require('../models/Vendor');
       const logger = require('../utils/logger');
-      
+
       // Get unique vendor IDs from order items
       const vendorIds = [...new Set(order.items.map(item => {
         const vendorId = item.vendor?._id || item.vendor;
@@ -1887,7 +1850,7 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
           // Calculate commission based on vendor's commission type
           let commissionAmount = 0;
           const commission = vendor.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
-          
+
           if (commission.type === 'percentage') {
             commissionAmount = (vendorTotalAmount * (commission.percentage || 10)) / 100;
           } else if (commission.type === 'fixed') {
@@ -1906,9 +1869,9 @@ exports.markOrderPaymentAsCash = async (req, res, next) => {
 
           // Check if already deducted for this order
           const alreadyDeducted = vendor.walletTransactions?.some(
-            txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
-                   txn.type === 'debit' && 
-                   txn.description && txn.description.includes('Cash payment - Commission and delivery')
+            txn => txn.orderId && txn.orderId.toString() === order._id.toString() &&
+              txn.type === 'debit' &&
+              txn.description && txn.description.includes('Cash payment - Commission and delivery')
           );
 
           if (!alreadyDeducted && totalDeduction > 0) {
@@ -2157,14 +2120,14 @@ exports.updateRiderDueAmount = async (req, res, next) => {
 
     const previousDueBalance = rider.dueBalance || 0;
     const previousEarningWallet = rider.earningWallet || 0;
-    
+
     // Calculate new due amount: current due - deduction amount
     // Allow negative due balance
     const newDueAmount = previousDueBalance - deductionAmount;
-    
+
     // Calculate total amount to deduct from earning wallet: dueAmount + delivery charge
     const totalWalletDeduction = deductionAmount + deliveryCharge;
-    
+
     // Calculate new earning wallet balance (can go negative)
     const newEarningWallet = previousEarningWallet - totalWalletDeduction;
 
@@ -2859,24 +2822,24 @@ exports.updateRiderCommission = async (req, res, next) => {
     rider.commission.updatedAt = currentDate;
 
     // Handle subscription commission: Deduct amount when subscription is set/updated
-    const isSubscriptionType = (type !== undefined && type === 'subscription') || 
-                               (type === undefined && rider.commission.type === 'subscription');
-    const isSubscriptionAmountChanged = subscriptionAmount !== undefined && 
-                                       rider.commission.subscriptionAmount !== subscriptionAmount;
-    const isSubscriptionTypeChanged = type !== undefined && 
-                                      rider.commission.type !== 'subscription' && 
-                                      type === 'subscription';
+    const isSubscriptionType = (type !== undefined && type === 'subscription') ||
+      (type === undefined && rider.commission.type === 'subscription');
+    const isSubscriptionAmountChanged = subscriptionAmount !== undefined &&
+      rider.commission.subscriptionAmount !== subscriptionAmount;
+    const isSubscriptionTypeChanged = type !== undefined &&
+      rider.commission.type !== 'subscription' &&
+      type === 'subscription';
 
     if (isSubscriptionType && (isSubscriptionAmountChanged || isSubscriptionTypeChanged)) {
-      const subscriptionAmountToDeduct = subscriptionAmount !== undefined ? 
-                                          parseFloat(subscriptionAmount) : 
-                                          rider.commission.subscriptionAmount || 0;
+      const subscriptionAmountToDeduct = subscriptionAmount !== undefined ?
+        parseFloat(subscriptionAmount) :
+        rider.commission.subscriptionAmount || 0;
 
       if (subscriptionAmountToDeduct > 0) {
         // Deduct subscription amount from rider earning wallet (can go negative)
         const currentBalance = rider.earningWallet || 0;
         rider.earningWallet = currentBalance - subscriptionAmountToDeduct;
-        
+
         // Add transaction record
         rider.walletTransactions = rider.walletTransactions || [];
         rider.walletTransactions.push({
@@ -2901,7 +2864,7 @@ exports.updateRiderCommission = async (req, res, next) => {
 
         // Set last and next deduction dates
         rider.commission.lastSubscriptionDeduction = today;
-        
+
         // Calculate next deduction date
         const nextDeduction = new Date(today);
         if (rider.commission.subscriptionPeriod === 'monthly') {
@@ -2983,7 +2946,7 @@ exports.getAllRidersWallets = async (req, res, next) => {
 
     // Build query
     const query = {};
-    
+
     // Optional search by rider name or mobile number
     if (req.query.search) {
       query.$or = [
