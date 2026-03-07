@@ -10,6 +10,8 @@ const {
   createRazorpayPaymentLink,
 } = require('../services/paymentService');
 const { protect } = require('../middleware/userAuth');
+const { protect: protectRider } = require('../middleware/riderAuth');
+const { protectUniversal } = require('../middleware/universalAuth');
 const logger = require('../utils/logger');
 const Order = require('../models/Order');
 const PaymentGateway = require('../models/PaymentGateway');
@@ -24,7 +26,7 @@ const updateVendorWalletsOnPaymentVerification = async (order) => {
   try {
     const Vendor = require('../models/Vendor');
     const mongoose = require('mongoose');
-    
+
     // Get unique vendor IDs from order items
     const vendorIds = [...new Set(order.items.map(item => {
       const vendorId = item.vendor?._id || item.vendor;
@@ -81,7 +83,7 @@ const updateVendorWalletsOnPaymentVerification = async (order) => {
         // Calculate commission based on vendor's commission type
         let commissionAmount = 0;
         const commission = vendor.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
-        
+
         if (commission.type === 'percentage') {
           commissionAmount = (vendorTotalAmount * (commission.percentage || 10)) / 100;
         } else if (commission.type === 'fixed') {
@@ -102,9 +104,9 @@ const updateVendorWalletsOnPaymentVerification = async (order) => {
 
         // Check if already credited for this order
         const alreadyCredited = vendor.walletTransactions?.some(
-          txn => txn.orderId && txn.orderId.toString() === order._id.toString() && 
-                 txn.type === 'credit' && 
-                 txn.description && txn.description.includes('Payment verified')
+          txn => txn.orderId && txn.orderId.toString() === order._id.toString() &&
+            txn.type === 'credit' &&
+            txn.description && txn.description.includes('Payment verified')
         );
 
         if (!alreadyCredited && vendorWalletAmount > 0) {
@@ -119,7 +121,7 @@ const updateVendorWalletsOnPaymentVerification = async (order) => {
                   amount: vendorWalletAmount,
                   orderId: order._id,
                   orderNumber: order.orderNumber,
-                  description: `Payment verified for order ${order.orderNumber}. Total: ₹${vendorTotalAmount.toFixed(2)}, Delivery: ₹${deliveryCharge.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${vendorWalletAmount.toFixed(2)}`,
+                  description: `Payment verified for order ${order.orderNumber} (Product Portion). Total: ₹${vendorTotalAmount.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${vendorWalletAmount.toFixed(2)}`,
                   createdAt: new Date(),
                 }
               }
@@ -142,6 +144,82 @@ const updateVendorWalletsOnPaymentVerification = async (order) => {
   } catch (walletError) {
     logger.error('Error updating vendor wallets after payment verification:', walletError);
     // Don't throw error, just log it
+  }
+};
+
+/**
+ * Helper function to update rider wallet when payment is verified
+ * Formula: Delivery Amount - Commission = Rider Wallet Amount
+ */
+const updateRiderWalletOnPaymentVerification = async (order) => {
+  try {
+    const Rider = require('../models/Rider');
+
+    // Check if rider is assigned
+    if (!order.rider) {
+      logger.info(`No rider assigned to order ${order.orderNumber}, skipping rider wallet update.`);
+      return;
+    }
+
+    const riderId = order.rider._id || order.rider;
+    const deliveryAmount = order.deliveryAmount || order.pricing?.deliveryAmount || 0;
+
+    if (deliveryAmount <= 0) {
+      logger.info(`Delivery amount is 0 for order ${order.orderNumber}, skipping rider wallet update.`);
+      return;
+    }
+
+    // Get rider to calculate commission
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      logger.warn(`Rider ${riderId} not found for order ${order.orderNumber}`);
+      return;
+    }
+
+    // Calculate commission
+    let commissionAmount = 0;
+    const commission = rider.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
+
+    if (commission.type === 'percentage') {
+      commissionAmount = (deliveryAmount * (commission.percentage || 10)) / 100;
+    } else if (commission.type === 'fixed') {
+      commissionAmount = commission.fixedAmount || 0;
+    } else if (commission.type === 'hybrid') {
+      const percentageCommission = (deliveryAmount * (commission.percentage || 10)) / 100;
+      commissionAmount = percentageCommission + (commission.fixedAmount || 0);
+    }
+
+    // Calculate rider wallet amount
+    const riderWalletAmount = deliveryAmount - commissionAmount;
+
+    // Check if already credited
+    const alreadyCredited = rider.walletTransactions?.some(
+      txn => txn.orderId && txn.orderId.toString() === order._id.toString() &&
+        txn.type === 'credit' &&
+        txn.description && txn.description.includes('Payment verified')
+    );
+
+    if (!alreadyCredited && riderWalletAmount > 0) {
+      await Rider.findOneAndUpdate(
+        { _id: riderId },
+        {
+          $inc: { earningWallet: riderWalletAmount },
+          $push: {
+            walletTransactions: {
+              type: 'credit',
+              amount: riderWalletAmount,
+              orderId: order._id,
+              orderNumber: order.orderNumber,
+              description: `Payment verified for order ${order.orderNumber} (Delivery Portion). Delivery: ₹${deliveryAmount.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${riderWalletAmount.toFixed(2)}`,
+              createdAt: new Date(),
+            }
+          }
+        }
+      );
+      logger.info(`Delivery portion ₹${riderWalletAmount.toFixed(2)} credited to rider ${riderId} for order ${order.orderNumber}`);
+    }
+  } catch (error) {
+    logger.error(`Error updating rider wallet for order ${order.orderNumber}:`, error);
   }
 };
 
@@ -284,9 +362,9 @@ router.post(
         try {
           // Get payment gateway credentials
           const PaymentGateway = require('../models/PaymentGateway');
-          const paymentGateway = await PaymentGateway.findOne({ 
-            name: 'razorpay', 
-            isEnabled: true 
+          const paymentGateway = await PaymentGateway.findOne({
+            name: 'razorpay',
+            isEnabled: true
           });
 
           if (paymentGateway) {
@@ -307,14 +385,14 @@ router.post(
             });
 
             const paymentLink = await razorpay.paymentLink.fetch(paymentData.razorpay_payment_link_id);
-            
+
             // Extract orderId from notes
             if (paymentLink.notes && paymentLink.notes.orderId) {
               const extractedOrderId = paymentLink.notes.orderId;
-              
+
               // Find order by extracted orderId
               order = await Order.findOne({ _id: extractedOrderId, user: userId });
-              
+
               if (!order) {
                 return res.status(404).json({
                   success: false,
@@ -370,8 +448,11 @@ router.post(
         order.payment.method = gateway; // Store payment gateway used
         await order.save();
 
-        // Update vendor wallets: Total Amount - Delivery Charge - Commission
+        // Update vendor wallets (Product portion)
         await updateVendorWalletsOnPaymentVerification(order);
+
+        // Update rider wallet (Delivery portion)
+        await updateRiderWalletOnPaymentVerification(order);
 
         logger.info(`Payment verified for order ${order.orderNumber} via ${gateway}`);
 
@@ -392,6 +473,174 @@ router.post(
       }
     } catch (error) {
       logger.error('Verify payment error:', error);
+      res.status(400).json({
+        success: false,
+        error: error.message || 'Payment verification failed',
+      });
+    }
+  }
+);
+
+/**
+ * Verify payment for Rider (same logic as verify but for riders)
+ * POST /api/payment/rider/verify
+ */
+router.post(
+  '/rider/verify',
+  protectRider,
+  [
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid order ID format (must be MongoDB ObjectId)'),
+    body('paymentData')
+      .notEmpty()
+      .withMessage('Payment data is required')
+      .bail()
+      .isObject()
+      .withMessage('Payment data must be an object'),
+    body('gateway')
+      .notEmpty()
+      .withMessage('Payment gateway is required')
+      .bail()
+      .isIn(['razorpay', 'phonepay', 'shopify', 'cashfree'])
+      .withMessage('Invalid payment gateway'),
+  ],
+  async (req, res, next) => {
+    try {
+      const errors = require('express-validator').validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      const { orderId, paymentData, gateway } = req.body;
+      const riderId = req.rider._id;
+      let order = null;
+
+      // For Razorpay Payment Link flow: If orderId not provided, try to get it from payment link
+      if (!orderId && gateway === 'razorpay' && paymentData.razorpay_payment_link_id) {
+        try {
+          // Get payment gateway credentials from database
+          const PaymentGateway = require('../models/PaymentGateway');
+          const paymentGateway = await PaymentGateway.findOne({
+            name: 'razorpay',
+            isEnabled: true
+          });
+
+          if (paymentGateway) {
+            let credentials = { ...paymentGateway.credentials };
+            if (paymentGateway.testMode && paymentGateway.testCredentials) {
+              Object.keys(paymentGateway.testCredentials).forEach(key => {
+                if (paymentGateway.testCredentials[key] && paymentGateway.testCredentials[key].trim()) {
+                  credentials[key] = paymentGateway.testCredentials[key];
+                }
+              });
+            }
+
+            // Fetch payment link details from Razorpay to get orderId from notes
+            const Razorpay = require('razorpay');
+            const razorpay = new Razorpay({
+              key_id: credentials.razorpayKeyId.trim(),
+              key_secret: credentials.razorpayKeySecret.trim(),
+            });
+
+            const paymentLink = await razorpay.paymentLink.fetch(paymentData.razorpay_payment_link_id);
+
+            // Extract orderId from notes
+            if (paymentLink.notes && paymentLink.notes.orderId) {
+              const extractedOrderId = paymentLink.notes.orderId;
+
+              // Find order by extracted orderId and assigned rider
+              order = await Order.findOne({ _id: extractedOrderId, rider: riderId });
+
+              if (!order) {
+                return res.status(404).json({
+                  success: false,
+                  error: 'Order not found or you are not assigned to this order.',
+                });
+              }
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: 'Order ID not found in payment link. Please provide orderId in request body.',
+              });
+            }
+          }
+        } catch (linkError) {
+          logger.error('Error fetching payment link details by rider:', linkError);
+          return res.status(400).json({
+            success: false,
+            error: 'Could not fetch payment link details. Please provide orderId in request body.',
+          });
+        }
+      } else if (orderId) {
+        // Get order by provided orderId and assigned rider
+        order = await Order.findOne({ _id: orderId, rider: riderId });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Order ID is required. Please provide orderId in request body.',
+        });
+      }
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found or you do not have permission to access/verify this order',
+        });
+      }
+
+      if (order.payment.status === 'completed') {
+        return res.status(200).json({
+          success: true,
+          message: 'Payment already completed for this order',
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            paymentStatus: order.payment.status,
+          }
+        });
+      }
+
+      // Verify payment
+      const verificationResult = await verifyPayment(paymentData, gateway);
+
+      if (verificationResult.success) {
+        // Update order payment status
+        order.payment.status = 'completed';
+        order.payment.transactionId = verificationResult.paymentId || verificationResult.orderId || verificationResult.merchantTransactionId;
+        order.payment.paidAt = new Date();
+        order.payment.method = gateway;
+        await order.save();
+
+        // Update vendor wallets (Product portion)
+        await updateVendorWalletsOnPaymentVerification(order);
+
+        // Update rider wallet (Delivery portion)
+        await updateRiderWalletOnPaymentVerification(order);
+
+        logger.info(`Payment verified by rider ${riderId} for order ${order.orderNumber} via ${gateway}`);
+
+        res.status(200).json({
+          success: true,
+          message: 'Payment verified successfully',
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            paymentStatus: order.payment.status,
+            transactionId: order.payment.transactionId,
+            paymentMethod: order.payment.method,
+            paidAt: order.payment.paidAt,
+          },
+        });
+      } else {
+        throw new Error('Payment verification failed');
+      }
+    } catch (error) {
+      logger.error('Rider verify payment error:', error);
       res.status(400).json({
         success: false,
         error: error.message || 'Payment verification failed',
@@ -661,7 +910,7 @@ router.get('/gateways', async (req, res, next) => {
  */
 router.post(
   '/create-payment-link',
-  protect,
+  protectUniversal,
   [
     body('amount')
       .notEmpty()
@@ -719,9 +968,19 @@ router.post(
         notify,
       } = req.body;
 
-      const userId = req.user._id;
-      const userEmail = req.user.email || email;
-      const userName = req.user.name || name || '';
+      // Extract details from current user (User or Rider)
+      const currentUser = req.user || req.rider;
+      if (!currentUser) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication failed. No user or rider details found.',
+        });
+      }
+
+      const entityId = currentUser._id;
+      const entityEmail = currentUser.email || email || '';
+      const entityName = currentUser.name || currentUser.fullName || name || '';
+      const entityContact = contact || currentUser.contactNumber || currentUser.mobileNumber || '';
 
       // Get payment gateway from database based on priority and availability
       // If gateway is specified, use that; otherwise get active gateway with highest priority
@@ -760,13 +1019,13 @@ router.post(
           amount: parseFloat(amount),
           currency: 'INR',
           description: description || 'Payment',
-          name: userName,
-          email: userEmail,
-          contact: contact || req.user.contactNumber || '',
+          name: entityName,
+          email: entityEmail,
+          contact: entityContact,
           callbackUrl: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment-success`,
           callbackMethod: 'get',
           notes: notes || {
-            userId: userId.toString(),
+            userId: entityId.toString(),
             orderId: notes?.orderId || '',
           },
           notify: notify || {
@@ -777,7 +1036,7 @@ router.post(
 
         const paymentLink = await createRazorpayPaymentLink(paymentLinkData, credentials);
 
-        logger.info(`Payment link created for user ${userId} via Razorpay: ${paymentLink.paymentLinkId}`);
+        logger.info(`Payment link created for entity ${entityId} via Razorpay: ${paymentLink.paymentLinkId}`);
 
         // Simple response format for Flutter
         res.status(200).json({
@@ -799,12 +1058,12 @@ router.post(
         const payload = {
           merchantId: credentials.phonepayMerchantId,
           merchantTransactionId: merchantTransactionId,
-          merchantUserId: userId.toString(),
+          merchantUserId: entityId.toString(),
           amount: amountInPaise,
           redirectUrl: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
           redirectMode: 'REDIRECT',
           callbackUrl: `${process.env.API_URL || 'http://localhost:3000'}/api/payment/phonepay/callback`,
-          mobileNumber: contact || req.user.contactNumber || '',
+          mobileNumber: entityContact,
           paymentInstrument: {
             type: 'PAY_PAGE',
           },
@@ -831,7 +1090,7 @@ router.post(
         );
 
         if (response.data && response.data.success && response.data.data) {
-          logger.info(`Payment link created for user ${userId} via PhonePe: ${merchantTransactionId}`);
+          logger.info(`Payment link created for entity ${entityId} via PhonePe: ${merchantTransactionId}`);
 
           // Simple response format for Flutter
           res.status(200).json({
@@ -865,7 +1124,7 @@ router.post(
         // This ensures payment URL always matches the actual keys being used
         let isTestEnvironment = false;
         let detectionMethod = '';
-        
+
         if (appId.toUpperCase().startsWith('TEST')) {
           // App ID starts with TEST → Sandbox key → MUST use sandbox
           isTestEnvironment = true;
@@ -876,14 +1135,14 @@ router.post(
           isTestEnvironment = false;
           detectionMethod = 'App ID pattern (does NOT start with TEST)';
           logger.info(`✅ Cashfree environment: PRODUCTION (LIVE keys detected from App ID)`);
-          
+
           // Warn if CASHFREE_ENV is set to TEST but keys are production
           if (process.env.CASHFREE_ENV && process.env.CASHFREE_ENV.toUpperCase() === 'TEST') {
             logger.error(`❌ MISMATCH DETECTED: CASHFREE_ENV=TEST but App ID indicates PRODUCTION keys!`);
             logger.error(`❌ This will cause 403 Forbidden. Update CASHFREE_ENV=PROD or use TEST keys.`);
           }
         }
-        
+
         // Log final decision with App ID info
         logger.info(`Cashfree Environment Decision: ${isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)'} | Method: ${detectionMethod}`);
         logger.info(`App ID: ${appId.substring(0, 20)}... | Payment URL will be: ${isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com'}`);
@@ -904,9 +1163,9 @@ router.post(
           order_amount: amountInPaise,
           order_currency: 'INR',
           customer_details: {
-            customer_id: userId.toString(),
-            customer_email: userEmail || 'test@gmail.com',
-            customer_phone: contact || req.user.contactNumber || '9999999999',
+            customer_id: entityId.toString(),
+            customer_email: entityEmail || 'test@gmail.com',
+            customer_phone: entityContact || '9999999999',
           },
           order_meta: {
             return_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment-success?order_id=${orderId}`,
@@ -973,12 +1232,12 @@ router.post(
 
           // Try to use payment_link or link_url from API response first (if available)
           // Cashfree API may return payment_link, link_url, or payment_url in different versions
-          let paymentUrl = response.data.payment_link || 
-                          response.data.link_url ||
-                          response.data.payment_url || 
-                          response.data.paymentLink ||
-                          response.data.paymentUrl;
-          
+          let paymentUrl = response.data.payment_link ||
+            response.data.link_url ||
+            response.data.payment_url ||
+            response.data.paymentLink ||
+            response.data.paymentUrl;
+
           // If payment URL is provided by API, validate and clean it
           if (paymentUrl) {
             // Remove www. prefix if present (causes 403 Forbidden)
@@ -988,11 +1247,11 @@ router.post(
               .replace(/http:\/\/www\./g, 'http://')
               .replace(/www\.cashfree\.com/g, 'cashfree.com')
               .replace(/www\.sandbox\.cashfree\.com/g, 'sandbox.cashfree.com');
-            
+
             if (originalUrl !== paymentUrl) {
               logger.warn(`Cleaned payment URL from API response. Removed www. prefix.`);
             }
-            
+
             // Extract and validate session ID from URL if it contains one
             const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
             if (sessionIdMatch) {
@@ -1014,10 +1273,10 @@ router.post(
           // The session ID itself determines which environment it belongs to
           if (!paymentUrl) {
             logger.info('Cashfree response does not contain payment_link/link_url. Constructing URL from payment_session_id.');
-            
+
             // Log session ID for debugging
             logger.info(`Session ID validated. Length: ${paymentSessionId.length}, Starts with: ${paymentSessionId.substring(0, 10)}, Ends with: ${paymentSessionId.substring(paymentSessionId.length - 10)}`);
-            
+
             // CRITICAL: Correct URL format for Cashfree PG Order API (V3 Flow)
             // Environment-specific payment URLs (MUST match backend environment)
             // Sandbox (TEST keys): https://sandbox.cashfree.com/pg/view/payment/{payment_session_id}
@@ -1032,7 +1291,7 @@ router.post(
             // ❌ https://payments.cashfree.com/forms/pay/session_XXXX (Payment Link API, not PG Order API)
             // ❌ TEST key session opened on cashfree.com → 403 Forbidden
             // ❌ LIVE key session opened on sandbox.cashfree.com → 403 Forbidden
-            
+
             // CRITICAL: Construct URL with correct domain (NO www prefix)
             // www.cashfree.com causes 403 Forbidden - must use cashfree.com or sandbox.cashfree.com
             // paymentSessionId is already cleaned above
@@ -1045,7 +1304,7 @@ router.post(
               // Domain: cashfree.com (NOT www.cashfree.com or payments.cashfree.com)
               paymentUrl = `https://cashfree.com/pg/view/payment/${paymentSessionId}`;
             }
-            
+
             // CRITICAL: Force remove www. prefix if present (causes 403 Forbidden)
             // Multiple replacements to handle all cases
             const originalUrl = paymentUrl;
@@ -1054,13 +1313,13 @@ router.post(
               .replace(/http:\/\/www\./g, 'http://')    // Remove www. after http://
               .replace(/www\.cashfree\.com/g, 'cashfree.com')  // Direct domain replacement
               .replace(/www\.sandbox\.cashfree\.com/g, 'sandbox.cashfree.com');  // Sandbox domain
-            
+
             if (originalUrl !== paymentUrl) {
               logger.error(`❌ ERROR: Payment URL contained 'www.' prefix! This causes 403 Forbidden.`);
               logger.error(`❌ Original URL: ${originalUrl}`);
               logger.warn(`✅ Fixed URL (removed www): ${paymentUrl}`);
             }
-            
+
             // Additional validation: Ensure domain is exactly correct
             if (paymentUrl.includes('www.')) {
               logger.error(`❌ CRITICAL: URL still contains 'www.' after cleanup!`);
@@ -1073,7 +1332,7 @@ router.post(
               }
               logger.warn(`🔧 Force-fixed URL: ${paymentUrl}`);
             }
-            
+
             // Validate URL format
             try {
               const urlObj = new URL(paymentUrl);
@@ -1092,23 +1351,52 @@ router.post(
           } else {
             logger.info('Using payment_link/link_url directly from Cashfree API response');
           }
-          
+
           // Final check: Ensure payment URL is valid and can be opened
           if (!paymentUrl || !paymentUrl.startsWith('https://')) {
             logger.error(`❌ ERROR: Invalid payment URL: ${paymentUrl}`);
             throw new Error('Failed to generate valid payment URL');
           }
-          
-            // CRITICAL: Final validation - ensure NO www. in URL (causes 403)
-            if (paymentUrl.includes('www.')) {
-              logger.error(`❌ CRITICAL ERROR: Payment URL still contains 'www.' - this will cause 403 Forbidden!`);
-              logger.error(`❌ Invalid URL: ${paymentUrl}`);
-              // Extract session ID from current URL, clean it, or use already cleaned paymentSessionId
+
+          // CRITICAL: Final validation - ensure NO www. in URL (causes 403)
+          if (paymentUrl.includes('www.')) {
+            logger.error(`❌ CRITICAL ERROR: Payment URL still contains 'www.' - this will cause 403 Forbidden!`);
+            logger.error(`❌ Invalid URL: ${paymentUrl}`);
+            // Extract session ID from current URL, clean it, or use already cleaned paymentSessionId
+            const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
+            let sessionIdForFix = paymentSessionId; // Use already cleaned session ID
+            if (sessionIdMatch) {
+              let extractedId = sessionIdMatch[1].trim();
+              // Clean extracted ID if needed
+              if (extractedId.toLowerCase().endsWith('payment')) {
+                extractedId = extractedId.replace(/payment$/i, '').trim();
+              }
+              if (extractedId.length >= 10) {
+                sessionIdForFix = extractedId;
+              }
+            }
+            // Force fix based on environment
+            if (isTestEnvironment) {
+              paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${sessionIdForFix}`;
+            } else {
+              paymentUrl = `https://cashfree.com/pg/view/payment/${sessionIdForFix}`;
+            }
+            logger.warn(`🔧 Force-corrected URL: ${paymentUrl}`);
+          }
+
+          // Verify domain is correct
+          let urlObj;
+          let expectedDomain = isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com';
+          try {
+            urlObj = new URL(paymentUrl);
+            if (urlObj.hostname !== expectedDomain) {
+              logger.error(`❌ ERROR: Domain mismatch! Expected: ${expectedDomain}, Got: ${urlObj.hostname}`);
+              logger.error(`❌ This will cause 403 Forbidden. Fixing...`);
+              // Extract and clean session ID from URL or use already cleaned paymentSessionId
               const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
               let sessionIdForFix = paymentSessionId; // Use already cleaned session ID
               if (sessionIdMatch) {
                 let extractedId = sessionIdMatch[1].trim();
-                // Clean extracted ID if needed
                 if (extractedId.toLowerCase().endsWith('payment')) {
                   extractedId = extractedId.replace(/payment$/i, '').trim();
                 }
@@ -1116,59 +1404,24 @@ router.post(
                   sessionIdForFix = extractedId;
                 }
               }
-              // Force fix based on environment
-              if (isTestEnvironment) {
-                paymentUrl = `https://sandbox.cashfree.com/pg/view/payment/${sessionIdForFix}`;
-              } else {
-                paymentUrl = `https://cashfree.com/pg/view/payment/${sessionIdForFix}`;
-              }
-              logger.warn(`🔧 Force-corrected URL: ${paymentUrl}`);
+              paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
+              logger.warn(`🔧 Corrected URL: ${paymentUrl}`);
+              // Re-parse after fix
+              urlObj = new URL(paymentUrl);
             }
-            
-            // Verify domain is correct
-            let urlObj;
-            let expectedDomain = isTestEnvironment ? 'sandbox.cashfree.com' : 'cashfree.com';
+            logger.info(`✅ Domain verified: ${urlObj.hostname} (Expected: ${expectedDomain})`);
+          } catch (urlError) {
+            logger.error(`❌ ERROR: Failed to validate URL: ${urlError.message}`);
+            logger.error(`❌ Invalid URL: ${paymentUrl}`);
+            // Try to rebuild URL using cleaned session ID
+            paymentUrl = `https://${expectedDomain}/pg/view/payment/${paymentSessionId}`;
             try {
               urlObj = new URL(paymentUrl);
-              if (urlObj.hostname !== expectedDomain) {
-                logger.error(`❌ ERROR: Domain mismatch! Expected: ${expectedDomain}, Got: ${urlObj.hostname}`);
-                logger.error(`❌ This will cause 403 Forbidden. Fixing...`);
-                // Extract and clean session ID from URL or use already cleaned paymentSessionId
-                const sessionIdMatch = paymentUrl.match(/\/payment\/([^\/\?]+)/);
-                let sessionIdForFix = paymentSessionId; // Use already cleaned session ID
-                if (sessionIdMatch) {
-                  let extractedId = sessionIdMatch[1].trim();
-                  if (extractedId.toLowerCase().endsWith('payment')) {
-                    extractedId = extractedId.replace(/payment$/i, '').trim();
-                  }
-                  if (extractedId.length >= 10) {
-                    sessionIdForFix = extractedId;
-                  }
-                }
-                paymentUrl = `https://${expectedDomain}/pg/view/payment/${sessionIdForFix}`;
-                logger.warn(`🔧 Corrected URL: ${paymentUrl}`);
-                // Re-parse after fix
-                urlObj = new URL(paymentUrl);
-              }
-              logger.info(`✅ Domain verified: ${urlObj.hostname} (Expected: ${expectedDomain})`);
-            } catch (urlError) {
-              logger.error(`❌ ERROR: Failed to validate URL: ${urlError.message}`);
-              logger.error(`❌ Invalid URL: ${paymentUrl}`);
-              // Try to rebuild URL using cleaned session ID
-              paymentUrl = `https://${expectedDomain}/pg/view/payment/${paymentSessionId}`;
-              try {
-                urlObj = new URL(paymentUrl);
-                logger.warn(`🔧 Rebuilt URL after error: ${paymentUrl}`);
-              } catch (rebuildError) {
-                logger.error(`❌ CRITICAL: Failed to rebuild valid URL: ${rebuildError.message}`);
-                throw new Error(`Invalid payment URL: ${rebuildError.message}`);
-              }
+              logger.warn(`🔧 Rebuilt URL after error: ${paymentUrl}`);
+            } catch (rebuildError) {
+              logger.error(`❌ CRITICAL: Failed to rebuild valid URL: ${rebuildError.message}`);
+              throw new Error(`Invalid payment URL: ${rebuildError.message}`);
             }
-          
-          logger.info(`✅ Payment link created for user ${userId} via Cashfree: ${orderId}`);
-          logger.info(`🔗 Final Payment URL: ${paymentUrl}`);
-          if (urlObj) {
-            logger.info(`✅ Final Domain: ${urlObj.hostname}`);
           }
 
           res.status(200).json({
@@ -1182,31 +1435,31 @@ router.post(
             // Debug info to help identify environment mismatch
             environment: isTestEnvironment ? 'SANDBOX (TEST)' : 'PRODUCTION (LIVE)',
             app_id_prefix: appId.substring(0, 10),
-            warning: isTestEnvironment 
+            warning: isTestEnvironment
               ? 'Using TEST keys - ensure payment URL is sandbox.cashfree.com'
               : 'Using LIVE keys - ensure payment URL is cashfree.com (NOT www.cashfree.com)',
           });
         } catch (apiError) {
           logger.error('Cashfree API error:', apiError.response?.data || apiError.message);
-          
+
           if (apiError.response) {
             const status = apiError.response.status;
             const errorData = apiError.response.data;
-            
+
             if (status === 401 || status === 403) {
               throw new Error('Invalid Cashfree credentials. Please check your App ID and Secret Key.');
             }
-            
-            const errorMessage = errorData?.message || 
-                               errorData?.error || 
-                               `Cashfree API error (${status}). Please check your credentials.`;
+
+            const errorMessage = errorData?.message ||
+              errorData?.error ||
+              `Cashfree API error (${status}). Please check your credentials.`;
             throw new Error(errorMessage);
           }
-          
+
           if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) {
             throw new Error('Connection timeout. Please try again.');
           }
-          
+
           throw new Error(`Cashfree payment initialization failed: ${apiError.message}`);
         }
       } else {
@@ -1217,7 +1470,7 @@ router.post(
       }
     } catch (error) {
       logger.error('Create payment link error:', error);
-      
+
       // Return user-friendly error message
       let errorMessage = 'Failed to create payment link';
       if (error.message) {
@@ -1229,7 +1482,7 @@ router.post(
           errorMessage = error.message;
         }
       }
-      
+
       res.status(500).json({
         success: false,
         message: errorMessage,
