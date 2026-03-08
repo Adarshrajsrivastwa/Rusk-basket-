@@ -8,7 +8,7 @@ const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const RiderJobPost = require('../models/RiderJobPost');
 const { notificationQueue } = require('../utils/queue');
-const { sendOrderAssignmentRequestToRiders } = require('../utils/socket');
+const { sendOrderAssignmentRequestToRiders, notifyRiderOrderUpdate, notifyUserOrderUpdate } = require('../utils/socket');
 const logger = require('../utils/logger');
 
 /**
@@ -20,36 +20,36 @@ const updateVendorRevenue = async (order, itemsToTrack = null) => {
   try {
     const orderDate = order.createdAt || new Date();
     const monthKey = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, '0')}`;
-    
+
     // Use provided items or all order items
     const items = itemsToTrack || order.items;
-    
+
     // Group items by vendor
     const vendorItemsMap = new Map();
-    
+
     for (const item of items) {
       const vendorId = item.vendor?._id || item.vendor;
       if (!vendorId) continue;
-      
+
       const vendorIdStr = vendorId.toString();
       if (!vendorItemsMap.has(vendorIdStr)) {
         vendorItemsMap.set(vendorIdStr, []);
       }
       vendorItemsMap.get(vendorIdStr).push(item);
     }
-    
+
     // Update revenue for each vendor
     for (const [vendorIdStr, vendorItems] of vendorItemsMap.entries()) {
       const vendor = await Vendor.findById(vendorIdStr);
       if (!vendor) {
         continue;
       }
-      
+
       // Calculate total revenue for this vendor's items
       let vendorRevenue = 0;
       for (const item of vendorItems) {
         vendorRevenue += item.totalPrice || 0;
-        
+
         // Add product sales entry
         const productSalesEntry = {
           product: item.product?._id || item.product,
@@ -61,17 +61,17 @@ const updateVendorRevenue = async (order, itemsToTrack = null) => {
           orderNumber: order.orderNumber,
           createdAt: orderDate,
         };
-        
+
         vendor.productSales.push(productSalesEntry);
       }
-      
+
       // Update month-wise revenue
       if (!vendor.revenue) {
         vendor.revenue = new Map();
       }
       const currentMonthRevenue = vendor.revenue.get(monthKey) || 0;
       vendor.revenue.set(monthKey, currentMonthRevenue + vendorRevenue);
-      
+
       await vendor.save();
     }
   } catch (error) {
@@ -173,7 +173,7 @@ exports.addToCart = async (userId, productId, quantity, sku = null) => {
   }
 
   const unitPrice = product.salePrice || product.regularPrice || product.actualPrice;
-  
+
   const totalPrice = unitPrice * quantity;
 
   let thumbnail = undefined;
@@ -253,23 +253,23 @@ exports.updateCartItem = async (userId, itemId, quantity) => {
 
     // Convert product ID to string if it's an ObjectId
     const productId = item.product.toString ? item.product.toString() : item.product;
-    
+
     const product = await Product.findById(productId)
       .populate('vendor', 'storeName storeId isActive');
-    
+
     if (!product) {
       cart.items.pull(itemId);
       await cart.save();
       throw new Error('Product not found. Item has been removed from cart');
     }
-    
+
     // Validate product availability
     const validation = validateProductAvailability(product);
     if (!validation.available) {
       // Remove unavailable item from cart
       cart.items.pull(itemId);
       await cart.save();
-      
+
       throw new Error(`${validation.reason}. Item has been removed from cart`);
     }
 
@@ -583,7 +583,7 @@ exports.getCartWithTotals = async (userId) => {
     let unitPrice;
     const now = new Date();
     let isOfferActive = false;
-    
+
     if (product.offerEnabled && product.offerDiscountPercentage > 0) {
       // Check date range if dates are set
       if (product.offerStartDate && product.offerEndDate) {
@@ -600,7 +600,7 @@ exports.getCartWithTotals = async (userId) => {
         isOfferActive = true;
       }
     }
-    
+
     if (isOfferActive) {
       const basePrice = product.regularPrice || product.salePrice || product.actualPrice;
       const discountAmount = (basePrice * product.offerDiscountPercentage) / 100;
@@ -608,7 +608,7 @@ exports.getCartWithTotals = async (userId) => {
     } else {
       unitPrice = item.unitPrice || item.price || (product.salePrice || product.regularPrice || product.actualPrice);
     }
-    
+
     const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
     // Calculate tax amount from percentage: (itemTotal * tax%) / 100
@@ -771,7 +771,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   if (totals.items.length === 0) {
     // Check if there are unavailable items
     if (totals.unavailableItems && totals.unavailableItems.length > 0) {
-      const reasons = totals.unavailableItems.map(item => 
+      const reasons = totals.unavailableItems.map(item =>
         `${item.productName || 'Product'}: ${item.reason}`
       ).join(', ');
       throw new Error(`Cannot create order. Some products are not available: ${reasons}`);
@@ -834,7 +834,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   // Also ensure productName and all product details are properly saved
   const cleanedItems = await Promise.all(totals.items.map(async (item) => {
     const cleanedItem = { ...item };
-    
+
     // Ensure productName is always present
     if (!cleanedItem.productName) {
       const product = await Product.findById(item.product);
@@ -842,7 +842,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         cleanedItem.productName = product.productName;
       }
     }
-    
+
     // Handle thumbnail - convert null to undefined or ensure it's a proper object
     if (cleanedItem.thumbnail === null || (cleanedItem.thumbnail && !cleanedItem.thumbnail.url)) {
       cleanedItem.thumbnail = undefined;
@@ -853,7 +853,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         publicId: cleanedItem.thumbnail.publicId || undefined,
       };
     }
-    
+
     // Add first image from product
     const productImage = productImagesMap.get(item.product.toString());
     if (productImage) {
@@ -863,12 +863,12 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         mediaType: productImage.mediaType || 'image',
       };
     }
-    
+
     // Ensure SKU is saved
     if (!cleanedItem.sku && item.sku) {
       cleanedItem.sku = item.sku;
     }
-    
+
     // Ensure all required fields are present
     cleanedItem.product = item.product;
     cleanedItem.vendor = item.vendor;
@@ -878,31 +878,31 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     cleanedItem.totalPrice = item.totalPrice || (cleanedItem.unitPrice * cleanedItem.quantity);
     cleanedItem.tax = item.tax || 0;
     cleanedItem.cashback = item.cashback || 0;
-    
+
     return cleanedItem;
   }));
 
   // Calculate delivery charge based on distance for each vendor
   // Using shipping address coordinates (not user's default address)
   const { calculateDistance, calculateDeliveryCharge } = require('../utils/distanceUtils');
-  
+
   let totalDeliveryCharge = 0;
   const shippingLat = shippingAddress?.latitude;
   const shippingLon = shippingAddress?.longitude;
-  
+
   if (shippingLat && shippingLon) {
     // Get unique vendors from order items
     const vendorIds = [...new Set(cleanedItems.map(item => item.vendor.toString()))];
     const vendors = await Vendor.find({ _id: { $in: vendorIds } })
       .select('_id storeAddress deliveryChargePerKm');
-    
+
     // Calculate delivery charge for each vendor
     // Distance = Vendor store address to Shipping address
     for (const vendor of vendors) {
       const vendorLat = vendor.storeAddress?.latitude;
       const vendorLon = vendor.storeAddress?.longitude;
       const chargePerKm = vendor.deliveryChargePerKm || 0;
-      
+
       if (vendorLat && vendorLon && chargePerKm > 0) {
         // Calculate distance from vendor store to shipping address
         const distance = calculateDistance(vendorLat, vendorLon, shippingLat, shippingLon);
@@ -913,13 +913,13 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       }
     }
   }
-  
+
   // Get cashback usage from cart
   const cashbackUsage = cart.cashbackUsage || 0;
-  
+
   // Calculate coupon discount (excluding cashback)
   const couponDiscount = totals.pricing.discount - cashbackUsage;
-  
+
   // Calculate final total: ONLY subtotal + delivery charge (no tax, no handling, no discount deduction)
   const finalTotal = parseFloat((totals.pricing.subtotal + totalDeliveryCharge).toFixed(2));
 
@@ -976,7 +976,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         orderNumber,
         `Cashback used for order ${orderNumber}`
       );
-      
+
       if (!result.success) {
         logger.warn(`Failed to deduct cashback for order ${orderNumber}: ${result.error}`);
         // If cashback deduction fails, we should ideally rollback the order
@@ -989,7 +989,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
 
   // Add cashback to user account (ecashback) - earned from order
   const totalCashback = totals.pricing?.totalCashback || 0;
-  
+
   if (totalCashback > 0) {
     try {
       // Use cashback helper to add cashback and create transaction record
@@ -1001,7 +1001,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         orderNumber,
         `Cashback earned from order ${orderNumber}`
       );
-      
+
       if (!result.success) {
         logger.warn(`Failed to add cashback for order ${orderNumber}: ${result.error}`);
       }
@@ -1029,13 +1029,13 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
    */
   try {
     const { createInvoice } = require('../controllers/invoice');
-    
+
     // Get unique vendors from order items
     const uniqueVendors = [...new Set(order.items.map(item => {
       const vendor = item.vendor?._id || item.vendor;
       return vendor.toString();
     }))];
-    
+
     // Create invoice for each vendor
     for (const vendorId of uniqueVendors) {
       try {
@@ -1058,7 +1058,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   try {
     const Notification = require('../models/Notification');
     const { sendVendorPushNotification } = require('../utils/firebaseNotification');
-    
+
     // Get unique vendors from order items with their items
     const vendorItemsMap = new Map();
     order.items.forEach(item => {
@@ -1068,7 +1068,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
       }
       vendorItemsMap.get(vendorId).push(item);
     });
-    
+
     // Create notification and send push notification for each vendor
     for (const [vendorId, vendorItems] of vendorItemsMap) {
       try {
@@ -1076,7 +1076,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
         const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
         const itemCount = vendorItems.length;
         const itemNames = vendorItems.map(item => item.productName).join(', ');
-        
+
         // Create notification in database
         const notification = await Notification.create({
           recipient: vendorId,
@@ -1102,7 +1102,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
           order: order._id,
           isRead: false,
         });
-        
+
         // Send push notification to vendor
         await sendVendorPushNotification(vendorId, {
           type: 'order_created',
@@ -1127,7 +1127,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
           },
           order: order._id,
         });
-        
+
         logger.info(`Notification created and sent to vendor ${vendorId} for order ${order.orderNumber}`);
       } catch (notificationError) {
         // Log error but don't fail the order creation
@@ -1152,7 +1152,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
  */
 exports.reorder = async (userId, orderId) => {
   const mongoose = require('mongoose');
-  
+
   // Find the original order
   let originalOrder;
   if (mongoose.Types.ObjectId.isValid(orderId)) {
@@ -1184,7 +1184,7 @@ exports.reorder = async (userId, orderId) => {
 
   for (const item of originalOrder.items) {
     const product = await Product.findById(item.product);
-    
+
     if (!product) {
       unavailableItems.push({
         productName: item.productName,
@@ -1242,7 +1242,7 @@ exports.reorder = async (userId, orderId) => {
     // Get product images
     let thumbnail = undefined;
     let image = undefined;
-    
+
     if (product.images && product.images.length > 0) {
       const firstImage = product.images[0];
       image = {
@@ -1282,7 +1282,7 @@ exports.reorder = async (userId, orderId) => {
   }
 
   if (validItems.length === 0) {
-    const reasons = unavailableItems.map(item => 
+    const reasons = unavailableItems.map(item =>
       `${item.productName || 'Product'}: ${item.reason}`
     ).join(', ');
     throw new Error(`Cannot reorder. Some products are not available: ${reasons}`);
@@ -1291,7 +1291,7 @@ exports.reorder = async (userId, orderId) => {
   // Update inventory for valid items
   for (const item of validItems) {
     const product = await Product.findById(item.product);
-    
+
     if (product.skus && product.skus.length > 0 && item.sku) {
       const skuItem = product.skus.find(s => s.sku === item.sku);
       if (skuItem) {
@@ -1300,17 +1300,17 @@ exports.reorder = async (userId, orderId) => {
     } else {
       product.inventory -= item.quantity;
     }
-    
+
     await product.save();
   }
 
   // Calculate pricing
   const subtotal = validItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const totalCashback = validItems.reduce((sum, item) => sum + (item.cashback || 0), 0);
-  
+
   // No discount for reorder (coupon not applied)
   const discount = 0;
-  
+
   // Calculate handling charge based on vendor's handling charge percentage
   const vendorIds = [...new Set(validItems.map(item => item.vendor.toString()))];
   const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id handlingChargePercentage');
@@ -1341,7 +1341,7 @@ exports.reorder = async (userId, orderId) => {
 
   // Calculate tax (GST - 5% as per cart calculation)
   const tax = (subtotal - discount) * 0.05;
-  
+
   const total = subtotal - discount + tax + totalHandlingCharge;
 
   // Generate new order number
@@ -1382,7 +1382,7 @@ exports.reorder = async (userId, orderId) => {
         orderNumber,
         `Cashback earned from reorder ${orderNumber}`
       );
-      
+
       if (!result.success) {
         logger.warn(`Failed to add cashback for reorder ${orderNumber}: ${result.error}`);
       }
@@ -1401,7 +1401,7 @@ exports.reorder = async (userId, orderId) => {
   try {
     const Notification = require('../models/Notification');
     const { sendVendorPushNotification } = require('../utils/firebaseNotification');
-    
+
     // Get unique vendors from order items with their items
     const vendorItemsMap = new Map();
     newOrder.items.forEach(item => {
@@ -1411,7 +1411,7 @@ exports.reorder = async (userId, orderId) => {
       }
       vendorItemsMap.get(vendorId).push(item);
     });
-    
+
     // Create notification and send push notification for each vendor
     for (const [vendorId, vendorItems] of vendorItemsMap) {
       try {
@@ -1419,7 +1419,7 @@ exports.reorder = async (userId, orderId) => {
         const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
         const itemCount = vendorItems.length;
         const itemNames = vendorItems.map(item => item.productName).join(', ');
-        
+
         // Create notification in database
         const notification = await Notification.create({
           recipient: vendorId,
@@ -1446,7 +1446,7 @@ exports.reorder = async (userId, orderId) => {
           order: newOrder._id,
           isRead: false,
         });
-        
+
         // Send push notification to vendor
         await sendVendorPushNotification(vendorId, {
           type: 'order_created',
@@ -1472,7 +1472,7 @@ exports.reorder = async (userId, orderId) => {
           },
           order: newOrder._id,
         });
-        
+
         logger.info(`Notification created and sent to vendor ${vendorId} for reorder ${newOrder.orderNumber}`);
       } catch (notificationError) {
         // Log error but don't fail the order creation
@@ -1561,7 +1561,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         };
       }
     }
-    
+
     if (!riderInfo && order.rider) {
       riderInfo = {
         name: order.rider.fullName || null,
@@ -1578,22 +1578,22 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         if (firstItem && firstItem.vendor) {
           const mongoose = require('mongoose');
           const vendorId = firstItem.vendor._id ? firstItem.vendor._id : firstItem.vendor;
-          
+
           // Convert to ObjectId if it's a string
-          const vendorObjectId = mongoose.Types.ObjectId.isValid(vendorId) 
+          const vendorObjectId = mongoose.Types.ObjectId.isValid(vendorId)
             ? (typeof vendorId === 'string' ? new mongoose.Types.ObjectId(vendorId) : vendorId)
             : null;
-          
+
           if (vendorObjectId) {
             // Find vendor's job posts
-            const jobPosts = await RiderJobPost.find({ 
-              vendor: vendorObjectId, 
-              isActive: true 
+            const jobPosts = await RiderJobPost.find({
+              vendor: vendorObjectId,
+              isActive: true
             }).select('_id').lean();
-            
+
             if (jobPosts && jobPosts.length > 0) {
               const jobPostIds = jobPosts.map(jp => jp._id);
-              
+
               // Find assigned/confirmed riders for this vendor's job posts
               // Try confirmed first, then any assigned/approved
               let assignedApplication = await RiderJobApplication.findOne({
@@ -1601,21 +1601,21 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
                 status: { $in: ['assigned', 'approved'] },
                 confirmed: true,
               })
-              .populate('rider', 'fullName mobileNumber currentAddress')
-              .sort({ confirmedAt: -1, assignedAt: -1 })
-              .lean();
-              
+                .populate('rider', 'fullName mobileNumber currentAddress')
+                .sort({ confirmedAt: -1, assignedAt: -1 })
+                .lean();
+
               // If no confirmed rider, try any assigned/approved rider
               if (!assignedApplication) {
                 assignedApplication = await RiderJobApplication.findOne({
                   jobPost: { $in: jobPostIds },
                   status: { $in: ['assigned', 'approved'] },
                 })
-                .populate('rider', 'fullName mobileNumber currentAddress')
-                .sort({ assignedAt: -1 })
-                .lean();
+                  .populate('rider', 'fullName mobileNumber currentAddress')
+                  .sort({ assignedAt: -1 })
+                  .lean();
               }
-              
+
               if (assignedApplication && assignedApplication.rider) {
                 const rider = assignedApplication.rider;
                 riderInfo = {
@@ -1631,10 +1631,10 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
                 confirmedForVendor: vendorObjectId,
                 confirmed: true,
               })
-              .populate('rider', 'fullName mobileNumber currentAddress')
-              .sort({ confirmedAt: -1 })
-              .lean();
-              
+                .populate('rider', 'fullName mobileNumber currentAddress')
+                .sort({ confirmedAt: -1 })
+                .lean();
+
               if (confirmedApplication && confirmedApplication.rider) {
                 const rider = confirmedApplication.rider;
                 riderInfo = {
@@ -1661,137 +1661,137 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       const itemCashback = item.cashback || 0;
       const itemSubtotal = quantity * unitPrice;
       const itemTotal = item.totalPrice || itemSubtotal;
-      
+
       return {
-      // Individual Product Order Information
-      itemIndex: index + 1, // Position in order
-      itemId: item._id || null,
-      
-      // Individual Product Quantity
-      quantity: quantity, // Quantity of this specific product in the order
-      orderQuantity: quantity, // Alias for clarity
-      individualQuantity: quantity, // Individual product quantity
-      
-      // Individual Product Pricing - Per Unit
-      unitPrice: unitPrice, // Price per single unit at time of order
-      perUnitPrice: unitPrice, // Alias for clarity
-      salePrice: salePrice, // Sale price per unit at time of order
-      regularPrice: item.product?.regularPrice || item.product?.actualPrice || 0, // Regular price per unit
-      actualPrice: item.product?.actualPrice || 0, // Actual price per unit
-      
-      // Individual Product Pricing - Total for this item
-      itemSubtotal: itemSubtotal, // Subtotal for this item (quantity * unitPrice)
-      itemTotal: itemTotal, // Total price for this specific product item
-      totalPrice: itemTotal, // Alias
-      
-      // Individual Product Tax and Charges
-      itemTax: itemTax, // Tax amount for this individual product
-      itemTaxAmount: itemTax, // Alias
-      itemTaxPercentage: item.product?.tax || 0, // Tax percentage for this product
-      itemCashback: itemCashback, // Cashback for this individual product
-      itemCashbackAmount: itemCashback, // Alias
-      
-      // SKU Information
-      sku: item.sku || item.product?.skuHsn || null,
-      skuHsn: item.product?.skuHsn || item.sku || null,
-      
-      // Complete Individual Product Pricing Breakdown
-      individualProductPricing: {
-        // Quantity Information
-        quantity: quantity,
-        quantityOrdered: quantity,
-        
-        // Per Unit Pricing
-        unitPrice: unitPrice,
-        perUnitPrice: unitPrice,
-        salePricePerUnit: salePrice,
-        regularPricePerUnit: item.product?.regularPrice || item.product?.actualPrice || 0,
-        actualPricePerUnit: item.product?.actualPrice || 0,
-        
-        // Total Pricing for this item
-        subtotal: itemSubtotal, // quantity * unitPrice
-        totalBeforeTax: itemSubtotal,
-        taxAmount: itemTax,
-        taxPercentage: item.product?.tax || 0,
-        cashbackAmount: itemCashback,
-        totalAfterTax: itemTotal,
-        finalTotal: itemTotal, // Final amount for this product item
-        
-        // Price Breakdown Calculation
-        calculation: {
+        // Individual Product Order Information
+        itemIndex: index + 1, // Position in order
+        itemId: item._id || null,
+
+        // Individual Product Quantity
+        quantity: quantity, // Quantity of this specific product in the order
+        orderQuantity: quantity, // Alias for clarity
+        individualQuantity: quantity, // Individual product quantity
+
+        // Individual Product Pricing - Per Unit
+        unitPrice: unitPrice, // Price per single unit at time of order
+        perUnitPrice: unitPrice, // Alias for clarity
+        salePrice: salePrice, // Sale price per unit at time of order
+        regularPrice: item.product?.regularPrice || item.product?.actualPrice || 0, // Regular price per unit
+        actualPrice: item.product?.actualPrice || 0, // Actual price per unit
+
+        // Individual Product Pricing - Total for this item
+        itemSubtotal: itemSubtotal, // Subtotal for this item (quantity * unitPrice)
+        itemTotal: itemTotal, // Total price for this specific product item
+        totalPrice: itemTotal, // Alias
+
+        // Individual Product Tax and Charges
+        itemTax: itemTax, // Tax amount for this individual product
+        itemTaxAmount: itemTax, // Alias
+        itemTaxPercentage: item.product?.tax || 0, // Tax percentage for this product
+        itemCashback: itemCashback, // Cashback for this individual product
+        itemCashbackAmount: itemCashback, // Alias
+
+        // SKU Information
+        sku: item.sku || item.product?.skuHsn || null,
+        skuHsn: item.product?.skuHsn || item.sku || null,
+
+        // Complete Individual Product Pricing Breakdown
+        individualProductPricing: {
+          // Quantity Information
+          quantity: quantity,
+          quantityOrdered: quantity,
+
+          // Per Unit Pricing
+          unitPrice: unitPrice,
+          perUnitPrice: unitPrice,
+          salePricePerUnit: salePrice,
+          regularPricePerUnit: item.product?.regularPrice || item.product?.actualPrice || 0,
+          actualPricePerUnit: item.product?.actualPrice || 0,
+
+          // Total Pricing for this item
+          subtotal: itemSubtotal, // quantity * unitPrice
+          totalBeforeTax: itemSubtotal,
+          taxAmount: itemTax,
+          taxPercentage: item.product?.tax || 0,
+          cashbackAmount: itemCashback,
+          totalAfterTax: itemTotal,
+          finalTotal: itemTotal, // Final amount for this product item
+
+          // Price Breakdown Calculation
+          calculation: {
+            quantity: quantity,
+            unitPrice: unitPrice,
+            baseAmount: itemSubtotal,
+            tax: itemTax,
+            cashback: itemCashback,
+            total: itemTotal,
+            formula: `${quantity} × ₹${unitPrice} = ₹${itemSubtotal}${itemTax > 0 ? ` + Tax ₹${itemTax}` : ''}${itemCashback > 0 ? ` - Cashback ₹${itemCashback}` : ''} = ₹${itemTotal}`
+          }
+        },
+
+        // Item pricing breakdown (simplified)
+        itemPricing: {
           quantity: quantity,
           unitPrice: unitPrice,
-          baseAmount: itemSubtotal,
+          salePrice: salePrice,
+          subtotal: itemSubtotal,
           tax: itemTax,
           cashback: itemCashback,
-          total: itemTotal,
-          formula: `${quantity} × ₹${unitPrice} = ₹${itemSubtotal}${itemTax > 0 ? ` + Tax ₹${itemTax}` : ''}${itemCashback > 0 ? ` - Cashback ₹${itemCashback}` : ''} = ₹${itemTotal}`
+          total: itemTotal
+        },
+
+        // Full product details
+        product: item.product ? {
+          _id: item.product._id || null,
+          productNumber: item.product.productNumber || null,
+          productName: item.product.productName || item.productName || null,
+          productType: item.product.productType || null,
+          category: item.product.category ? {
+            _id: item.product.category._id || null,
+            name: item.product.category.name || null
+          } : null,
+          subCategory: item.product.subCategory ? {
+            _id: item.product.subCategory._id || null,
+            name: item.product.subCategory.name || null
+          } : null,
+          thumbnail: item.product.thumbnail || null,
+          images: item.product.images || [],
+          description: item.product.description || null,
+          skus: item.product.skus || [],
+          inventory: item.product.inventory || 0,
+          initialInventory: item.product.initialInventory || 0,
+          skuHsn: item.product.skuHsn || null,
+          actualPrice: item.product.actualPrice || 0,
+          regularPrice: item.product.regularPrice || 0,
+          salePrice: item.product.salePrice || 0,
+          cashback: item.product.cashback || 0,
+          tax: item.product.tax || 0,
+          discountPercentage: item.product.discountPercentage || 0,
+          tags: item.product.tags || [],
+          vendor: item.product.vendor ? {
+            _id: item.product.vendor._id || null,
+            vendorName: item.product.vendor.vendorName || null,
+            storeName: item.product.vendor.storeName || null,
+            storeId: item.product.vendor.storeId || null
+          } : null,
+          latitude: item.product.latitude || null,
+          longitude: item.product.longitude || null,
+          approvalStatus: item.product.approvalStatus || null,
+          isActive: item.product.isActive !== undefined ? item.product.isActive : true,
+          offerEnabled: item.product.offerEnabled || false,
+          offerDiscountPercentage: item.product.offerDiscountPercentage || 0,
+          offerStartDate: item.product.offerStartDate || null,
+          offerEndDate: item.product.offerEndDate || null,
+          isDailyOffer: item.product.isDailyOffer || false,
+          originalSalePrice: item.product.originalSalePrice || null,
+          createdAt: item.product.createdAt || null,
+          updatedAt: item.product.updatedAt || null
+        } : {
+          // Fallback if product is not populated
+          productName: item.productName || null,
+          description: item.description || null,
+          skuHsn: item.sku || null
         }
-      },
-      
-      // Item pricing breakdown (simplified)
-      itemPricing: {
-        quantity: quantity,
-        unitPrice: unitPrice,
-        salePrice: salePrice,
-        subtotal: itemSubtotal,
-        tax: itemTax,
-        cashback: itemCashback,
-        total: itemTotal
-      },
-      
-      // Full product details
-      product: item.product ? {
-        _id: item.product._id || null,
-        productNumber: item.product.productNumber || null,
-        productName: item.product.productName || item.productName || null,
-        productType: item.product.productType || null,
-        category: item.product.category ? {
-          _id: item.product.category._id || null,
-          name: item.product.category.name || null
-        } : null,
-        subCategory: item.product.subCategory ? {
-          _id: item.product.subCategory._id || null,
-          name: item.product.subCategory.name || null
-        } : null,
-        thumbnail: item.product.thumbnail || null,
-        images: item.product.images || [],
-        description: item.product.description || null,
-        skus: item.product.skus || [],
-        inventory: item.product.inventory || 0,
-        initialInventory: item.product.initialInventory || 0,
-        skuHsn: item.product.skuHsn || null,
-        actualPrice: item.product.actualPrice || 0,
-        regularPrice: item.product.regularPrice || 0,
-        salePrice: item.product.salePrice || 0,
-        cashback: item.product.cashback || 0,
-        tax: item.product.tax || 0,
-        discountPercentage: item.product.discountPercentage || 0,
-        tags: item.product.tags || [],
-        vendor: item.product.vendor ? {
-          _id: item.product.vendor._id || null,
-          vendorName: item.product.vendor.vendorName || null,
-          storeName: item.product.vendor.storeName || null,
-          storeId: item.product.vendor.storeId || null
-        } : null,
-        latitude: item.product.latitude || null,
-        longitude: item.product.longitude || null,
-        approvalStatus: item.product.approvalStatus || null,
-        isActive: item.product.isActive !== undefined ? item.product.isActive : true,
-        offerEnabled: item.product.offerEnabled || false,
-        offerDiscountPercentage: item.product.offerDiscountPercentage || 0,
-        offerStartDate: item.product.offerStartDate || null,
-        offerEndDate: item.product.offerEndDate || null,
-        isDailyOffer: item.product.isDailyOffer || false,
-        originalSalePrice: item.product.originalSalePrice || null,
-        createdAt: item.product.createdAt || null,
-        updatedAt: item.product.updatedAt || null
-      } : {
-        // Fallback if product is not populated
-        productName: item.productName || null,
-        description: item.description || null,
-        skuHsn: item.sku || null
-      }
       };
     });
 
@@ -1815,7 +1815,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
     // Get base URL from environment or use default
     const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
     const invoiceBasePath = order.invoicePdf?.url || null;
-    
+
     // Generate full URLs for view and download
     const invoiceViewUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null;
     const invoiceDownloadUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null;
@@ -1824,7 +1824,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       // Order basic info
       orderNumber: order.orderNumber || null,
       orderId: order._id || null,
-      
+
       // Order status
       status: order.status || 'order_placed',
       statusHistory: {
@@ -1839,7 +1839,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         cancellationReason: order.cancellationReason || null,
         cancelledBy: order.cancelledBy || null,
       },
-      
+
       // Payment information
       payment: {
         method: order.payment?.method || null,
@@ -1848,24 +1848,24 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
         transactionId: order.payment?.transactionId || null,
         paidAt: order.payment?.paidAt || null,
       },
-      
+
       // Shipping address
       shippingAddress: order.shippingAddress || null,
-      
+
       // Coupon information
       coupon: order.coupon ? {
         code: order.coupon.code || null,
         discount: order.coupon.discount || 0,
       } : null,
-      
+
       // Vendors
       vendors: Array.from(vendorMap.values()),
-      
+
       // Rider information
       rider: riderInfo,
       assignedAt: order.assignedAt || null,
       estimatedDelivery: order.estimatedDelivery || null,
-      
+
       // Simple items array (as stored in order schema)
       items: order.items?.map(item => ({
         product: item.product?._id || item.product || null,
@@ -1883,20 +1883,20 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       })) || [],
       totalItems: order.items?.length || 0,
       totalQuantity: order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
-      
+
       // Complete pricing breakdown
       pricing: pricing,
-      
+
       // Invoice
       invoice: {
         viewUrl: invoiceViewUrl,
         downloadUrl: invoiceDownloadUrl,
       },
-      
+
       // Dates
       createdAt: order.createdAt || null,
       updatedAt: order.updatedAt || null,
-      
+
       // Additional order info
       notes: order.notes || null,
       deliveryImage: order.deliveryImage || null,
@@ -1923,14 +1923,14 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
 exports.getOrderById = async (orderId, userId = null) => {
   const mongoose = require('mongoose');
   let query = {};
-  
+
   // Check if orderId is a valid ObjectId, otherwise search by orderNumber
   if (mongoose.Types.ObjectId.isValid(orderId)) {
     query._id = orderId;
   } else {
     query.orderNumber = orderId;
   }
-  
+
   if (userId) {
     query.user = userId;
   }
@@ -1994,7 +1994,7 @@ exports.getOrderById = async (orderId, userId = null) => {
       };
     }
   }
-  
+
   if (!riderInfo && order.rider) {
     riderInfo = {
       name: order.rider.fullName || null,
@@ -2022,7 +2022,7 @@ exports.getOrderById = async (orderId, userId = null) => {
   // Get base URL from environment or use default
   const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
   const invoiceBasePath = order.invoicePdf?.url || null;
-  
+
   // Generate full URLs for view and download
   const invoiceViewUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null;
   const invoiceDownloadUrl = invoiceBasePath ? `${baseUrl}${invoiceBasePath}?download=true` : null;
@@ -2031,7 +2031,7 @@ exports.getOrderById = async (orderId, userId = null) => {
     // Order basic info
     orderNumber: order.orderNumber || null,
     orderId: order._id || null,
-    
+
     // Order status
     status: order.status || 'order_placed',
     statusHistory: {
@@ -2046,7 +2046,7 @@ exports.getOrderById = async (orderId, userId = null) => {
       cancellationReason: order.cancellationReason || null,
       cancelledBy: order.cancelledBy || null,
     },
-    
+
     // Payment information
     payment: {
       method: order.payment?.method || null,
@@ -2055,24 +2055,24 @@ exports.getOrderById = async (orderId, userId = null) => {
       transactionId: order.payment?.transactionId || null,
       paidAt: order.payment?.paidAt || null,
     },
-    
+
     // Shipping address
     shippingAddress: order.shippingAddress || null,
-    
+
     // Coupon information
     coupon: order.coupon ? {
       code: order.coupon.code || null,
       discount: order.coupon.discount || 0,
     } : null,
-    
+
     // Vendors
     vendors: Array.from(vendorMap.values()),
-    
+
     // Rider information
     rider: riderInfo,
     assignedAt: order.assignedAt || null,
     estimatedDelivery: order.estimatedDelivery || null,
-    
+
     // Simple items array (as stored in order schema)
     items: order.items?.map(item => ({
       product: item.product?._id || item.product || null,
@@ -2090,25 +2090,25 @@ exports.getOrderById = async (orderId, userId = null) => {
     })) || [],
     totalItems: order.items?.length || 0,
     totalQuantity: order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
-    
+
     // Complete pricing breakdown
     pricing: pricing,
-    
+
     // Invoice
     invoice: {
       viewUrl: invoiceViewUrl,
       downloadUrl: invoiceDownloadUrl,
     },
-    
+
     // Dates
     createdAt: order.createdAt || null,
     updatedAt: order.updatedAt || null,
-    
+
     // Additional order info
     notes: order.notes || null,
     deliveryImage: order.deliveryImage || null,
     deliveredImage: order.deliveredImage || null,
-    
+
     // User info
     user: order.user || null,
   };
@@ -2159,7 +2159,7 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
   const ordersWithVendorItems = orders.map(order => {
     const orderObj = { ...order };
     orderObj.items = orderObj.items
-      .filter(item => 
+      .filter(item =>
         item.vendor && item.vendor._id.toString() === vendorId.toString()
       )
       .map(item => {
@@ -2175,11 +2175,11 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
           status: order.status || 'order_placed',
         };
       });
-    
+
     // Recalculate pricing for vendor's items only
     const vendorItemsSubtotal = orderObj.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     const vendorItemsCashback = orderObj.items.reduce((sum, item) => sum + (item.cashback || 0), 0);
-    
+
     orderObj.vendorPricing = {
       itemsSubtotal: parseFloat(vendorItemsSubtotal.toFixed(2)),
       itemsCashback: parseFloat(vendorItemsCashback.toFixed(2)),
@@ -2202,14 +2202,14 @@ exports.getVendorOrders = async (vendorId, page = 1, limit = 10, status = null) 
 
     // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
     orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
-    
+
     // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
     orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
     // Add invoice PDF URLs with proper domain
     const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.rushbaskets.com';
     const invoiceBasePath = orderObj.invoicePdf?.url || null;
-    
+
     // Generate full URLs for view and download
     orderObj.invoice = {
       viewUrl: invoiceBasePath ? `${baseUrl}${invoiceBasePath}` : null,
@@ -2295,7 +2295,7 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       // If user is populated object, get _id
       if (order.user._id) {
         userIds.push(order.user._id);
-      } 
+      }
       // If user is just ObjectId string
       else if (typeof order.user === 'string') {
         userIds.push(order.user);
@@ -2306,9 +2306,9 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       }
     }
   });
-  
+
   const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
-  
+
   // Fetch all users in one query
   const usersMap = {};
   if (uniqueUserIds.length > 0) {
@@ -2316,7 +2316,7 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
       const users = await User.find({ _id: { $in: uniqueUserIds } })
         .select('userName contactNumber email')
         .lean();
-      
+
       users.forEach(user => {
         usersMap[user._id.toString()] = user;
       });
@@ -2349,7 +2349,7 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
     // Extract user information - check populated user first, then fetch from map
     let user = order.user;
     let userId = null;
-    
+
     // Extract user ID from order
     if (user) {
       if (user._id) {
@@ -2360,7 +2360,7 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
         userId = user.toString();
       }
     }
-    
+
     // If user is not populated (just ObjectId) or missing userName, fetch from usersMap
     if (userId) {
       if (!user || typeof user === 'string' || !user.userName) {
@@ -2428,7 +2428,7 @@ exports.getAllOrders = async (page = 1, limit = 10, filters = {}) => {
 exports.getVendorOrderById = async (orderId, vendorId) => {
   let order;
   const mongoose = require('mongoose');
-  
+
   // Check if orderId is a valid ObjectId, otherwise search by orderNumber
   if (mongoose.Types.ObjectId.isValid(orderId)) {
     order = await Order.findById(orderId)
@@ -2456,7 +2456,7 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
   }
 
   // Check if order has items from this vendor
-  const vendorItems = order.items.filter(item => 
+  const vendorItems = order.items.filter(item =>
     item.vendor && item.vendor._id.toString() === vendorId.toString()
   );
 
@@ -2507,7 +2507,7 @@ exports.getVendorOrderById = async (orderId, vendorId) => {
 
   // Ensure deliveryAmount is included (check pricing first, then fallback to top-level)
   orderObj.deliveryAmount = orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
-  
+
   // Ensure riderAmount is included from pricing (same as deliveryAmount - this is what the rider earns)
   orderObj.riderAmount = orderObj.pricing?.riderAmount || orderObj.pricing?.deliveryAmount || orderObj.deliveryAmount || 0;
 
@@ -2545,11 +2545,11 @@ exports.notifyRidersForOrder = async (order) => {
     for (const rider of ridersForVendors) {
       const hasActiveOrder = await Order.findOne({
         rider: rider._id,
-        status: { 
-          $nin: ['delivered', 'cancelled', 'refunded'] 
+        status: {
+          $nin: ['delivered', 'cancelled', 'refunded']
         },
       });
-      
+
       // Only include riders who don't have active orders
       if (!hasActiveOrder) {
         ridersWithoutActiveOrders.push(rider._id.toString());
@@ -2579,7 +2579,7 @@ exports.notifyRidersForOrder = async (order) => {
     if (order.user) {
       const userId = order.user._id || order.user;
       userDetails = await User.findById(userId).select('userName contactNumber email address addresses');
-      
+
       if (userDetails) {
         // Use exact database field names
         userDetails = {
@@ -2596,7 +2596,7 @@ exports.notifyRidersForOrder = async (order) => {
     const vendorAddresses = [];
     if (vendorIds.length > 0) {
       const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id vendorName storeName storeAddress contactNumber');
-      
+
       for (const vendor of vendors) {
         if (vendor.storeAddress) {
           vendorAddresses.push({
@@ -2635,10 +2635,10 @@ exports.notifyRidersForOrder = async (order) => {
     // Send WebSocket notifications to riders
     try {
       const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
-      
+
       // Firebase push notifications removed - using socket notifications only
       // Socket notifications are sent via sendOrderAssignmentRequestToRiders above
-      
+
       // Also send to notification queue for offline riders (optional fallback)
       if (notificationQueue) {
         // Build vendor details string for notification message
@@ -2654,7 +2654,7 @@ exports.notifyRidersForOrder = async (order) => {
             vendor.storeAddress.state,
             vendor.storeAddress.pinCode
           ].filter(Boolean).join(', ') : '';
-          
+
           vendorDetailsText = `\nVendor: ${vendorName}`;
           if (vendorPhone) {
             vendorDetailsText += `\nPhone: ${vendorPhone}`;
@@ -2690,7 +2690,7 @@ exports.notifyRidersForOrder = async (order) => {
                 order: orderData,
               },
             };
-            
+
             await notificationQueue.add(queueNotificationPayload);
           }
         }
@@ -2711,7 +2711,7 @@ exports.notifyRidersForOrder = async (order) => {
             vendor.storeAddress.state,
             vendor.storeAddress.pinCode
           ].filter(Boolean).join(', ') : '';
-          
+
           vendorDetailsText = `\nVendor: ${vendorName}`;
           if (vendorPhone) {
             vendorDetailsText += `\nPhone: ${vendorPhone}`;
@@ -2767,7 +2767,7 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
   }
 
   // Check if order has items from this vendor
-  const vendorItems = order.items.filter(item => 
+  const vendorItems = order.items.filter(item =>
     item.vendor && item.vendor.toString() === vendorId.toString()
   );
 
@@ -2798,22 +2798,22 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
     // Note: Wallet update now happens on payment verification, not on status change
   } else if (status === 'delivered') {
     order.deliveredAt = new Date();
-    
+
     // If COD payment, add amount to user wallet
     if (order.payment.method === 'cod' && order.payment.status !== 'completed') {
       try {
         const Wallet = require('../models/Wallet');
-        
+
         // Find or create wallet for user
         let wallet = await Wallet.findOne({ user: order.user });
         if (!wallet) {
           wallet = await Wallet.create({ user: order.user, balance: 0 });
         }
-        
+
         // Add COD payment amount to wallet
         const codAmount = order.payment.amount;
         wallet.balance += codAmount;
-        
+
         // Add transaction record
         wallet.transactions.push({
           type: 'credit',
@@ -2822,13 +2822,13 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
           orderNumber: order.orderNumber,
           description: `COD payment received for order ${order.orderNumber}`,
         });
-        
+
         await wallet.save();
-        
+
         // Update order payment status
         order.payment.status = 'completed';
         order.payment.paidAt = new Date();
-        
+
         logger.info(`COD payment added to wallet for user ${order.user}, order ${order.orderNumber}, amount: ${codAmount}`);
       } catch (walletError) {
         logger.error('Error adding COD payment to wallet:', walletError);
@@ -2842,64 +2842,64 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
 
   await order.save();
 
-    // Send push notification to user about order status update
-    if (order.user && ['confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
-      try {
-        const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
-        await sendOrderStatusNotification(order.user, {
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          status: status,
-        });
-      } catch (pushError) {
-        logger.error('Error sending push notification for order status update:', pushError);
-        // Don't fail the request if push notification fails
-      }
-    }
-
-    // Send push notification to vendor about order status update
+  // Send push notification to user about order status update
+  if (order.user && ['confirmed', 'processing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
     try {
-      const { sendVendorPushNotification } = require('../utils/firebaseNotification');
-      
-      // Get fresh order data
-      const updatedOrder = await Order.findById(order._id)
-        .populate('user', 'userName contactNumber email')
-        .populate('items.product', 'productName thumbnail')
-        .populate('items.vendor', 'storeName storeId')
-        .populate('coupon.couponId', 'couponName code')
-        .populate('rider', 'fullName mobileNumber');
+      const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+      await sendOrderStatusNotification(order.user, {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: status,
+      });
+    } catch (pushError) {
+      logger.error('Error sending push notification for order status update:', pushError);
+      // Don't fail the request if push notification fails
+    }
+  }
 
-      // Send notification for ALL status changes
-      // Only send if status actually changed
-      if (previousStatus !== status) {
-        const statusMessages = {
-          'pending': 'Order is pending',
-          'order_placed': 'New order has been placed',
-          'confirmed': 'Order has been confirmed',
-          'processing': 'Order is being processed',
-          'ready': 'Order is ready for pickup',
-          'rider_assign': 'Rider has been assigned to order',
-          'out_for_delivery': 'Order is out for delivery',
-          'delivered': 'Order has been delivered',
-          'cancelled': 'Order has been cancelled',
-          'refunded': 'Order has been refunded',
-        };
+  // Send push notification to vendor about order status update
+  try {
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
 
-        await sendVendorPushNotification(vendorId, {
-          type: 'order_status_updated',
-          title: 'Order Status Updated',
-          message: `Order #${order.orderNumber} status changed from ${previousStatus} to ${status}. ${statusMessages[status] || 'Status updated'}`,
+    // Get fresh order data
+    const updatedOrder = await Order.findById(order._id)
+      .populate('user', 'userName contactNumber email')
+      .populate('items.product', 'productName thumbnail')
+      .populate('items.vendor', 'storeName storeId')
+      .populate('coupon.couponId', 'couponName code')
+      .populate('rider', 'fullName mobileNumber');
+
+    // Send notification for ALL status changes
+    // Only send if status actually changed
+    if (previousStatus !== status) {
+      const statusMessages = {
+        'pending': 'Order is pending',
+        'order_placed': 'New order has been placed',
+        'confirmed': 'Order has been confirmed',
+        'processing': 'Order is being processed',
+        'ready': 'Order is ready for pickup',
+        'rider_assign': 'Rider has been assigned to order',
+        'out_for_delivery': 'Order is out for delivery',
+        'delivered': 'Order has been delivered',
+        'cancelled': 'Order has been cancelled',
+        'refunded': 'Order has been refunded',
+      };
+
+      await sendVendorPushNotification(vendorId, {
+        type: 'order_status_updated',
+        title: 'Order Status Updated',
+        message: `Order #${order.orderNumber} status changed from ${previousStatus} to ${status}. ${statusMessages[status] || 'Status updated'}`,
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        status: status,
+        data: {
           orderId: order._id.toString(),
           orderNumber: order.orderNumber,
           status: status,
-          data: {
-            orderId: order._id.toString(),
-            orderNumber: order.orderNumber,
-            status: status,
-            previousStatus: previousStatus,
-          },
-        });
-      }
+          previousStatus: previousStatus,
+        },
+      });
+    }
   } catch (notifyError) {
     // Don't fail the request if push notification fails
     logger.error('Error sending push notification to vendor for order status update:', notifyError);
@@ -2923,8 +2923,10 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     throw new Error('Order not found');
   }
 
-  if (!['pending', 'order_placed', 'confirmed', 'processing'].includes(order.status)) {
-    throw new Error('Order cannot be cancelled at this stage');
+  // Allow cancellation until pickup (out_for_delivery)
+  const cancellableStatuses = ['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign'];
+  if (!cancellableStatuses.includes(order.status)) {
+    throw new Error(`Order cannot be cancelled at this stage (${order.status}). It may have already been picked up or delivered.`);
   }
 
   // Restore inventory
@@ -2943,35 +2945,106 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
     }
   }
 
-  // Update order
+  // Refund to user wallet if prepaid and payment was successful
+  if (order.payment.method !== 'cod' && order.payment.status === 'completed') {
+    try {
+      const Wallet = require('../models/Wallet');
+      let wallet = await Wallet.findOne({ user: userId });
+      if (!wallet) {
+        wallet = await Wallet.create({ user: userId, balance: 0 });
+      }
+
+      const refundAmount = order.payment.amount || 0;
+      if (refundAmount > 0) {
+        wallet.balance += refundAmount;
+        wallet.transactions.push({
+          type: 'credit',
+          amount: refundAmount,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          description: `Refund for cancelled order #${order.orderNumber}`,
+          createdAt: new Date()
+        });
+        await wallet.save();
+        logger.info(`Automatically refunded ₹${refundAmount.toFixed(2)} to user ${userId} wallet for cancelled order ${order.orderNumber}`);
+      }
+    } catch (refundError) {
+      logger.error(`Automatic refund failed for cancelled order ${order.orderNumber}:`, refundError);
+      // We continue with cancellation even if automatic refund to wallet fails
+    }
+  }
+
+  // Update order status
   const previousStatus = order.status;
+  const assignedRider = order.rider; // Save for notification later
+
   order.status = 'cancelled';
   order.cancelledAt = new Date();
   order.cancelledBy = 'user';
   order.cancellationReason = reason;
+  // If COD, mark failed. If prepaid, mark as refunded (since we just added to wallet)
   order.payment.status = order.payment.method === 'cod' ? 'failed' : 'refunded';
+
+  // Explicitly free the rider from this order
+  order.rider = undefined;
+
+  // Update assignment requests status to expired
+  if (order.assignmentRequestSentTo && order.assignmentRequestSentTo.length > 0) {
+    order.assignmentRequestSentTo.forEach(req => {
+      if (req.status === 'pending' || req.status === 'accepted') {
+        req.status = 'expired';
+        req.respondedAt = new Date();
+      }
+    });
+  }
 
   await order.save();
 
-  // Deduct cashback from user account when order is cancelled
+  // Socket notification data
+  const socketData = {
+    orderId: order._id,
+    orderNumber: order.orderNumber,
+    status: 'cancelled',
+    cancelledBy: 'user',
+    cancellationReason: reason,
+    amount: order.pricing?.total || 0,
+    deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
+    pricing: order.pricing,
+    shippingAddress: order.shippingAddress,
+  };
+
+  // Notify user via WebSocket
+  try {
+    notifyUserOrderUpdate(userId, socketData);
+  } catch (socketError) {
+    logger.error('Error sending user WebSocket notification for cancellation:', socketError);
+  }
+
+  // Notify rider via WebSocket
+  if (assignedRider) {
+    try {
+      notifyRiderOrderUpdate(assignedRider, socketData);
+    } catch (socketError) {
+      logger.error('Error sending rider WebSocket notification for cancellation:', socketError);
+    }
+  }
+
+  // Deduct/Revert cashback earned from this order from user account
   const orderCashback = order.pricing?.totalCashback || 0;
-  
+
   if (orderCashback > 0) {
     try {
       const user = await User.findById(userId);
       if (user) {
         const previousCashback = user.cashback || 0;
         const newCashback = Math.max(0, previousCashback - orderCashback); // Ensure cashback doesn't go negative
-        
+
         user.cashback = newCashback;
         await user.save();
-        
+
         logger.info(`Cashback deducted from user ${userId} for cancelled order ${order.orderNumber}: Previous: ₹${previousCashback}, Deducted: ₹${orderCashback}, New Total: ₹${newCashback}`);
-      } else {
-        logger.warn(`User ${userId} not found when trying to deduct cashback for cancelled order ${order.orderNumber}`);
       }
     } catch (error) {
-      // Don't throw error, just log it - order cancellation should still proceed
       logger.error(`Error deducting cashback from user ${userId} for cancelled order ${order.orderNumber}:`, error);
     }
   }
@@ -2985,15 +3058,38 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
       status: 'cancelled',
     });
   } catch (pushError) {
-    logger.error('Error sending push notification for order cancellation:', pushError);
-    // Don't fail the request if push notification fails
+    logger.error('Error sending push notification to user for order cancellation:', pushError);
+  }
+
+  // Notify assigned rider (if any)
+  if (assignedRider) {
+    try {
+      const { sendRiderPushNotification } = require('../utils/firebaseNotification');
+      await sendRiderPushNotification(assignedRider.toString(), {
+        type: 'order_cancelled',
+        title: 'Order Cancelled',
+        message: `Order #${order.orderNumber} has been cancelled by the customer.`,
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        status: 'cancelled',
+        data: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: 'cancelled',
+          cancelledBy: 'user',
+        },
+      });
+      logger.info(`Notified rider ${assignedRider} about order cancellation ${order.orderNumber}`);
+    } catch (riderNotifyError) {
+      logger.error(`Error notifying rider ${assignedRider} about cancellation:`, riderNotifyError);
+    }
   }
 
   // Notify all vendors in the order about cancellation
   try {
     const { sendVendorPushNotification } = require('../utils/firebaseNotification');
     const vendorIds = new Set();
-    
+
     // Get all unique vendor IDs from order items
     order.items.forEach(item => {
       const itemVendorId = item.vendor?._id || item.vendor;
@@ -3030,8 +3126,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
       }
     }
   } catch (notifyError) {
-    // Don't fail the request if socket notification fails
-    logger.error('Error sending socket notifications for order cancellation:', notifyError);
+    logger.error('Error sending vendor notifications for order cancellation:', notifyError);
   }
 
   return await Order.findById(order._id)
@@ -3106,8 +3201,8 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       const itemProductId = item.product?._id || item.product;
       const itemSku = item.sku || '';
       const newSku = sku || '';
-      return itemProductId && itemProductId.toString() === productId.toString() && 
-             itemSku === newSku;
+      return itemProductId && itemProductId.toString() === productId.toString() &&
+        itemSku === newSku;
     });
 
     // Check inventory
@@ -3132,7 +3227,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
     const now = new Date();
     let unitPrice;
     let isOfferActive = false;
-    
+
     if (product.offerEnabled && product.offerDiscountPercentage > 0) {
       if (product.offerStartDate && product.offerEndDate) {
         const startDate = new Date(product.offerStartDate);
@@ -3148,7 +3243,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
         isOfferActive = true;
       }
     }
-    
+
     if (isOfferActive) {
       const basePrice = product.regularPrice || product.salePrice || product.actualPrice;
       const discountAmount = (basePrice * product.offerDiscountPercentage) / 100;
@@ -3167,7 +3262,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       const oldTotalPrice = existingItem.totalPrice || 0;
       const oldCashback = existingItem.cashback || 0;
       const oldTax = existingItem.tax || 0;
-      
+
       const newQuantity = existingItem.quantity + quantity;
       const newTotalPrice = unitPrice * newQuantity;
       const newItemCashback = itemCashbackPerUnit * newQuantity;
@@ -3187,7 +3282,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       const taxDifference = newItemTax - oldTax;
       newSubtotal += revenueDifference;
       newCashback += (newItemCashback - oldCashback);
-      
+
       // Track revenue for the incremental quantity added
       if (revenueDifference > 0) {
         itemsForRevenueTracking.push({
@@ -3265,7 +3360,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       }
 
       newOrderItems.push(orderItem);
-      
+
       // Track revenue for new item
       itemsForRevenueTracking.push({
         product: productId,
@@ -3378,7 +3473,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
         order.orderNumber,
         `Cashback earned from items added to order ${order.orderNumber}`
       );
-      
+
       if (!result.success) {
         logger.warn(`Failed to add cashback for items added to order ${order.orderNumber}: ${result.error}`);
       }
@@ -3398,7 +3493,7 @@ exports.addItemsToOrder = async (orderId, vendorId, items) => {
       totalPrice: item.totalPrice,
       sku: item.sku,
     }));
-    
+
     await updateVendorRevenue(order, itemsToTrack);
   }
 
