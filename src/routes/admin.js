@@ -647,6 +647,11 @@ router.get(
       .optional()
       .isInt({ min: 1, max: 100 })
       .withMessage('Limit must be between 1 and 100'),
+    query('search')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search query cannot exceed 200 characters'),
   ],
   getVendors
 );

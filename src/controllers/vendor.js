@@ -191,14 +191,29 @@ exports.getVendors = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const search = req.query.search;
 
-    const vendors = await Vendor.find()
+    // Build query
+    const query = {};
+
+    // Add search functionality
+    if (search) {
+      query.$or = [
+        { vendorName: { $regex: search, $options: 'i' } },
+        { storeName: { $regex: search, $options: 'i' } },
+        { contactNumber: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { storeId: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const vendors = await Vendor.find(query)
       .populate('createdBy', 'name email')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
 
-    const total = await Vendor.countDocuments();
+    const total = await Vendor.countDocuments(query);
 
     res.status(200).json({
       success: true,
