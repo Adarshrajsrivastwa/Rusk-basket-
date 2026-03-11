@@ -149,6 +149,8 @@ const createVendorData = async (vendor, data, files, adminId) => {
     pinCode,
     latitude,
     longitude,
+    city,
+    state,
     ifsc,
     accountNumber,
     bankName,
@@ -164,9 +166,38 @@ const createVendorData = async (vendor, data, files, adminId) => {
     throw new Error('Bank name is required');
   }
 
+  // Validate PIN code with Post Office API, with fallback to manual city/state
+  let cityValue = city;
+  let stateValue = state;
+  
   const postOfficeData = await getPostOfficeDetails(pinCode);
-  if (!postOfficeData.success) {
-    throw new Error(postOfficeData.error || 'Invalid PIN code');
+  if (postOfficeData.success) {
+    // Use API data if available
+    cityValue = postOfficeData.city;
+    stateValue = postOfficeData.state;
+    logger.info(`Successfully validated PIN code ${pinCode} via API: ${cityValue}, ${stateValue}`);
+  } else {
+    // API failed - check if manual city/state provided as fallback
+    const errorMsg = typeof postOfficeData.error === 'string' 
+      ? postOfficeData.error 
+      : JSON.stringify(postOfficeData.error);
+    
+    if (city && state) {
+      cityValue = city.trim();
+      stateValue = state.trim();
+      logger.warn(`Post Office API failed for PIN ${pinCode}, using manual city/state: ${cityValue}, ${stateValue}`);
+      logger.warn(`API Error: ${errorMsg}`);
+    } else {
+      // No fallback available - throw error with helpful message
+      logger.error(`PIN code validation failed for PIN ${pinCode}. Error: ${errorMsg}`);
+      
+      // Provide a clear, user-friendly error message
+      const userFriendlyError = errorMsg.includes('Network error') || errorMsg.includes('ECONNRESET') || errorMsg.includes('timeout')
+        ? `Post Office API is currently unavailable. Please provide 'city' and 'state' fields in your request as a fallback. (PIN: ${pinCode})`
+        : `Invalid PIN code: ${pinCode}. ${errorMsg}. Alternatively, provide 'city' and 'state' fields manually.`;
+      
+      throw new Error(userFriendlyError);
+    }
   }
 
   // Generate storeId first and ensure it's unique
@@ -208,8 +239,8 @@ const createVendorData = async (vendor, data, files, adminId) => {
     line1: storeAddressLine1,
     line2: storeAddressLine2,
     pinCode: pinCode,
-    city: postOfficeData.city,
-    state: postOfficeData.state,
+    city: cityValue,
+    state: stateValue,
     latitude: latitude ? parseFloat(latitude) : undefined,
     longitude: longitude ? parseFloat(longitude) : undefined,
   };
@@ -278,6 +309,8 @@ const updateVendorData = async (vendor, data, files) => {
     pinCode,
     latitude,
     longitude,
+    city,
+    state,
     ifsc,
     accountNumber,
     bankName,
@@ -309,15 +342,50 @@ const updateVendorData = async (vendor, data, files) => {
   }
 
   if (pinCode !== undefined) {
+    // Validate PIN code with Post Office API, with fallback to manual city/state
+    let cityValue = city;
+    let stateValue = state;
+    
     const postOfficeData = await getPostOfficeDetails(pinCode);
-    if (!postOfficeData.success) {
-      throw new Error(postOfficeData.error || 'Invalid PIN code');
+    if (postOfficeData.success) {
+      // Use API data if available
+      cityValue = postOfficeData.city;
+      stateValue = postOfficeData.state;
+      logger.info(`Successfully validated PIN code ${pinCode} via API: ${cityValue}, ${stateValue}`);
+    } else {
+      // API failed - check if manual city/state provided as fallback
+      const errorMsg = typeof postOfficeData.error === 'string' 
+        ? postOfficeData.error 
+        : JSON.stringify(postOfficeData.error);
+      
+      if (city && state) {
+        cityValue = city.trim();
+        stateValue = state.trim();
+        logger.warn(`Post Office API failed for PIN ${pinCode}, using manual city/state: ${cityValue}, ${stateValue}`);
+        logger.warn(`API Error: ${errorMsg}`);
+      } else if (vendor.storeAddress && vendor.storeAddress.city && vendor.storeAddress.state) {
+        // Keep existing city/state if API fails and no new values provided
+        cityValue = vendor.storeAddress.city;
+        stateValue = vendor.storeAddress.state;
+        logger.warn(`Post Office API failed for PIN ${pinCode}, keeping existing city/state: ${cityValue}, ${stateValue}`);
+        logger.warn(`API Error: ${errorMsg}`);
+      } else {
+        // No fallback available - throw error with helpful message
+        logger.error(`PIN code validation failed for PIN ${pinCode}. Error: ${errorMsg}`);
+        
+        // Provide a clear, user-friendly error message
+        const userFriendlyError = errorMsg.includes('Network error') || errorMsg.includes('ECONNRESET') || errorMsg.includes('timeout')
+          ? `Post Office API is currently unavailable. Please provide 'city' and 'state' fields in your request as a fallback. (PIN: ${pinCode})`
+          : `Invalid PIN code: ${pinCode}. ${errorMsg}. Alternatively, provide 'city' and 'state' fields manually.`;
+        
+        throw new Error(userFriendlyError);
+      }
     }
 
     vendor.storeAddress = vendor.storeAddress || {};
     vendor.storeAddress.pinCode = pinCode;
-    vendor.storeAddress.city = postOfficeData.city;
-    vendor.storeAddress.state = postOfficeData.state;
+    vendor.storeAddress.city = cityValue;
+    vendor.storeAddress.state = stateValue;
   }
 
   if (storeAddressLine1 !== undefined) {

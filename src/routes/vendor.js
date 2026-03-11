@@ -120,6 +120,16 @@ router.post(
       .bail()
       .matches(/^[0-9]{6}$/)
       .withMessage('Please provide a valid 6-digit PIN code'),
+    body('city')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('City cannot be empty if provided'),
+    body('state')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('State cannot be empty if provided'),
     body('ifsc')
       .trim()
       .notEmpty()
@@ -853,6 +863,16 @@ router.put(
       .trim()
       .matches(/^[0-9]{6}$/)
       .withMessage('Please provide a valid 6-digit PIN code'),
+    body('city')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('City cannot be empty if provided'),
+    body('state')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('State cannot be empty if provided'),
     body('latitude')
       .optional()
       .isFloat()
