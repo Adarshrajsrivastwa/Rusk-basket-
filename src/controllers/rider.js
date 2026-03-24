@@ -2023,10 +2023,8 @@ exports.getRidersDueAmounts = async (req, res, next) => {
 
 /**
  * Update rider due amount from vendor API
- * This API allows vendors to update rider due amounts and deduct from earning wallet
- * Deducts: dueAmount + order's delivery charge from earningWallet
- * Also reduces dueBalance by dueAmount
- * Wallet can go negative
+ * This API allows vendors to update rider due amounts.
+ * It only reduces dueBalance by dueAmount and does not modify earningWallet.
  */
 exports.updateRiderDueAmount = async (req, res, next) => {
   try {
@@ -2093,7 +2091,7 @@ exports.updateRiderDueAmount = async (req, res, next) => {
       });
     }
 
-    // Get delivery charge from order if orderId is provided
+    // If orderId is provided, validate ownership and include order details in response only.
     let deliveryCharge = 0;
     let orderNumber = null;
     if (orderId) {
@@ -2113,42 +2111,30 @@ exports.updateRiderDueAmount = async (req, res, next) => {
         });
       }
 
-      // Get delivery charge from order
-      deliveryCharge = order.pricing?.deliveryAmount || order.deliveryAmount || 0;
+      // Keep delivery charge for reference in response (no wallet impact).
+      const rawDeliveryCharge = Number(order.pricing?.deliveryAmount ?? order.deliveryAmount ?? 0);
+      deliveryCharge = Number.isFinite(rawDeliveryCharge) ? Math.max(rawDeliveryCharge, 0) : 0;
       orderNumber = order.orderNumber;
     }
 
-    const previousDueBalance = rider.dueBalance || 0;
-    const previousEarningWallet = rider.earningWallet || 0;
+    const previousDueBalance = Number(rider.dueBalance || 0);
+    const previousEarningWallet = Number(rider.earningWallet || 0);
 
     // Calculate new due amount: current due - deduction amount
     // Allow negative due balance
     const newDueAmount = previousDueBalance - deductionAmount;
 
-    // Calculate total amount to deduct from earning wallet: dueAmount + delivery charge
-    const totalWalletDeduction = deductionAmount + deliveryCharge;
+    // Earning wallet should not be impacted when vendor updates rider due amount.
+    const totalWalletDeduction = 0;
+    const newEarningWallet = previousEarningWallet;
 
-    // Calculate new earning wallet balance (can go negative)
-    const newEarningWallet = previousEarningWallet - totalWalletDeduction;
-
-    // Update rider's due balance and earning wallet
+    // Update rider's due balance only
     // Use findOneAndUpdate with runValidators: false to allow negative values
     const updatedRider = await Rider.findOneAndUpdate(
       { _id: riderId },
       {
-        $set: {
-          dueBalance: newDueAmount,
-          earningWallet: newEarningWallet,
-        },
-        $push: {
-          walletTransactions: {
-            type: 'debit',
-            amount: totalWalletDeduction,
-            ...(orderId && { orderId: orderId }),
-            ...(orderNumber && { orderNumber: orderNumber }),
-            description: description || `Due amount (₹${deductionAmount.toFixed(2)})${deliveryCharge > 0 ? ` + Delivery charge (₹${deliveryCharge.toFixed(2)})` : ''} deducted by vendor. Previous Due: ₹${previousDueBalance.toFixed(2)}, Previous Wallet: ₹${previousEarningWallet.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}, New Wallet: ₹${newEarningWallet.toFixed(2)}`,
-            createdAt: new Date(),
-          }
+        $inc: {
+          dueBalance: -deductionAmount,
         }
       },
       {
@@ -2164,11 +2150,11 @@ exports.updateRiderDueAmount = async (req, res, next) => {
       });
     }
 
-    logger.info(`Rider ${riderId} due amount updated by vendor ${vendorId}. Previous Due: ₹${previousDueBalance.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}, Previous Wallet: ₹${previousEarningWallet.toFixed(2)}, New Wallet: ₹${newEarningWallet.toFixed(2)}, Total Deduction: ₹${totalWalletDeduction.toFixed(2)}`);
+    logger.info(`Rider ${riderId} due amount updated by vendor ${vendorId}. Previous Due: ₹${previousDueBalance.toFixed(2)}, New Due: ₹${newDueAmount.toFixed(2)}. Earning wallet unchanged at ₹${previousEarningWallet.toFixed(2)}.`);
 
     res.status(200).json({
       success: true,
-      message: 'Rider due amount and wallet updated successfully',
+      message: 'Rider due amount updated successfully. Earning wallet unchanged.',
       data: {
         rider: {
           riderId: updatedRider._id,
@@ -2192,7 +2178,7 @@ exports.updateRiderDueAmount = async (req, res, next) => {
         },
         breakdown: {
           dueAmountDeducted: deductionAmount.toFixed(2),
-          deliveryChargeDeducted: deliveryCharge.toFixed(2),
+          deliveryChargeReference: deliveryCharge.toFixed(2),
           totalDeducted: totalWalletDeduction.toFixed(2),
         },
         updatedAt: updatedRider.updatedAt,
