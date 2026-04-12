@@ -1,6 +1,5 @@
 const express = require('express');
 const { body, query, param } = require('express-validator');
-const { sendOTP, verifyOTP } = require('../controllers/userOTP');
 const { userLogin, userVerifyOTP, userLogout } = require('../controllers/userAuth');
 const { getProfile, updateProfile, getCashback, addAddress, getAddresses, updateAddress, deleteAddress, setDefaultAddress } = require('../controllers/user');
 const { getAllProducts } = require('../controllers/userProduct');
@@ -61,41 +60,6 @@ router.post(
   ],
   userVerifyOTP
 );
-
-// router.post(
-//   '/send-otp',
-//   [
-//     body('contactNumber')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('Contact number is required')
-//       .bail()
-//       .matches(/^[0-9]{10}$/)
-//       .withMessage('Please provide a valid 10-digit contact number'),
-//   ],
-//   sendOTP
-// );
-
-// router.post(
-//   '/verify-otp',
-//   [
-//     body('contactNumber')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('Contact number is required')
-//       .bail()
-//       .matches(/^[0-9]{10}$/)
-//       .withMessage('Please provide a valid 10-digit contact number'),
-//     body('otp')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('OTP is required')
-//       .bail()
-//       .matches(/^[0-9]{4}$/)
-//       .withMessage('OTP must be a 4-digit number'),
-//   ],
-//   verifyOTP
-// );
 
 // Profile routes (protected)
 router.get('/profile', protect, getProfile);

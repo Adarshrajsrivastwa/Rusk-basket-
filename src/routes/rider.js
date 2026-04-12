@@ -1,6 +1,5 @@
 const express = require('express');
 const { body, query, param } = require('express-validator');
-const { sendOTP, verifyOTP } = require('../controllers/riderOTP');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
 const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
 const {
@@ -73,41 +72,6 @@ router.post(
   ],
   riderVerifyOTP
 );
-
-// router.post(
-//   '/send-otp',
-//   [
-//     body('mobileNumber')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('Mobile number is required')
-//       .bail()
-//       .matches(/^[0-9]{10}$/)
-//       .withMessage('Please provide a valid 10-digit mobile number'),
-//   ],
-//   sendOTP
-// );
-
-// router.post(
-//   '/verify-otp',
-//   [
-//     body('mobileNumber')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('Mobile number is required')
-//       .bail()
-//       .matches(/^[0-9]{10}$/)
-//       .withMessage('Please provide a valid 10-digit mobile number'),
-//     body('otp')
-//       .trim()
-//       .notEmpty()
-//       .withMessage('OTP is required')
-//       .bail()
-//       .matches(/^[0-9]{4}$/)
-//       .withMessage('OTP must be a 4-digit number'),
-//   ],
-//   verifyOTP
-// );
 
 // Protected routes - Rider profile
 router.get('/profile', protect, getProfile);

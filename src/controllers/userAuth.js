@@ -56,8 +56,14 @@ exports.userLogin = async (req, res, next) => {
         await user.save({ validateBeforeSave: false });
         logger.info(`New user created with contact number: ${contactNumber}`);
       } catch (saveError) {
-        // Handle duplicate key error for email/phone (E11000) - auto-fix
-        if (saveError.code === 11000 && (saveError.keyPattern?.email || saveError.keyPattern?.phone || saveError.message?.includes('email') || saveError.message?.includes('phone'))) {
+        // Concurrent logins: another request may have inserted this contactNumber first
+        if (saveError.code === 11000 && saveError.keyPattern?.contactNumber) {
+          user = await User.findOne({ contactNumber });
+          if (!user) {
+            throw saveError;
+          }
+          isNewUser = false;
+        } else if (saveError.code === 11000 && (saveError.keyPattern?.email || saveError.keyPattern?.phone || saveError.message?.includes('email') || saveError.message?.includes('phone'))) {
           logger.warn(`Index issue detected (email/phone), attempting to fix: ${contactNumber}`);
 
           try {
@@ -146,39 +152,6 @@ exports.userLogin = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('User login error:', error);
-
-    // Handle duplicate key error (contact number already exists)
-    if (error.code === 11000 && error.keyPattern?.contactNumber) {
-      // Retry by finding the existing user
-      try {
-        const { contactNumber } = req.body;
-        const user = await User.findOne({ contactNumber });
-
-        if (user && user.isActive) {
-          const otpCode = user.generateOTP();
-          await user.save({ validateBeforeSave: false });
-
-          try {
-            await sendOTP(contactNumber, otpCode);
-            return res.status(200).json({
-              success: true,
-              message: 'OTP sent to your contact number',
-              contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-              isNewUser: false,
-            });
-          } catch (smsError) {
-            logger.error('Failed to send OTP on retry:', smsError);
-            return res.status(503).json({
-              success: false,
-              error: 'Failed to send OTP. Please try again shortly.',
-            });
-          }
-        }
-      } catch (retryError) {
-        logger.error('Retry error:', retryError);
-      }
-    }
-
     next(error);
   }
 };

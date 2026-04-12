@@ -49,8 +49,20 @@ exports.riderLogin = async (req, res, next) => {
         }
       }
 
-      await rider.save({ validateBeforeSave: false });
-      logger.info(`New rider created with mobile number: ${mobileNumber}`);
+      try {
+        await rider.save({ validateBeforeSave: false });
+        logger.info(`New rider created with mobile number: ${mobileNumber}`);
+      } catch (saveError) {
+        if (saveError.code === 11000 && saveError.keyPattern?.mobileNumber) {
+          rider = await Rider.findOne({ mobileNumber });
+          if (!rider) {
+            throw saveError;
+          }
+          isNewRider = false;
+        } else {
+          throw saveError;
+        }
+      }
     }
 
     // If existing rider provided referral code, completely ignore it (only for new riders)
@@ -97,41 +109,6 @@ exports.riderLogin = async (req, res, next) => {
     }
   } catch (error) {
     logger.error('Rider login error:', error);
-
-    // Handle duplicate key error (mobile number already exists)
-    if (error.code === 11000 && error.keyPattern?.mobileNumber) {
-      // Retry by finding the existing rider
-      try {
-        const { mobileNumber } = req.body;
-        const rider = await Rider.findOne({ mobileNumber });
-
-        if (rider && rider.isActive) {
-          const otpCode = rider.generateOTP();
-          await rider.save({ validateBeforeSave: false });
-
-          try {
-            await sendOTP(mobileNumber, otpCode);
-            return res.status(200).json({
-              success: true,
-              message: 'OTP sent to your mobile number',
-              mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-              isNewRider: false, // Existing rider
-            });
-          } catch (smsError) {
-            logger.error('Failed to send OTP on retry:', smsError);
-            rider.clearOTP();
-            await rider.save({ validateBeforeSave: false });
-            return res.status(500).json({
-              success: false,
-              error: 'Failed to send OTP. Please try again.',
-            });
-          }
-        }
-      } catch (retryError) {
-        logger.error('Retry error:', retryError);
-      }
-    }
-
     next(error);
   }
 };
