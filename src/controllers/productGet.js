@@ -1,9 +1,6 @@
 const Product = require('../models/Product');
 const { checkAndDisableExpiredOffer } = require('../utils/offerExpiryService');
 const logger = require('../utils/logger');
-const { isStaticDemoUserEnabled } = require('../utils/staticDemoUser');
-const { getVendorWithMostApprovedActiveProducts } = require('../utils/topVendorCatalog');
-
 /**
  * Calculate distance between two coordinates using Haversine formula
  * Returns distance in kilometers
@@ -394,9 +391,7 @@ exports.getNearbyProducts = async (req, res, next) => {
     const { latitude, longitude, radius = 10, page = 1, limit = 20, category, subCategory, search } = req.query;
 
     const hasLocation = !!(latitude && longitude);
-    const staticDemoTopVendorCatalog =
-      req.user && isStaticDemoUserEnabled(req.user.contactNumber);
-    const effectiveHasLocation = hasLocation && !staticDemoTopVendorCatalog;
+    const effectiveHasLocation = hasLocation;
     let userLat, userLon, searchRadius;
 
     if (hasLocation) {
@@ -461,32 +456,6 @@ exports.getNearbyProducts = async (req, res, next) => {
 
     if (search) {
       query.$text = { $search: search };
-    }
-
-    let staticDemoVendorMeta = null;
-    if (staticDemoTopVendorCatalog) {
-      const top = await getVendorWithMostApprovedActiveProducts();
-      if (!top) {
-        return res.status(200).json({
-          success: true,
-          count: 0,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total: 0,
-            pages: 0,
-          },
-          filters: {
-            ...(subCategory && { subCategory }),
-            ...(category && { category }),
-            ...(search && { search }),
-          },
-          data: [],
-          staticDemoTopVendorCatalog: true,
-        });
-      }
-      query.vendor = top.vendorId;
-      staticDemoVendorMeta = top;
     }
 
     // Get all products matching the filters
@@ -607,11 +576,9 @@ exports.getNearbyProducts = async (req, res, next) => {
     // Apply offer discounts to products (overrides salePrice if active offer exists)
     const productsWithOffers = await applyOfferToProducts(paginatedProducts);
 
-    const logMessage = staticDemoTopVendorCatalog
-      ? `Products retrieved (static demo top vendor): Found: ${total}, Page: ${pageNum}`
-      : hasLocation
-        ? `Products retrieved: Lat: ${userLat}, Lon: ${userLon}, Radius: ${searchRadius}km, Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`
-        : `Products retrieved: Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`;
+    const logMessage = hasLocation
+      ? `Products retrieved: Lat: ${userLat}, Lon: ${userLon}, Radius: ${searchRadius}km, Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`
+      : `Products retrieved: Found: ${total}, Page: ${pageNum}${subCategory ? `, SubCategory: ${subCategory}` : ''}${category ? `, Category: ${category}` : ''}`;
 
     logger.info(logMessage);
 
@@ -639,13 +606,6 @@ exports.getNearbyProducts = async (req, res, next) => {
         longitude: userLon,
         radius: searchRadius,
       };
-    }
-    if (staticDemoTopVendorCatalog) {
-      response.staticDemoTopVendorCatalog = true;
-      if (staticDemoVendorMeta) {
-        response.staticDemoVendorId = String(staticDemoVendorMeta.vendorId);
-        response.staticDemoVendorProductCount = staticDemoVendorMeta.productCount;
-      }
     }
 
     res.status(200).json(response);

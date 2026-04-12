@@ -64,7 +64,6 @@ exports.riderLogin = async (req, res, next) => {
       });
     }
 
-    // Generate and send OTP
     const otpCode = rider.generateOTP();
     await rider.save({ validateBeforeSave: false });
 
@@ -77,7 +76,6 @@ exports.riderLogin = async (req, res, next) => {
         message: 'OTP sent to your mobile number',
         mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
         isNewRider: isNewRider, // Indicate if this is a new rider
-        otp: otpCode,
       };
 
       // Add referral code info only for new riders
@@ -118,7 +116,6 @@ exports.riderLogin = async (req, res, next) => {
               message: 'OTP sent to your mobile number',
               mobileNumber: mobileNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
               isNewRider: false, // Existing rider
-              otp: otpCode,
             });
           } catch (smsError) {
             logger.error('Failed to send OTP on retry:', smsError);
@@ -167,7 +164,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
       });
     }
 
-    const isValidOTP = rider.verifyOTP(otp);
+    const isValidOTP = rider.verifyOTP(otp != null ? String(otp) : otp);
 
     if (!isValidOTP) {
       return res.status(401).json({

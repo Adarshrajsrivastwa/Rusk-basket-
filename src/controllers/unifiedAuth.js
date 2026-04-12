@@ -73,21 +73,13 @@ exports.login = async (req, res, next) => {
         success: true,
         message: 'OTP sent to your mobile number',
         mobile: mobile.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        otp: otpCode, // Include OTP in response
         role: role,
       });
     } catch (smsError) {
-      logger.error('Failed to send OTP but proceeding:', smsError);
-      
-      // Even if SMS fails, we return 200 because the user might receive it 
-      // or can use the OTP from the response (in dev/test)
-      res.status(200).json({
-        success: true,
-        message: 'OTP generated. Please check your mobile.',
-        mobile: mobile.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        otp: otpCode, // Include OTP in response
-        role: role,
-        smsError: smsError.message
+      logger.error('Failed to send OTP:', smsError);
+      return res.status(503).json({
+        success: false,
+        error: 'Failed to send OTP. Please try again shortly.',
       });
     }
   } catch (error) {

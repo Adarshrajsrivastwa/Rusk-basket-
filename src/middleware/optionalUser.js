@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 
 /**
  * Attaches req.user when a valid user JWT is present; otherwise leaves req.user unset.
- * Does not send 401 — for routes that work anonymously but can widen catalog for static demo user.
+ * Does not send 401 — for routes that work anonymously but can attach a user when a JWT is present.
  */
 const optionalUser = async (req, res, next) => {
   req.user = undefined;

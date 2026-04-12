@@ -94,16 +94,12 @@ exports.sendOTP = async (req, res, next) => {
         success: true,
         message: 'OTP sent to your contact number',
         contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        otp: otpCode, // Include OTP in response for all users
       });
     } catch (smsError) {
       logger.error('Failed to send OTP:', smsError);
-      // Still return OTP in response even if SMS fails (for development/testing)
-      res.status(200).json({
-        success: true,
-        message: 'OTP generated (SMS sending failed, but OTP is available)',
-        contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        otp: otpCode, // Include OTP in response
+      return res.status(503).json({
+        success: false,
+        error: 'Failed to send OTP. Please try again shortly.',
       });
     }
   } catch (error) {

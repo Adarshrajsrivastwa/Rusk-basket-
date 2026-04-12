@@ -225,18 +225,6 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/test-cookie', (req, res) => {
-  const { setTokenCookie } = require('./utils/cookieHelper');
-  const testToken = 'test-token-12345';
-  setTokenCookie(res, testToken);
-  res.status(200).json({
-    success: true,
-    message: 'Test cookie set',
-    token: testToken,
-    cookies: req.cookies,
-  });
-});
-
 mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/rushbasket')
   .then(async () => {
     // Fix index issues - drop problematic unique indexes if they exist
