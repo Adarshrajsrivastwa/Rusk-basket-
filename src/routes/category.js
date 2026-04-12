@@ -10,6 +10,7 @@ const {
   getNearbyCategories,
 } = require('../controllers/category');
 const { protect } = require('../middleware/adminAuth');
+const { optionalUser } = require('../middleware/optionalUser');
 const { uploadSingle } = require('../middleware/categoryUpload');
 
 const router = express.Router();
@@ -36,7 +37,7 @@ router.post(
 
 router.get('/', getCategories);
 
-router.get('/nearby', getNearbyCategories);
+router.get('/nearby', optionalUser, getNearbyCategories);
 
 router.get('/:id', getCategory);
 

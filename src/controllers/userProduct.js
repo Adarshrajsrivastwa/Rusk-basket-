@@ -3,6 +3,8 @@ const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
+const { isStaticDemoUserEnabled } = require('../utils/staticDemoUser');
+const { getVendorWithMostApprovedActiveProducts } = require('../utils/topVendorCatalog');
 
 // Haversine formula to calculate distance between two coordinates in kilometers
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -32,6 +34,55 @@ exports.getNearbyProducts = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
     const radius = parseFloat(req.query.radius) || 10; // Default 10km
+
+    const staticDemo = isStaticDemoUserEnabled(user.contactNumber);
+
+    if (staticDemo) {
+      const top = await getVendorWithMostApprovedActiveProducts();
+      if (!top) {
+        return res.status(200).json({
+          success: true,
+          message: 'No approved products in catalog',
+          count: 0,
+          radius,
+          staticDemoTopVendorCatalog: true,
+          pagination: { page, limit, total: 0, pages: 0 },
+          data: [],
+        });
+      }
+      const query = {
+        vendor: top.vendorId,
+        approvalStatus: 'approved',
+        isActive: true,
+      };
+      const products = await Product.find(query)
+        .populate('category', 'name')
+        .populate('subCategory', 'name')
+        .populate('vendor', 'vendorName storeName storeAddress')
+        .populate('createdBy', 'vendorName')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 });
+      const total = await Product.countDocuments(query);
+      logger.info(
+        `Static demo user ${user.contactNumber} fetched ${products.length} products (top vendor ${top.vendorId}, count ${top.productCount})`
+      );
+      return res.status(200).json({
+        success: true,
+        count: products.length,
+        radius,
+        staticDemoTopVendorCatalog: true,
+        staticDemoVendorId: String(top.vendorId),
+        staticDemoVendorProductCount: top.productCount,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+        data: products.map((p) => p.toObject()),
+      });
+    }
 
     // Check if user has location set
     if (!user.address || !user.address.latitude || !user.address.longitude) {
@@ -169,7 +220,93 @@ exports.getAllProducts = async (req, res, next) => {
     const limit = 10; // Fixed limit
     const skip = (page - 1) * limit;
     const radius = parseFloat(req.query.radius) || 10; // Allow custom radius, default 10km
-    
+
+    const staticDemo = isStaticDemoUserEnabled(user.contactNumber);
+
+    if (staticDemo) {
+      const top = await getVendorWithMostApprovedActiveProducts();
+      if (!top) {
+        return res.status(200).json({
+          success: true,
+          message: 'No approved products in catalog',
+          count: 0,
+          radius,
+          staticDemoTopVendorCatalog: true,
+          pagination: { page, limit, total: 0, pages: 0 },
+          data: [],
+        });
+      }
+      let query = {
+        vendor: top.vendorId,
+        approvalStatus: 'approved',
+        isActive: true,
+      };
+      if (req.query.subCategory) {
+        if (mongoose.Types.ObjectId.isValid(req.query.subCategory)) {
+          query.subCategory = req.query.subCategory;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid subCategory ID format',
+          });
+        }
+      }
+      if (req.query.category) {
+        if (mongoose.Types.ObjectId.isValid(req.query.category)) {
+          query.category = req.query.category;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid category ID format',
+          });
+        }
+      }
+      if (req.query.search) {
+        query.$text = { $search: req.query.search };
+      }
+      if (req.query.tag) {
+        query.tags = { $in: [req.query.tag.toLowerCase()] };
+      }
+      const products = await Product.find(query)
+        .populate('category', 'name')
+        .populate('subCategory', 'name')
+        .populate('vendor', 'vendorName storeName storeAddress')
+        .populate('createdBy', 'vendorName')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 });
+      const total = await Product.countDocuments(query);
+      const userLat = req.query.latitude != null ? parseFloat(req.query.latitude) : null;
+      const userLon = req.query.longitude != null ? parseFloat(req.query.longitude) : null;
+      const response = {
+        success: true,
+        count: products.length,
+        radius,
+        staticDemoTopVendorCatalog: true,
+        staticDemoVendorId: String(top.vendorId),
+        staticDemoVendorProductCount: top.productCount,
+        userLocation:
+          userLat != null && userLon != null && !isNaN(userLat) && !isNaN(userLon)
+            ? { latitude: userLat, longitude: userLon }
+            : undefined,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+        data: products.map((p) => p.toObject()),
+      };
+      if (req.query.subCategory) response.filters = { subCategory: req.query.subCategory };
+      if (req.query.category) {
+        response.filters = { ...response.filters, category: req.query.category };
+      }
+      logger.info(
+        `Static demo user ${user.contactNumber} fetched ${products.length} products (top vendor ${top.vendorId})`
+      );
+      return res.status(200).json(response);
+    }
+
     // Latitude and longitude are now required
     if (!req.query.latitude || !req.query.longitude) {
       return res.status(400).json({
@@ -177,11 +314,11 @@ exports.getAllProducts = async (req, res, next) => {
         error: 'Latitude and longitude are required parameters',
       });
     }
-    
+
     // Get latitude and longitude from query params
     const userLat = parseFloat(req.query.latitude);
     const userLon = parseFloat(req.query.longitude);
-    
+
     // Validate latitude and longitude are valid numbers
     if (isNaN(userLat) || isNaN(userLon)) {
       return res.status(400).json({
@@ -189,7 +326,7 @@ exports.getAllProducts = async (req, res, next) => {
         error: 'Latitude and longitude must be valid numbers',
       });
     }
-    
+
     // Validate latitude and longitude ranges
     if (userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
       return res.status(400).json({

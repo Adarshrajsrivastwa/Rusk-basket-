@@ -327,14 +327,12 @@ router.get(
       .isLength({ min: 1, max: 200 })
       .withMessage('Search query must be between 1 and 200 characters'),
     query('latitude')
-      .notEmpty()
-      .withMessage('Latitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -90, max: 90 })
       .withMessage('Latitude must be a number between -90 and 90'),
     query('longitude')
-      .notEmpty()
-      .withMessage('Longitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be a number between -180 and 180'),

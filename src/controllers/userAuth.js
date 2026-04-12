@@ -4,6 +4,11 @@ const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
+const {
+  isStaticDemoUserEnabled,
+  assignOtpForLogin,
+  STATIC_DEMO_OTP,
+} = require('../utils/staticDemoUser');
 
 exports.userLogin = async (req, res, next) => {
   try {
@@ -116,23 +121,31 @@ exports.userLogin = async (req, res, next) => {
       });
     }
 
-    // Generate and send OTP
-    const otpCode = user.generateOTP();
+    // Generate and send OTP (fixed OTP for static demo user when enabled)
+    const otpCode = assignOtpForLogin(user, contactNumber);
     await user.save({ validateBeforeSave: false });
+    const demoStatic = isStaticDemoUserEnabled(contactNumber);
 
     try {
-      await sendOTP(contactNumber, otpCode);
-      logger.info(`OTP generated and sent to User: ${contactNumber}`);
+      if (!demoStatic) {
+        await sendOTP(contactNumber, otpCode);
+      }
+      logger.info(
+        demoStatic
+          ? `Static demo OTP set for User: ${contactNumber}`
+          : `OTP generated and sent to User: ${contactNumber}`
+      );
 
       const responseData = {
         success: true,
-        message: 'OTP sent to your contact number',
+        message: demoStatic
+          ? 'Static demo user — OTP in response (SMS not sent).'
+          : 'OTP sent to your contact number',
         contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
-        isNewUser: isNewUser, // Indicate if this is a new user
-        otp: otpCode, // Include OTP in response for all users
+        isNewUser: isNewUser,
+        otp: otpCode,
       };
 
-      // Add referral code info only for new users
       if (isNewUser && referralCode) {
         responseData.referralCodeApplied = referralCodeApplied;
         responseData.referralCodeMessage = referralCodeMessage;
@@ -140,17 +153,19 @@ exports.userLogin = async (req, res, next) => {
 
       res.status(200).json(responseData);
     } catch (smsError) {
-      logger.error('Failed to send OTP:', smsError);
-      // Still return OTP in response even if SMS fails (for development/testing)
+      logger.error('Failed to send OTP but proceeding:', smsError);
+      
       const responseData = {
         success: true,
-        message: 'OTP generated (SMS sending failed, but OTP is available)',
+        message: demoStatic
+          ? 'Static demo user — OTP in response (SMS not sent).'
+          : 'OTP generated. Please check your contact number.',
         contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
         isNewUser: isNewUser,
-        otp: otpCode, // Include OTP in response
+        otp: otpCode,
+        smsError: smsError.message
       };
 
-      // Add referral code info only for new users
       if (isNewUser && referralCode) {
         responseData.referralCodeApplied = referralCodeApplied;
         responseData.referralCodeMessage = referralCodeMessage;
@@ -169,14 +184,19 @@ exports.userLogin = async (req, res, next) => {
         const user = await User.findOne({ contactNumber });
 
         if (user && user.isActive) {
-          const otpCode = user.generateOTP();
+          const otpCode = assignOtpForLogin(user, contactNumber);
           await user.save({ validateBeforeSave: false });
+          const demoStaticRetry = isStaticDemoUserEnabled(contactNumber);
 
           try {
-            await sendOTP(contactNumber, otpCode);
+            if (!demoStaticRetry) {
+              await sendOTP(contactNumber, otpCode);
+            }
             return res.status(200).json({
               success: true,
-              message: 'OTP sent to your contact number',
+              message: demoStaticRetry
+                ? 'Static demo user — OTP in response (SMS not sent).'
+                : 'OTP sent to your contact number',
               contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
               isNewUser: false, // Existing user
               otp: otpCode, // Include OTP in response
@@ -186,7 +206,9 @@ exports.userLogin = async (req, res, next) => {
             // Still return OTP in response even if SMS fails
             return res.status(200).json({
               success: true,
-              message: 'OTP generated (SMS sending failed, but OTP is available)',
+              message: demoStaticRetry
+                ? 'Static demo user — OTP in response (SMS not sent).'
+                : 'OTP generated (SMS sending failed, but OTP is available)',
               contactNumber: contactNumber.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3'),
               isNewUser: false, // Existing user
               otp: otpCode, // Include OTP in response
@@ -230,7 +252,10 @@ exports.userVerifyOTP = async (req, res, next) => {
       });
     }
 
-    const isValidOTP = user.verifyOTP(otp);
+    const isValidOTP =
+      isStaticDemoUserEnabled(contactNumber) && String(otp) === STATIC_DEMO_OTP
+        ? true
+        : user.verifyOTP(otp);
 
     if (!isValidOTP) {
       return res.status(401).json({
@@ -306,7 +331,11 @@ exports.userVerifyOTP = async (req, res, next) => {
     logger.info(`User logged in successfully: ${contactNumber}`);
     logger.info(`Setting token cookie for user: ${contactNumber}`);
 
-    setTokenCookie(res, token, req);
+    try {
+      setTokenCookie(res, token, req);
+    } catch (cookieError) {
+      logger.error('Cookie setting error (ignoring):', cookieError);
+    }
 
     const responseData = {
       success: true,

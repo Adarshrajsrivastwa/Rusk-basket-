@@ -12,6 +12,7 @@ const {
   getNearbySubCategories,
 } = require('../controllers/subCategory');
 const { protect } = require('../middleware/adminAuth');
+const { optionalUser } = require('../middleware/optionalUser');
 const { uploadSingle } = require('../middleware/subCategoryUpload');
 
 const router = express.Router();
@@ -45,6 +46,7 @@ router.get('/', getSubCategories);
 
 router.get(
   '/by-location',
+  optionalUser,
   [
     query('latitude')
       .notEmpty()
@@ -72,7 +74,7 @@ router.get(
 
 router.get('/by-category/:categoryId', getSubCategoriesByCategory);
 
-router.get('/nearby', getNearbySubCategories);
+router.get('/nearby', optionalUser, getNearbySubCategories);
 
 router.get('/:id', getSubCategory);
 

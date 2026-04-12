@@ -6,6 +6,8 @@ const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinar
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { calculateDistance } = require('../utils/distanceUtils');
+const { isStaticDemoUserEnabled } = require('../utils/staticDemoUser');
+const { getVendorWithMostApprovedActiveProducts } = require('../utils/topVendorCatalog');
 
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
@@ -560,7 +562,84 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
       });
     }
 
-    // Get all vendors with location data within the radius
+    const staticDemo = req.user && isStaticDemoUserEnabled(req.user.contactNumber);
+
+    if (staticDemo) {
+      const top = await getVendorWithMostApprovedActiveProducts();
+      if (!top) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          radius,
+          staticDemoTopVendorCatalog: true,
+          userLocation: { latitude, longitude },
+          data: [],
+        });
+      }
+      let productQuery = {
+        vendor: top.vendorId,
+        approvalStatus: 'approved',
+        isActive: true,
+      };
+      if (category) {
+        if (require('mongoose').Types.ObjectId.isValid(category)) {
+          productQuery.category = category;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid category ID format',
+          });
+        }
+      }
+      const subCategoryIds = await Product.find(productQuery).distinct('subCategory');
+      const validIds = subCategoryIds.filter((id) => id != null);
+      if (validIds.length === 0) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          radius,
+          staticDemoTopVendorCatalog: true,
+          staticDemoVendorId: String(top.vendorId),
+          staticDemoVendorProductCount: top.productCount,
+          userLocation: { latitude, longitude },
+          data: [],
+        });
+      }
+      let subCategoryQuery = {
+        _id: { $in: validIds },
+        isActive: true,
+      };
+      if (category) {
+        subCategoryQuery.category = category;
+      }
+      const subCategories = await SubCategory.find(subCategoryQuery)
+        .populate('category', 'name code')
+        .sort({ name: 1 })
+        .lean();
+      const formattedSubCategories = subCategories.map((subCat) => {
+        return formatResponse({
+          ...subCat,
+          code: subCat.code,
+          category: subCat.category ? {
+            ...subCat.category,
+            code: subCat.category.code,
+          } : subCat.category,
+        });
+      });
+      return res.status(200).json({
+        success: true,
+        count: formattedSubCategories.length,
+        radius,
+        staticDemoTopVendorCatalog: true,
+        staticDemoVendorId: String(top.vendorId),
+        staticDemoVendorProductCount: top.productCount,
+        userLocation: { latitude, longitude },
+        data: formattedSubCategories,
+      });
+    }
+
+    const nearbyVendorIds = [];
+
     const vendors = await Vendor.find({
       storeAddress: {
         $exists: true,
@@ -572,20 +651,17 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
       storeId: { $exists: true },
     }).select('_id storeAddress storeName vendorName serviceRadius');
 
-    // For getSubCategoriesByLocation, we also restrict to ONLY the nearest vendor
     if (vendors.length > 0) {
-      const vendorsWithDistance = vendors.map(v => {
+      const vendorsWithDistance = vendors.map((v) => {
         const d = calculateDistance(latitude, longitude, v.storeAddress.latitude, v.storeAddress.longitude);
         return { ...v.toObject(), distance: d };
       }).sort((a, b) => a.distance - b.distance);
 
-      // Only take the nearest vendor if they are within radius
       if (vendorsWithDistance[0].distance <= radius) {
         nearbyVendorIds.push(vendorsWithDistance[0]._id);
       }
     }
 
-    // If no vendors found within radius, return empty result
     if (nearbyVendorIds.length === 0) {
       return res.status(200).json({
         success: true,
@@ -600,14 +676,12 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
       });
     }
 
-    // Build query for products from nearby vendors
     let productQuery = {
       vendor: { $in: nearbyVendorIds },
       approvalStatus: 'approved',
       isActive: true,
     };
 
-    // Add category filter if provided
     if (category) {
       if (require('mongoose').Types.ObjectId.isValid(category)) {
         productQuery.category = category;
@@ -617,34 +691,35 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
           error: 'Invalid category ID format',
         });
       }
-    }    // Get unique subcategory IDs from products within radius
-    const products = await Product.find(productQuery)
-      .select('subCategory')
-      .distinct('subCategory'); if (products.length === 0) {
-        return res.status(200).json({
-          success: true,
-          message: 'No products found within the specified radius',
-          count: 0,
-          radius: radius,
-          userLocation: {
-            latitude: latitude,
-            longitude: longitude,
-          },
-          data: [],
-        });
-      }    // Get subcategories that have products in the area
+    }
+
+    const distinctSubIds = await Product.find(productQuery).distinct('subCategory');
+    if (distinctSubIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No products found within the specified radius',
+        count: 0,
+        radius: radius,
+        userLocation: {
+          latitude: latitude,
+          longitude: longitude,
+        },
+        data: [],
+      });
+    }
+
     let subCategoryQuery = {
-      _id: { $in: products },
+      _id: { $in: distinctSubIds },
       isActive: true,
-    };    // Add category filter to subcategory query if provided
+    };
     if (category) {
       subCategoryQuery.category = category;
-    } const subCategories = await SubCategory.find(subCategoryQuery)
+    }
+    const subCategories = await SubCategory.find(subCategoryQuery)
       .populate('category', 'name code')
       .sort({ name: 1 })
       .lean();
 
-    // Keep _id for update operations, code for display
     const formattedSubCategories = subCategories.map((subCat) => {
       return formatResponse({
         ...subCat,
@@ -682,7 +757,10 @@ exports.getNearbySubCategories = async (req, res, next) => {
     const { latitude, longitude, radius = 10, page = 1, limit = 20, category } = req.query;
     const mongoose = require('mongoose');
 
-    const hasLocation = latitude && longitude;
+    const hasLocation = !!(latitude && longitude);
+    const staticDemoTopVendorCatalog =
+      req.user && isStaticDemoUserEnabled(req.user.contactNumber);
+    const effectiveHasLocation = hasLocation && !staticDemoTopVendorCatalog;
     let userLat, userLon, searchRadius;
 
     if (hasLocation) {
@@ -710,78 +788,99 @@ exports.getNearbySubCategories = async (req, res, next) => {
     const limitNum = parseInt(limit) || 20;
     const skip = (pageNum - 1) * limitNum;
 
-    // Build query to find relevant products
-    const productQuery = {
-      approvalStatus: 'approved',
-      isActive: true,
-    };
+    let nearbyProductSubCategoryIds = new Set();
+    let staticDemoTopVendorId = null;
 
-    if (category) {
-      if (mongoose.Types.ObjectId.isValid(category)) {
-        productQuery.category = category;
-      } else {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid category ID format',
+    if (staticDemoTopVendorCatalog) {
+      const top = await getVendorWithMostApprovedActiveProducts();
+      if (top) {
+        staticDemoTopVendorId = top.vendorId;
+        const pq = {
+          vendor: top.vendorId,
+          approvalStatus: 'approved',
+          isActive: true,
+        };
+        if (category) {
+          if (mongoose.Types.ObjectId.isValid(category)) {
+            pq.category = category;
+          } else {
+            return res.status(400).json({
+              success: false,
+              error: 'Invalid category ID format',
+            });
+          }
+        }
+        const demoProducts = await Product.find(pq).select('subCategory').lean();
+        demoProducts.forEach((product) => {
+          if (product.subCategory) nearbyProductSubCategoryIds.add(String(product.subCategory));
         });
       }
-    }
+    } else {
+      const productQuery = {
+        approvalStatus: 'approved',
+        isActive: true,
+      };
 
-    if (hasLocation) {
-      productQuery.latitude = { $exists: true, $ne: null };
-      productQuery.longitude = { $exists: true, $ne: null };
-    }
-
-    // Get all approved products matching category with their vendor info
-    const products = await Product.find(productQuery)
-      .populate('vendor', 'storeAddress serviceRadius')
-      .lean();
-
-    let nearbyProductSubCategoryIds = new Set();
-
-    if (hasLocation) {
-      // 1. Calculate distances for all products
-      const productsWithDistance = products.map(product => {
-        if (!product.vendor || !product.vendor.storeAddress) return null;
-
-        const vendorLat = product.vendor.storeAddress.latitude;
-        const vendorLon = product.vendor.storeAddress.longitude;
-        if (!vendorLat || !vendorLon) return null;
-
-        const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
-
-        let productDistance = null;
-        if (product.latitude && product.longitude) {
-          productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
+      if (category) {
+        if (mongoose.Types.ObjectId.isValid(category)) {
+          productQuery.category = category;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid category ID format',
+          });
         }
+      }
 
-        const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
+      if (effectiveHasLocation) {
+        productQuery.latitude = { $exists: true, $ne: null };
+        productQuery.longitude = { $exists: true, $ne: null };
+      }
 
-        if (minDistance <= searchRadius) {
-          return { ...product, minDistance };
+      const products = await Product.find(productQuery)
+        .populate('vendor', 'storeAddress serviceRadius')
+        .lean();
+
+      if (effectiveHasLocation) {
+        const productsWithDistance = products.map(product => {
+          if (!product.vendor || !product.vendor.storeAddress) return null;
+
+          const vendorLat = product.vendor.storeAddress.latitude;
+          const vendorLon = product.vendor.storeAddress.longitude;
+          if (!vendorLat || !vendorLon) return null;
+
+          const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
+
+          let productDistance = null;
+          if (product.latitude && product.longitude) {
+            productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
+          }
+
+          const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
+
+          if (minDistance <= searchRadius) {
+            return { ...product, minDistance };
+          }
+          return null;
+        }).filter(p => p !== null);
+
+        if (productsWithDistance.length > 0) {
+          productsWithDistance.sort((a, b) => a.minDistance - b.minDistance);
+          const nearestVendorId = productsWithDistance[0].vendor._id.toString();
+
+          productsWithDistance.forEach(product => {
+            if (product.vendor._id.toString() === nearestVendorId && product.subCategory) {
+              nearbyProductSubCategoryIds.add(String(product.subCategory));
+            }
+          });
         }
-        return null;
-      }).filter(p => p !== null);
-
-      // 2. Shortest distance waale vendor ko pehchano
-      if (productsWithDistance.length > 0) {
-        productsWithDistance.sort((a, b) => a.minDistance - b.minDistance);
-        const nearestVendorId = productsWithDistance[0].vendor._id.toString();
-
-        // 3. Sirf us vendor ki subcategories collect karo
-        productsWithDistance.forEach(product => {
-          if (product.vendor._id.toString() === nearestVendorId && product.subCategory) {
+      } else {
+        products.forEach((product) => {
+          if (product.subCategory) {
             nearbyProductSubCategoryIds.add(String(product.subCategory));
           }
         });
       }
-    } else {
-      // If no location provided, use all approved/active products matching criteria
-      products.forEach(product => {
-        if (product.subCategory) {
-          nearbyProductSubCategoryIds.add(String(product.subCategory));
-        }
-      });
     }
 
     const subCategoryIdsArray = Array.from(nearbyProductSubCategoryIds).map(id => new mongoose.Types.ObjectId(id));
@@ -814,13 +913,17 @@ exports.getNearbySubCategories = async (req, res, next) => {
 
     const total = await SubCategory.countDocuments(subCategoryQuery);
 
-    if (hasLocation) {
+    if (staticDemoTopVendorCatalog) {
+      logger.info(
+        `Subcategories for static demo (top vendor by product count): Found: ${total}${category ? `, Category: ${category}` : ''}`
+      );
+    } else if (hasLocation) {
       logger.info(`Nearby subcategories retrieved: Lat: ${userLat}, Lon: ${userLon}, Found: ${total}${category ? `, Category: ${category}` : ''}`);
     } else {
       logger.info(`Subcategories (with products) retrieved: Found: ${total}${category ? `, Category: ${category}` : ''}`);
     }
 
-    res.status(200).json({
+    const subPayload = {
       success: true,
       count: formattedSubCategories.length,
       pagination: {
@@ -830,7 +933,14 @@ exports.getNearbySubCategories = async (req, res, next) => {
         pages: Math.ceil(total / limitNum),
       },
       data: formattedSubCategories,
-    });
+    };
+    if (staticDemoTopVendorCatalog) {
+      subPayload.staticDemoTopVendorCatalog = true;
+      if (staticDemoTopVendorId) {
+        subPayload.staticDemoVendorId = String(staticDemoTopVendorId);
+      }
+    }
+    res.status(200).json(subPayload);
   } catch (error) {
     logger.error('Get nearby subcategories error:', error);
     if (error.name === 'CastError') {

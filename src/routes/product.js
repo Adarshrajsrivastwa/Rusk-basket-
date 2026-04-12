@@ -14,6 +14,7 @@ const { protect } = require('../middleware/adminAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { uploadMultiple } = require('../middleware/productUpload');
+const { optionalUser } = require('../middleware/optionalUser');
 
 // Public Routes
 // Search products by name and location (Public - no authentication required)
@@ -59,6 +60,7 @@ router.get(
 // Get approved products with optional location filtering (Public - no authentication required)
 router.get(
   '/',
+  optionalUser,
   [
     query('latitude')
       .optional()
