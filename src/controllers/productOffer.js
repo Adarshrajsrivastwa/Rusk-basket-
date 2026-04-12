@@ -2,6 +2,7 @@ const Product = require('../models/Product');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { calculateDistance, parseClientLatLon, toNumberCoord } = require('../utils/distanceUtils');
 
 /**
  * Extract date and time from Date object
@@ -501,42 +502,22 @@ exports.getVendorDailyOffers = async (req, res, next) => {
   }
 };
 
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
 exports.getAllDailyOffers = async (req, res, next) => {
   try {
-    const { latitude, longitude, radius = 10, page = 1, limit = 20, category, subCategory, search, vendorId } = req.query;
+    const { radius = 10, page = 1, limit = 20, category, subCategory, search, vendorId } = req.query;
 
-    const hasLocation = latitude && longitude;
-    let userLat, userLon, searchRadius;
+    const parsed = parseClientLatLon(req.query);
+    const hasLocation = !!parsed;
+    let userLat;
+    let userLon;
+    let searchRadius;
 
     if (hasLocation) {
-      userLat = parseFloat(latitude);
-      userLon = parseFloat(longitude);
+      userLat = parsed.latitude;
+      userLon = parsed.longitude;
       searchRadius = parseFloat(radius) || 10;
-
-      if (isNaN(userLat) || userLat < -90 || userLat > 90) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid latitude. Must be between -90 and 90',
-        });
-      }
-
-      if (isNaN(userLon) || userLon < -180 || userLon > 180) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid longitude. Must be between -180 and 180',
-        });
+      if (parsed.corrected) {
+        logger.info('getAllDailyOffers: corrected client lat/lon order (South Asia heuristic)');
       }
     }
 
@@ -623,11 +604,12 @@ exports.getAllDailyOffers = async (req, res, next) => {
             return null;
           }
 
-          const vendorLat = product.vendor.storeAddress.latitude;
-          const vendorLon = product.vendor.storeAddress.longitude;
-          const vendorServiceRadius = product.vendor.serviceRadius || 0;
+          const vendorLat = toNumberCoord(product.vendor.storeAddress.latitude);
+          const vendorLon = toNumberCoord(product.vendor.storeAddress.longitude);
+          const vendorServiceRadius = toNumberCoord(product.vendor.serviceRadius);
+          const svcR = Number.isFinite(vendorServiceRadius) ? vendorServiceRadius : 0;
 
-          if (!vendorLat || !vendorLon || vendorServiceRadius <= 0) {
+          if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon) || svcR <= 0) {
             return null;
           }
 
@@ -637,24 +619,29 @@ exports.getAllDailyOffers = async (req, res, next) => {
             vendorLat,
             vendorLon
           );
+          if (vendorStoreDistance == null) {
+            return null;
+          }
 
           let productDistance = null;
-          if (product.latitude && product.longitude) {
+          const pLat = toNumberCoord(product.latitude);
+          const pLon = toNumberCoord(product.longitude);
+          if (Number.isFinite(pLat) && Number.isFinite(pLon)) {
             productDistance = calculateDistance(
               userLat,
               userLon,
-              product.latitude,
-              product.longitude
+              pLat,
+              pLon
             );
           }
 
           let shouldShow = false;
           let displayDistance = null;
 
-          if (productDistance !== null && productDistance <= searchRadius) {
+          if (productDistance != null && productDistance <= searchRadius) {
             shouldShow = true;
             displayDistance = productDistance;
-          } else if (vendorStoreDistance <= vendorServiceRadius) {
+          } else if (vendorStoreDistance <= svcR) {
             shouldShow = true;
             displayDistance = vendorStoreDistance;
           }

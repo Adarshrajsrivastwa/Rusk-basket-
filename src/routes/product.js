@@ -15,6 +15,7 @@ const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
 const { uploadMultiple } = require('../middleware/productUpload');
 const { optionalUser } = require('../middleware/optionalUser');
+const { parseClientLatLon } = require('../utils/distanceUtils');
 
 // Public Routes
 // Search products by name and location (Public - no authentication required)
@@ -23,24 +24,38 @@ router.get(
   '/search',
   [
     query('latitude')
-      .notEmpty()
-      .withMessage('Latitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -90, max: 90 })
       .withMessage('Latitude must be between -90 and 90'),
     query('longitude')
-      .notEmpty()
-      .withMessage('Longitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be between -180 and 180'),
+    query('lat')
+      .optional()
+      .bail()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('lat must be between -90 and 90'),
+    query('lng')
+      .optional()
+      .bail()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('lng must be between -180 and 180'),
     query('search')
       .notEmpty()
       .withMessage('Search term is required')
       .bail()
       .trim()
       .isLength({ min: 1, max: 200 })
-      .withMessage('Search query must be between 1 and 200 characters'),
+      .withMessage('Search query must be between 1 and 200 characters')
+      .custom((_, { req }) => {
+        if (!parseClientLatLon(req.query)) {
+          throw new Error('Provide latitude & longitude, or lat & lng');
+        }
+        return true;
+      }),
     query('radius')
       .optional()
       .isFloat({ min: 0.1, max: 100 })
@@ -70,6 +85,14 @@ router.get(
       .optional()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be between -180 and 180'),
+    query('lat')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('lat must be between -90 and 90'),
+    query('lng')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('lng must be between -180 and 180'),
     query('radius')
       .optional()
       .isFloat({ min: 0.1, max: 100 })
@@ -110,6 +133,14 @@ router.get(
       .optional()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be between -180 and 180'),
+    query('lat')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('lat must be between -90 and 90'),
+    query('lng')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('lng must be between -180 and 180'),
     query('radius')
       .optional()
       .isFloat({ min: 0.1, max: 100 })

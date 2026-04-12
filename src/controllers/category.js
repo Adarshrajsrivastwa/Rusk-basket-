@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { calculateDistance } = require('../utils/distanceUtils');
+const { calculateDistance, parseClientLatLon, toNumberCoord } = require('../utils/distanceUtils');
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
   if (!obj || typeof obj !== 'object') return obj;
@@ -185,30 +185,21 @@ exports.getCategories = async (req, res, next) => {
  */
 exports.getNearbyCategories = async (req, res, next) => {
   try {
-    const { latitude, longitude, radius = 10, page = 1, limit = 20 } = req.query;
+    const { radius = 10, page = 1, limit = 20 } = req.query;
 
-    const hasLocation = !!(latitude && longitude);
+    const parsed = parseClientLatLon(req.query);
+    const hasLocation = !!parsed;
     const effectiveHasLocation = hasLocation;
-    let userLat, userLon, searchRadius;
+    let userLat;
+    let userLon;
+    let searchRadius;
 
     if (hasLocation) {
-      userLat = parseFloat(latitude);
-      userLon = parseFloat(longitude);
+      userLat = parsed.latitude;
+      userLon = parsed.longitude;
       searchRadius = parseFloat(radius) || 10;
-
-      // Validate coordinates
-      if (isNaN(userLat) || userLat < -90 || userLat > 90) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid latitude. Must be between -90 and 90',
-        });
-      }
-
-      if (isNaN(userLon) || userLon < -180 || userLon > 180) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid longitude. Must be between -180 and 180',
-        });
+      if (parsed.corrected) {
+        logger.info('getNearbyCategories: corrected client lat/lon order (South Asia heuristic)');
       }
     }
 
@@ -236,18 +227,21 @@ exports.getNearbyCategories = async (req, res, next) => {
       const productsWithDistance = products.map(product => {
         if (!product.vendor || !product.vendor.storeAddress) return null;
 
-        const vendorLat = product.vendor.storeAddress.latitude;
-        const vendorLon = product.vendor.storeAddress.longitude;
-        if (!vendorLat || !vendorLon) return null;
+        const vendorLat = toNumberCoord(product.vendor.storeAddress.latitude);
+        const vendorLon = toNumberCoord(product.vendor.storeAddress.longitude);
+        if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) return null;
 
         const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
+        if (vendorStoreDistance == null) return null;
 
         let productDistance = null;
-        if (product.latitude && product.longitude) {
-          productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
+        const pLat = toNumberCoord(product.latitude);
+        const pLon = toNumberCoord(product.longitude);
+        if (Number.isFinite(pLat) && Number.isFinite(pLon)) {
+          productDistance = calculateDistance(userLat, userLon, pLat, pLon);
         }
 
-        const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
+        const minDistance = productDistance != null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
 
         if (minDistance <= searchRadius) {
           return { ...product, minDistance };

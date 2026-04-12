@@ -14,8 +14,19 @@ const {
 const { protect } = require('../middleware/adminAuth');
 const { optionalUser } = require('../middleware/optionalUser');
 const { uploadSingle } = require('../middleware/subCategoryUpload');
+const { parseClientLatLon } = require('../utils/distanceUtils');
 
 const router = express.Router();
+
+function requireLatLonPair(req, res, next) {
+  if (!parseClientLatLon(req.query)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Latitude and longitude are required (use latitude & longitude, or lat & lng)',
+    });
+  }
+  next();
+}
 
 router.post(
   '/create',
@@ -47,19 +58,28 @@ router.get('/', getSubCategories);
 router.get(
   '/by-location',
   optionalUser,
+  requireLatLonPair,
   [
     query('latitude')
-      .notEmpty()
-      .withMessage('Latitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -90, max: 90 })
       .withMessage('Latitude must be a number between -90 and 90'),
     query('longitude')
-      .notEmpty()
-      .withMessage('Longitude is required')
+      .optional()
       .bail()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be a number between -180 and 180'),
+    query('lat')
+      .optional()
+      .bail()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('lat must be a number between -90 and 90'),
+    query('lng')
+      .optional()
+      .bail()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('lng must be a number between -180 and 180'),
     query('radius')
       .optional()
       .isFloat({ min: 0.1, max: 1000 })

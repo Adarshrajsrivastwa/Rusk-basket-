@@ -300,6 +300,16 @@ router.get(
       .bail()
       .isFloat({ min: -180, max: 180 })
       .withMessage('Longitude must be a number between -180 and 180'),
+    query('lat')
+      .optional()
+      .bail()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('lat must be a number between -90 and 90'),
+    query('lng')
+      .optional()
+      .bail()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('lng must be a number between -180 and 180'),
     query('radius')
       .optional()
       .isFloat({ min: 0.1, max: 1000 })

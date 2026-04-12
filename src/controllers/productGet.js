@@ -1,21 +1,7 @@
 const Product = require('../models/Product');
 const { checkAndDisableExpiredOffer } = require('../utils/offerExpiryService');
 const logger = require('../utils/logger');
-/**
- * Calculate distance between two coordinates using Haversine formula
- * Returns distance in kilometers
- */
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Radius of the Earth in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in kilometers
-};
+const { calculateDistance, parseClientLatLon, toNumberCoord } = require('../utils/distanceUtils');
 
 /**
  * Calculate discount percentage based on regular price and sale price
@@ -388,30 +374,21 @@ exports.getAllProducts = async (req, res, next) => {
  */
 exports.getNearbyProducts = async (req, res, next) => {
   try {
-    const { latitude, longitude, radius = 10, page = 1, limit = 20, category, subCategory, search } = req.query;
+    const { radius = 10, page = 1, limit = 20, category, subCategory, search } = req.query;
 
-    const hasLocation = !!(latitude && longitude);
+    const parsed = parseClientLatLon(req.query);
+    const hasLocation = !!parsed;
     const effectiveHasLocation = hasLocation;
-    let userLat, userLon, searchRadius;
+    let userLat;
+    let userLon;
+    let searchRadius;
 
     if (hasLocation) {
-      userLat = parseFloat(latitude);
-      userLon = parseFloat(longitude);
+      userLat = parsed.latitude;
+      userLon = parsed.longitude;
       searchRadius = parseFloat(radius) || 10; // Default 10km radius
-
-      // Validate coordinates
-      if (isNaN(userLat) || userLat < -90 || userLat > 90) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid latitude. Must be between -90 and 90',
-        });
-      }
-
-      if (isNaN(userLon) || userLon < -180 || userLon > 180) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid longitude. Must be between -180 and 180',
-        });
+      if (parsed.corrected) {
+        logger.info('getNearbyProducts: corrected client lat/lon order (South Asia heuristic)');
       }
     }
 
@@ -483,10 +460,10 @@ exports.getNearbyProducts = async (req, res, next) => {
             return null;
           }
 
-          const vendorLat = product.vendor.storeAddress.latitude;
-          const vendorLon = product.vendor.storeAddress.longitude;
+          const vendorLat = toNumberCoord(product.vendor.storeAddress.latitude);
+          const vendorLon = toNumberCoord(product.vendor.storeAddress.longitude);
 
-          if (!vendorLat || !vendorLon) {
+          if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) {
             return null;
           }
 
@@ -499,15 +476,20 @@ exports.getNearbyProducts = async (req, res, next) => {
             vendorLat,
             vendorLon
           );
+          if (vendorStoreDistance == null) {
+            return null;
+          }
 
           // Calculate distance from user location to product location (if product has coordinates)
           let productDistance = null;
-          if (product.latitude && product.longitude) {
+          const pLat = toNumberCoord(product.latitude);
+          const pLon = toNumberCoord(product.longitude);
+          if (Number.isFinite(pLat) && Number.isFinite(pLon)) {
             productDistance = calculateDistance(
               userLat,
               userLon,
-              product.latitude,
-              product.longitude
+              pLat,
+              pLon
             );
           }
 
@@ -518,7 +500,7 @@ exports.getNearbyProducts = async (req, res, next) => {
           let displayDistance = null;
 
           // Check if product location is within user's query radius
-          if (productDistance !== null && productDistance <= searchRadius) {
+          if (productDistance != null && productDistance <= searchRadius) {
             shouldShow = true;
             displayDistance = productDistance;
           }
@@ -630,13 +612,13 @@ exports.getNearbyProducts = async (req, res, next) => {
  */
 exports.searchProductsByNameAndLocation = async (req, res, next) => {
   try {
-    const { latitude, longitude, search, radius = 10, page = 1, limit = 20 } = req.query;
+    const { search, radius = 10, page = 1, limit = 20 } = req.query;
 
-    // Validate required parameters
-    if (!latitude || !longitude) {
+    const parsed = parseClientLatLon(req.query);
+    if (!parsed) {
       return res.status(400).json({
         success: false,
-        error: 'Latitude and longitude are required',
+        error: 'Latitude and longitude are required (latitude & longitude, or lat & lng)',
       });
     }
 
@@ -647,27 +629,15 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
       });
     }
 
-    const userLat = parseFloat(latitude);
-    const userLon = parseFloat(longitude);
+    const userLat = parsed.latitude;
+    const userLon = parsed.longitude;
+    if (parsed.corrected) {
+      logger.info('searchProductsByNameAndLocation: corrected client lat/lon order (South Asia heuristic)');
+    }
     const searchRadius = parseFloat(radius) || 10; // Default 10km radius
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 20;
     const skip = (pageNum - 1) * limitNum;
-
-    // Validate coordinates
-    if (isNaN(userLat) || userLat < -90 || userLat > 90) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid latitude. Must be between -90 and 90',
-      });
-    }
-
-    if (isNaN(userLon) || userLon < -180 || userLon > 180) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid longitude. Must be between -180 and 180',
-      });
-    }
 
     // Build query - only approved and active products
     // Search for products whose name contains the search term (case-insensitive)
@@ -693,11 +663,11 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
           return null;
         }
 
-        const vendorLat = product.vendor.storeAddress.latitude;
-        const vendorLon = product.vendor.storeAddress.longitude;
+        const vendorLat = toNumberCoord(product.vendor.storeAddress.latitude);
+        const vendorLon = toNumberCoord(product.vendor.storeAddress.longitude);
         const vendorServiceRadius = product.vendor.serviceRadius || 0;
 
-        if (!vendorLat || !vendorLon) {
+        if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) {
           return null;
         }
 
@@ -708,15 +678,20 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
           vendorLat,
           vendorLon
         );
+        if (vendorStoreDistance == null) {
+          return null;
+        }
 
         // Calculate distance from user location to product location (if product has coordinates)
         let productDistance = null;
-        if (product.latitude && product.longitude) {
+        const pLat = toNumberCoord(product.latitude);
+        const pLon = toNumberCoord(product.longitude);
+        if (Number.isFinite(pLat) && Number.isFinite(pLon)) {
           productDistance = calculateDistance(
             userLat,
             userLon,
-            product.latitude,
-            product.longitude
+            pLat,
+            pLon
           );
         }
 
@@ -727,7 +702,7 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
         let displayDistance = null;
 
         // Check if product location is within user's query radius
-        if (productDistance !== null && productDistance <= searchRadius) {
+        if (productDistance != null && productDistance <= searchRadius) {
           shouldShow = true;
           displayDistance = productDistance;
         }
@@ -750,6 +725,8 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
       .filter(product => product !== null)
       .sort((a, b) => a.distance - b.distance); // Sort by distance (nearest first)
 
+    let finalProducts;
+    let total;
     if (productsWithDistance.length > 0) {
       // Find the nearest vendor among those who have the searched product
       const nearestVendorId = productsWithDistance[0].vendor._id.toString();
@@ -766,7 +743,7 @@ exports.searchProductsByNameAndLocation = async (req, res, next) => {
     }
 
     // Apply pagination
-    const paginatedProducts = productsWithDistance.slice(skip, skip + limitNum);
+    const paginatedProducts = finalProducts.slice(skip, skip + limitNum);
 
     // Apply offer discounts to products (overrides salePrice if active offer exists)
     const productsWithOffers = await applyOfferToProducts(paginatedProducts);

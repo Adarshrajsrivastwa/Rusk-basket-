@@ -3,18 +3,7 @@ const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
-// Haversine formula to calculate distance between two coordinates in kilometers
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in kilometers
-};
+const { calculateDistance, parseClientLatLon, toNumberCoord } = require('../utils/distanceUtils');
 
 exports.getNearbyProducts = async (req, res, next) => {
   try {
@@ -32,16 +21,22 @@ exports.getNearbyProducts = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const radius = parseFloat(req.query.radius) || 10; // Default 10km
 
-    // Check if user has location set
-    if (!user.address || !user.address.latitude || !user.address.longitude) {
+    const addr = user.address;
+    if (!addr || addr.latitude == null || addr.longitude == null || addr.latitude === '' || addr.longitude === '') {
       return res.status(400).json({
         success: false,
         error: 'User location not set. Please update your profile with address and location coordinates.',
       });
     }
 
-    const userLat = user.address.latitude;
-    const userLon = user.address.longitude;
+    const userLat = toNumberCoord(addr.latitude);
+    const userLon = toNumberCoord(addr.longitude);
+    if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) {
+      return res.status(400).json({
+        success: false,
+        error: 'User address has invalid latitude or longitude. Please update your profile.',
+      });
+    }
 
     // Get all vendors with location data
     const vendors = await Vendor.find({
@@ -60,13 +55,19 @@ exports.getNearbyProducts = async (req, res, next) => {
     const vendorDistances = {};
 
     vendors.forEach((vendor) => {
-      const vendorLat = vendor.storeAddress.latitude;
-      const vendorLon = vendor.storeAddress.longitude;
+      const vendorLat = toNumberCoord(vendor.storeAddress.latitude);
+      const vendorLon = toNumberCoord(vendor.storeAddress.longitude);
+      if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) {
+        return;
+      }
       const distance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
-      
+      if (distance == null) {
+        return;
+      }
+
       // Check if vendor is within radius (considering both user radius and vendor service radius)
       const maxRadius = Math.max(radius, vendor.serviceRadius || 5);
-      
+
       if (distance <= maxRadius) {
         nearbyVendorIds.push(vendor._id);
         vendorDistances[vendor._id.toString()] = {
@@ -169,32 +170,17 @@ exports.getAllProducts = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const radius = parseFloat(req.query.radius) || 10; // Allow custom radius, default 10km
 
-    // Latitude and longitude are now required
-    if (!req.query.latitude || !req.query.longitude) {
+    const parsed = parseClientLatLon(req.query);
+    if (!parsed) {
       return res.status(400).json({
         success: false,
-        error: 'Latitude and longitude are required parameters',
+        error: 'Latitude and longitude are required (use latitude & longitude, or lat & lng).',
       });
     }
-
-    // Get latitude and longitude from query params
-    const userLat = parseFloat(req.query.latitude);
-    const userLon = parseFloat(req.query.longitude);
-
-    // Validate latitude and longitude are valid numbers
-    if (isNaN(userLat) || isNaN(userLon)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Latitude and longitude must be valid numbers',
-      });
-    }
-
-    // Validate latitude and longitude ranges
-    if (userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid latitude or longitude values. Latitude must be between -90 and 90, longitude between -180 and 180.',
-      });
+    const userLat = parsed.latitude;
+    const userLon = parsed.longitude;
+    if (parsed.corrected) {
+      logger.info('User products: corrected client lat/lon order (South Asia heuristic)');
     }
 
     // Get all vendors with location data
@@ -214,17 +200,23 @@ exports.getAllProducts = async (req, res, next) => {
     const vendorDistances = {};
 
     vendors.forEach((vendor) => {
-      const vendorLat = vendor.storeAddress.latitude;
-      const vendorLon = vendor.storeAddress.longitude;
+      const vendorLat = toNumberCoord(vendor.storeAddress.latitude);
+      const vendorLon = toNumberCoord(vendor.storeAddress.longitude);
+      if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) {
+        return;
+      }
       const distance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
-      
+      if (distance == null) {
+        return;
+      }
+
       // Check if vendor is within 10km radius (considering both user radius and vendor service radius)
       const maxRadius = Math.max(radius, vendor.serviceRadius || 5);
-      
+
       if (distance <= maxRadius) {
         nearbyVendorIds.push(vendor._id);
         vendorDistances[vendor._id.toString()] = {
-          distance: parseFloat(distance.toFixed(2)),
+          distance: distance,
           storeName: vendor.storeName,
           vendorName: vendor.vendorName,
         };

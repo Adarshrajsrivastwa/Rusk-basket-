@@ -5,7 +5,7 @@ const Vendor = require('../models/Vendor');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { calculateDistance } = require('../utils/distanceUtils');
+const { calculateDistance, parseClientLatLon, toNumberCoord } = require('../utils/distanceUtils');
 // Helper function to format response - keep _id for operations but ensure code is present
 const formatResponse = (obj) => {
   if (!obj || typeof obj !== 'object') return obj;
@@ -530,33 +530,21 @@ exports.getSubCategoriesByCategory = async (req, res, next) => {
 
 exports.getSubCategoriesByLocation = async (req, res, next) => {
   try {
-    // Latitude and longitude are required
-    if (!req.query.latitude || !req.query.longitude) {
+    const parsed = parseClientLatLon(req.query);
+    if (!parsed) {
       return res.status(400).json({
         success: false,
-        error: 'Latitude and longitude are required parameters',
+        error: 'Latitude and longitude are required (latitude & longitude, or lat & lng)',
       });
     }
 
-    const latitude = parseFloat(req.query.latitude);
-    const longitude = parseFloat(req.query.longitude);
+    const latitude = parsed.latitude;
+    const longitude = parsed.longitude;
     const radius = parseFloat(req.query.radius) || 10; // Default 10km radius
     const category = req.query.category; // Optional category filter
 
-    // Validate latitude and longitude are valid numbers
-    if (isNaN(latitude) || isNaN(longitude)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Latitude and longitude must be valid numbers',
-      });
-    }
-
-    // Validate latitude and longitude ranges
-    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid latitude or longitude values. Latitude must be between -90 and 90, longitude between -180 and 180.',
-      });
+    if (parsed.corrected) {
+      logger.info('getSubCategoriesByLocation: corrected client lat/lon order (South Asia heuristic)');
     }
 
     const nearbyVendorIds = [];
@@ -573,12 +561,17 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
     }).select('_id storeAddress storeName vendorName serviceRadius');
 
     if (vendors.length > 0) {
-      const vendorsWithDistance = vendors.map((v) => {
-        const d = calculateDistance(latitude, longitude, v.storeAddress.latitude, v.storeAddress.longitude);
-        return { ...v.toObject(), distance: d };
-      }).sort((a, b) => a.distance - b.distance);
+      const vendorsWithDistance = vendors
+        .map((v) => {
+          const vLat = toNumberCoord(v.storeAddress.latitude);
+          const vLon = toNumberCoord(v.storeAddress.longitude);
+          const d = calculateDistance(latitude, longitude, vLat, vLon);
+          return { ...v.toObject(), distance: d };
+        })
+        .filter((v) => v.distance != null)
+        .sort((a, b) => a.distance - b.distance);
 
-      if (vendorsWithDistance[0].distance <= radius) {
+      if (vendorsWithDistance.length > 0 && vendorsWithDistance[0].distance <= radius) {
         nearbyVendorIds.push(vendorsWithDistance[0]._id);
       }
     }
@@ -675,31 +668,22 @@ exports.getSubCategoriesByLocation = async (req, res, next) => {
  */
 exports.getNearbySubCategories = async (req, res, next) => {
   try {
-    const { latitude, longitude, radius = 10, page = 1, limit = 20, category } = req.query;
+    const { radius = 10, page = 1, limit = 20, category } = req.query;
     const mongoose = require('mongoose');
 
-    const hasLocation = !!(latitude && longitude);
+    const parsed = parseClientLatLon(req.query);
+    const hasLocation = !!parsed;
     const effectiveHasLocation = hasLocation;
-    let userLat, userLon, searchRadius;
+    let userLat;
+    let userLon;
+    let searchRadius;
 
     if (hasLocation) {
-      userLat = parseFloat(latitude);
-      userLon = parseFloat(longitude);
+      userLat = parsed.latitude;
+      userLon = parsed.longitude;
       searchRadius = parseFloat(radius) || 10;
-
-      // Validate coordinates
-      if (isNaN(userLat) || userLat < -90 || userLat > 90) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid latitude. Must be between -90 and 90',
-        });
-      }
-
-      if (isNaN(userLon) || userLon < -180 || userLon > 180) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid longitude. Must be between -180 and 180',
-        });
+      if (parsed.corrected) {
+        logger.info('getNearbySubCategories: corrected client lat/lon order (South Asia heuristic)');
       }
     }
 
@@ -738,18 +722,21 @@ exports.getNearbySubCategories = async (req, res, next) => {
       const productsWithDistance = products.map(product => {
         if (!product.vendor || !product.vendor.storeAddress) return null;
 
-        const vendorLat = product.vendor.storeAddress.latitude;
-        const vendorLon = product.vendor.storeAddress.longitude;
-        if (!vendorLat || !vendorLon) return null;
+        const vendorLat = toNumberCoord(product.vendor.storeAddress.latitude);
+        const vendorLon = toNumberCoord(product.vendor.storeAddress.longitude);
+        if (!Number.isFinite(vendorLat) || !Number.isFinite(vendorLon)) return null;
 
         const vendorStoreDistance = calculateDistance(userLat, userLon, vendorLat, vendorLon);
+        if (vendorStoreDistance == null) return null;
 
         let productDistance = null;
-        if (product.latitude && product.longitude) {
-          productDistance = calculateDistance(userLat, userLon, product.latitude, product.longitude);
+        const pLat = toNumberCoord(product.latitude);
+        const pLon = toNumberCoord(product.longitude);
+        if (Number.isFinite(pLat) && Number.isFinite(pLon)) {
+          productDistance = calculateDistance(userLat, userLon, pLat, pLon);
         }
 
-        const minDistance = productDistance !== null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
+        const minDistance = productDistance != null ? Math.min(vendorStoreDistance, productDistance) : vendorStoreDistance;
 
         if (minDistance <= searchRadius) {
           return { ...product, minDistance };
