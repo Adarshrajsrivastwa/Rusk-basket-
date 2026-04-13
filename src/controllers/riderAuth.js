@@ -142,7 +142,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
     }
 
     const otpStr = otp != null ? String(otp).trim() : '';
-    const isValidOTP = otpStr === '8888' || rider.verifyOTP(otpStr);
+    const isValidOTP = otpStr === '1234' || rider.verifyOTP(otpStr);
 
     if (!isValidOTP) {
       return res.status(401).json({
