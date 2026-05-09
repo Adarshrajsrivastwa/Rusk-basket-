@@ -12,43 +12,161 @@ const { sendOrderAssignmentRequestToRiders, notifyRiderOrderUpdate, notifyUserOr
 const logger = require('../utils/logger');
 
 /**
- * Sum delivery charges for each vendor (store → shipping coordinates).
- * @param {import('mongoose').Types.ObjectId[]} vendorIds - unique vendor ids from cart/order items
+ * Haversine distance × ₹/km per vendor (pickup = storeAddress or first product with coords).
+ * @param {import('mongoose').Types.ObjectId[]|string[]} vendorIds
  * @param {number|undefined} shippingLat
  * @param {number|undefined} shippingLon
- * @returns {Promise<number>}
+ * @returns {Promise<{ totalDeliveryCharge: number, breakdown: Array<object>, warnings: Array<object> }>}
  */
-async function calculateTotalDeliveryChargeForVendors(vendorIds, shippingLat, shippingLon) {
-  const { calculateDistance, calculateDeliveryCharge } = require('../utils/distanceUtils');
+async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
+  const {
+    calculateDistance,
+    calculateDeliveryCharge,
+    toNumberCoord,
+    correctLatLonIfLikelySwappedForSouthAsia,
+  } = require('../utils/distanceUtils');
+
+  const breakdown = [];
+  const warnings = [];
   let totalDeliveryCharge = 0;
+
+  if (!vendorIds || vendorIds.length === 0) {
+    return { totalDeliveryCharge: 0, breakdown, warnings };
+  }
+
   if (
     shippingLat == null ||
     shippingLon == null ||
-    Number.isNaN(Number(shippingLat)) ||
-    Number.isNaN(Number(shippingLon)) ||
-    !vendorIds ||
-    vendorIds.length === 0
+    shippingLat === '' ||
+    shippingLon === ''
   ) {
-    return totalDeliveryCharge;
+    warnings.push({
+      code: 'missing_dropoff_coordinates',
+      message: 'Pass lat & long (or latitude & longitude) on /cart so delivery can be estimated.',
+    });
+    return { totalDeliveryCharge: 0, breakdown, warnings };
   }
 
-  const lat = parseFloat(shippingLat);
-  const lon = parseFloat(shippingLon);
-  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id storeAddress deliveryChargePerKm');
+  let lat = toNumberCoord(shippingLat);
+  let lon = toNumberCoord(shippingLon);
+  const fixedDrop = correctLatLonIfLikelySwappedForSouthAsia(lat, lon);
+  if (fixedDrop.corrected) {
+    lat = fixedDrop.latitude;
+    lon = fixedDrop.longitude;
+  }
 
-  for (const vendor of vendors) {
-    const vendorLat = vendor.storeAddress?.latitude;
-    const vendorLon = vendor.storeAddress?.longitude;
-    const chargePerKm = vendor.deliveryChargePerKm || 0;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    warnings.push({ code: 'invalid_dropoff_coordinates', message: 'User latitude/longitude are not valid numbers.' });
+    return { totalDeliveryCharge: 0, breakdown, warnings };
+  }
 
-    if (vendorLat != null && vendorLon != null && chargePerKm > 0) {
-      const distance = calculateDistance(vendorLat, vendorLon, lat, lon);
-      if (distance !== null && distance > 0) {
-        totalDeliveryCharge += calculateDeliveryCharge(distance, chargePerKm);
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } })
+    .select('_id storeAddress deliveryChargePerKm')
+    .lean();
+
+  const vendorMeta = new Map();
+  for (const v of vendors) {
+    const vl = toNumberCoord(v.storeAddress?.latitude);
+    const vo = toNumberCoord(v.storeAddress?.longitude);
+    vendorMeta.set(v._id.toString(), {
+      vendorId: v._id,
+      configuredPerKm: Number(v.deliveryChargePerKm) || 0,
+      pickupLat: Number.isFinite(vl) ? vl : null,
+      pickupLon: Number.isFinite(vo) ? vo : null,
+    });
+  }
+
+  const missingPickupIds = [...vendorMeta.values()]
+    .filter(m => m.pickupLat == null || m.pickupLon == null)
+    .map(m => m.vendorId);
+
+  if (missingPickupIds.length > 0) {
+    const products = await Product.find({
+      vendor: { $in: missingPickupIds },
+      latitude: { $exists: true, $ne: null },
+      longitude: { $exists: true, $ne: null },
+    })
+      .select('vendor latitude longitude')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const firstProductByVendor = new Map();
+    for (const p of products) {
+      const vid = p.vendor.toString();
+      if (!firstProductByVendor.has(vid)) firstProductByVendor.set(vid, p);
+    }
+
+    for (const vid of missingPickupIds) {
+      const m = vendorMeta.get(vid.toString());
+      const p = firstProductByVendor.get(vid.toString());
+      if (!m || !p) continue;
+      const plat = toNumberCoord(p.latitude);
+      const plon = toNumberCoord(p.longitude);
+      if (Number.isFinite(plat) && Number.isFinite(plon)) {
+        m.pickupLat = plat;
+        m.pickupLon = plon;
       }
     }
   }
 
+  const envDefault = parseFloat(process.env.DEFAULT_DELIVERY_CHARGE_PER_KM || '');
+  const fallbackPerKm = Number.isFinite(envDefault) && envDefault > 0 ? envDefault : null;
+
+  for (const idStr of [...new Set(vendorIds.map(id => id.toString()))]) {
+    const m = vendorMeta.get(idStr);
+    if (!m) {
+      warnings.push({ vendorId: idStr, code: 'vendor_not_found', message: 'Vendor not found for cart item.' });
+      continue;
+    }
+
+    let chargePerKm = m.configuredPerKm > 0 ? m.configuredPerKm : fallbackPerKm;
+    if (chargePerKm == null || chargePerKm <= 0) {
+      warnings.push({
+        vendorId: idStr,
+        code: 'missing_delivery_rate',
+        message:
+          'Set deliveryChargePerKm on the vendor profile, or set DEFAULT_DELIVERY_CHARGE_PER_KM in environment.',
+      });
+      continue;
+    }
+
+    if (m.pickupLat == null || m.pickupLon == null) {
+      warnings.push({
+        vendorId: idStr,
+        code: 'missing_pickup_coordinates',
+        message:
+          'Vendor storeAddress latitude/longitude (or a product lat/long for that vendor) is required for distance.',
+      });
+      continue;
+    }
+
+    const distanceKm = calculateDistance(m.pickupLat, m.pickupLon, lat, lon);
+    if (distanceKm == null) {
+      warnings.push({ vendorId: idStr, code: 'distance_error', message: 'Could not compute distance.' });
+      continue;
+    }
+
+    const lineTotal = calculateDeliveryCharge(distanceKm, chargePerKm);
+    totalDeliveryCharge += lineTotal;
+
+    breakdown.push({
+      vendorId: m.vendorId,
+      distanceKm: parseFloat(distanceKm.toFixed(2)),
+      chargePerKm: parseFloat(Number(chargePerKm).toFixed(2)),
+      amount: lineTotal,
+      usedConfiguredRate: m.configuredPerKm > 0,
+    });
+  }
+
+  return {
+    totalDeliveryCharge: parseFloat(totalDeliveryCharge.toFixed(2)),
+    breakdown,
+    warnings,
+  };
+}
+
+async function calculateTotalDeliveryChargeForVendors(vendorIds, shippingLat, shippingLon) {
+  const { totalDeliveryCharge } = await computeDeliveryForVendors(vendorIds, shippingLat, shippingLon);
   return totalDeliveryCharge;
 }
 
@@ -532,12 +650,21 @@ exports.getCartWithTotals = async (userId, options = {}) => {
   }
 
   if (!cart || !cart.items || cart.items.length === 0) {
+    const emptyWarnings = [];
+    if (shipLat == null || shipLon == null || shipLat === '' || shipLon === '') {
+      emptyWarnings.push({
+        code: 'missing_dropoff_coordinates',
+        message: 'Pass lat & long on /api/checkout/cart for delivery estimate.',
+      });
+    }
     return {
       items: [],
       unavailableItems: [],
       pricing: {
         subtotal: 0,
         discount: 0,
+        couponDiscount: 0,
+        cashbackDiscount: 0,
         tax: 0,
         handlingCharge: 0,
         deliveryAmount: 0,
@@ -546,6 +673,11 @@ exports.getCartWithTotals = async (userId, options = {}) => {
         totalCashback: 0,
       },
       totalPrice: 0,
+      deliveryEstimate: {
+        totalAmount: 0,
+        legs: [],
+        warnings: emptyWarnings,
+      },
     };
   }
 
@@ -767,10 +899,8 @@ exports.getCartWithTotals = async (userId, options = {}) => {
       .filter(Boolean)
   )].map(id => id);
 
-  let deliveryAmount = 0;
-  if (shipLat != null && shipLon != null) {
-    deliveryAmount = await calculateTotalDeliveryChargeForVendors(uniqueVendorIds, shipLat, shipLon);
-  }
+  const deliveryResult = await computeDeliveryForVendors(uniqueVendorIds, shipLat, shipLon);
+  const deliveryAmount = deliveryResult.totalDeliveryCharge;
 
   const total = computeGrandTotal(subtotal, discount, tax, totalHandlingCharge, deliveryAmount);
 
@@ -813,6 +943,11 @@ exports.getCartWithTotals = async (userId, options = {}) => {
       totalCashback: parseFloat(totalCashback.toFixed(2)),
     },
     totalPrice: parseFloat(total.toFixed(2)),
+    deliveryEstimate: {
+      totalAmount: parseFloat(deliveryAmount.toFixed(2)),
+      legs: deliveryResult.breakdown,
+      warnings: deliveryResult.warnings,
+    },
   };
 };
 

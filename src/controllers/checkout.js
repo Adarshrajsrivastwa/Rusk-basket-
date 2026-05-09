@@ -2,19 +2,12 @@ const checkoutService = require('../services/checkoutService');
 const cashbackService = require('../services/cashbackService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const { parseClientLatLon } = require('../utils/distanceUtils');
 
 function cartTotalsOptionsFromQuery(req) {
-  const latRaw = req.query.lat ?? req.query.latitude;
-  const longRaw = req.query.long ?? req.query.longitude;
-  const latitude =
-    latRaw != null && latRaw !== '' && Number.isFinite(parseFloat(latRaw))
-      ? parseFloat(latRaw)
-      : undefined;
-  const longitude =
-    longRaw != null && longRaw !== '' && Number.isFinite(parseFloat(longRaw))
-      ? parseFloat(longRaw)
-      : undefined;
-  return { latitude, longitude };
+  const parsed = parseClientLatLon(req.query);
+  if (!parsed) return { latitude: undefined, longitude: undefined };
+  return { latitude: parsed.latitude, longitude: parsed.longitude };
 }
 
 exports.getCart = async (req, res, next) => {
