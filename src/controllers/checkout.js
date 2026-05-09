@@ -361,43 +361,8 @@ exports.createOrder = async (req, res, next) => {
     const userId = req.user._id;
     logger.info(`Creating order from cart for user: ${userId}`);
 
-    // Parse the address string: "C22/54 Kabir Chaura,Varanasi,221001"
-    // Format: line1, city, pinCode
-    const addressParts = addressString.split(',').map(part => part.trim());
-
-    if (addressParts.length < 3) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid address format. Expected format: "Address Line, City, PIN Code"',
-      });
-    }
-
-    const line1 = addressParts[0];
-    const city = addressParts[1];
-    const pinCode = addressParts[2];
-
-    // Validate PIN code format
-    if (!/^[0-9]{6}$/.test(pinCode)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid PIN code format. Must be 6 digits',
-      });
-    }
-
-    // Get state from PIN code using post office API
-    const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
-    const postOfficeData = await getPostOfficeDetails(pinCode);
-
-    if (!postOfficeData.success) {
-      return res.status(400).json({
-        success: false,
-        error: postOfficeData.error || 'Invalid PIN code. Could not fetch location details.',
-      });
-    }
-
-    // Get user's contact number
     const User = require('../models/User');
-    const user = await User.findById(userId).select('contactNumber');
+    const user = await User.findById(userId).select('contactNumber address addresses');
 
     if (!user || !user.contactNumber) {
       return res.status(400).json({
@@ -406,17 +371,72 @@ exports.createOrder = async (req, res, next) => {
       });
     }
 
-    // Build shipping address object
-    const shippingAddress = {
-      line1: line1,
-      line2: '', // Optional, can be empty
-      pinCode: pinCode,
-      city: postOfficeData.city || city, // Use API city if available, otherwise use provided city
-      state: postOfficeData.state,
-      phone: user.contactNumber,
-      latitude: lat ? parseFloat(lat) : undefined,
-      longitude: long ? parseFloat(long) : undefined,
+    const pickSavedShippingAddress = () => {
+      const list = Array.isArray(user.addresses) ? user.addresses : [];
+      const hasCoords = (a) => a && a.latitude != null && a.longitude != null;
+
+      let a = list.find((x) => x.isDefault && hasCoords(x));
+      if (!a) a = list.find((x) => hasCoords(x));
+      if (!a && user.address && hasCoords(user.address)) a = user.address;
+      return a || null;
     };
+
+    const savedAddress = pickSavedShippingAddress();
+    let shippingAddress;
+
+    if (savedAddress) {
+      // Use saved user address (preferred). No dependency on frontend lat/long.
+      shippingAddress = {
+        line1: savedAddress.line1 || (typeof addressString === 'string' ? addressString.split(',')[0]?.trim() : ''),
+        line2: savedAddress.line2 || '',
+        pinCode: savedAddress.pinCode || '',
+        city: savedAddress.city || '',
+        state: savedAddress.state || '',
+        phone: user.contactNumber,
+        latitude: savedAddress.latitude,
+        longitude: savedAddress.longitude,
+      };
+    } else {
+      // Fallback: parse the address string: "line1, city, pinCode" and enrich with post office data.
+      const addressParts = String(addressString || '').split(',').map(part => part.trim());
+      if (addressParts.length < 3) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid address format. Expected format: "Address Line, City, PIN Code"',
+        });
+      }
+
+      const line1 = addressParts[0];
+      const city = addressParts[1];
+      const pinCode = addressParts[2];
+
+      if (!/^[0-9]{6}$/.test(pinCode)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid PIN code format. Must be 6 digits',
+        });
+      }
+
+      const { getPostOfficeDetails } = require('../utils/postOfficeAPI');
+      const postOfficeData = await getPostOfficeDetails(pinCode);
+      if (!postOfficeData.success) {
+        return res.status(400).json({
+          success: false,
+          error: postOfficeData.error || 'Invalid PIN code. Could not fetch location details.',
+        });
+      }
+
+      shippingAddress = {
+        line1,
+        line2: '',
+        pinCode,
+        city: postOfficeData.city || city,
+        state: postOfficeData.state,
+        phone: user.contactNumber,
+        latitude: lat ? parseFloat(lat) : undefined,
+        longitude: long ? parseFloat(long) : undefined,
+      };
+    }
 
     // Combine notes and deliveryInstruction
     let combinedNotes = '';
@@ -431,11 +451,22 @@ exports.createOrder = async (req, res, next) => {
       }
     }
 
+    // Carry forward the delivery amount computed on /api/checkout/cart (single source of truth).
+    // If delivery can't be computed, it will stay 0 and order will still be placed.
+    const cartTotals = await checkoutService.getCartWithTotals(userId, {
+      latitude: shippingAddress.latitude,
+      longitude: shippingAddress.longitude,
+      dropoffSource: 'order_create',
+    });
+
     const order = await checkoutService.createOrder(
       userId,
       shippingAddress,
       paymentMethod,
-      combinedNotes || undefined
+      combinedNotes || undefined,
+      {
+        deliveryAmount: cartTotals?.pricing?.deliveryAmount ?? 0,
+      }
     );
 
     logger.info(`Order created: ${order.orderNumber} by User: ${req.user._id}`);

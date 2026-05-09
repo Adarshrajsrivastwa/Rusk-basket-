@@ -986,7 +986,7 @@ exports.getCartWithTotals = async (userId, options = {}) => {
 /**
  * Create order from cart
  */
-exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '') => {
+exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '', options = {}) => {
   // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId });
 
@@ -1123,11 +1123,14 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
   const shippingLat = shippingAddress?.latitude;
   const shippingLon = shippingAddress?.longitude;
   const vendorIdsForDelivery = [...new Set(cleanedItems.map(item => item.vendor.toString()))];
-  const totalDeliveryCharge = await calculateTotalDeliveryChargeForVendors(
-    vendorIdsForDelivery,
-    shippingLat,
-    shippingLon
-  );
+
+  // If delivery was already computed on /api/checkout/cart, carry it forward here.
+  // This prevents mismatches due to re-computation or different coordinate sources.
+  const providedDelivery = options && options.deliveryAmount != null ? Number(options.deliveryAmount) : null;
+  const totalDeliveryCharge =
+    Number.isFinite(providedDelivery) && providedDelivery >= 0
+      ? providedDelivery
+      : await calculateTotalDeliveryChargeForVendors(vendorIdsForDelivery, shippingLat, shippingLon);
 
   const cashbackUsage = cart.cashbackUsage || 0;
   const couponDiscount = totals.pricing.discount - cashbackUsage;
