@@ -7,16 +7,32 @@ const {
   updateCoupon,
   deleteCoupon,
   toggleCouponStatus,
+  getAvailableCoupons,
 } = require('../controllers/coupon');
-const { protect } = require('../middleware/adminAuth');
+const { getActiveTodayOffers } = require('../controllers/couponNotification');
+const { protectAdminOrUser } = require('../middleware/adminOrUserAuth');
+const { protect: protectUser } = require('../middleware/userAuth');
 
 const router = express.Router();
 
-// User-facing coupon discovery lives under /api/checkout (see checkout routes).
-// All routes below require admin authentication.
+router.get('/today-offers', getActiveTodayOffers);
+
+router.get(
+  '/available',
+  protectUser,
+  [
+    query('cartAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Cart amount must be a non-negative number'),
+  ],
+  getAvailableCoupons
+);
+
+// Authenticated as admin or user (same JWT secret; role in token)
 router.post(
   '/create',
-  protect,
+  protectAdminOrUser,
   [
     body('couponName')
       .trim()
@@ -120,7 +136,7 @@ router.post(
 
 router.get(
   '/',
-  protect,
+  protectAdminOrUser,
   [
     query('page')
       .optional()
@@ -142,11 +158,11 @@ router.get(
   getCoupons
 );
 
-router.get('/:id', protect, getCoupon);
+router.get('/:id', protectAdminOrUser, getCoupon);
 
 router.put(
   '/:id',
-  protect,
+  protectAdminOrUser,
   [
     body('couponName')
       .optional()
@@ -266,9 +282,9 @@ router.put(
   updateCoupon
 );
 
-router.delete('/:id', protect, deleteCoupon);
+router.delete('/:id', protectAdminOrUser, deleteCoupon);
 
-router.put('/:id/toggle-status', protect, toggleCouponStatus);
+router.put('/:id/toggle-status', protectAdminOrUser, toggleCouponStatus);
 
 module.exports = router;
 

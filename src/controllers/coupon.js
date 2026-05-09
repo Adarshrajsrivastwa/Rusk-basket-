@@ -165,11 +165,15 @@ exports.createCoupon = async (req, res, next) => {
       validFrom: validFrom ? new Date(validFrom) : new Date(),
       validUntil: validUntil ? new Date(validUntil) : undefined,
       usageLimit: usageLimit ? parseInt(usageLimit) : undefined,
-      createdBy: req.admin ? req.admin._id : req.vendor._id,
-      createdByModel: req.admin ? 'Admin' : 'Vendor',
+      createdBy: req.admin ? req.admin._id : req.vendor ? req.vendor._id : req.user._id,
+      createdByModel: req.admin ? 'Admin' : req.vendor ? 'Vendor' : 'User',
     });
 
-    const creatorInfo = req.admin ? `Admin: ${req.admin.email || req.admin._id}` : `Vendor: ${req.vendor.storeId || req.vendor._id}`;
+    const creatorInfo = req.admin
+      ? `Admin: ${req.admin.email || req.admin._id}`
+      : req.vendor
+        ? `Vendor: ${req.vendor.storeId || req.vendor._id}`
+        : `User: ${req.user.email || req.user._id}`;
     logger.info(`Coupon created: ${coupon.code} (Offer ID: ${coupon.offerId}) by ${creatorInfo}`);
 
     res.status(201).json({
@@ -415,7 +419,9 @@ exports.updateCoupon = async (req, res, next) => {
 
     await coupon.save();
 
-    logger.info(`Coupon updated: ${coupon.code} (Offer ID: ${coupon.offerId}) by Admin: ${req.admin.email || req.admin._id}`);
+    const actor =
+      req.admin?.email || req.admin?._id || req.user?.email || req.user?._id || 'unknown';
+    logger.info(`Coupon updated: ${coupon.code} (Offer ID: ${coupon.offerId}) by ${actor}`);
 
     const updatedCoupon = await Coupon.findById(coupon._id)
       .populate('createdBy', 'name email')
@@ -453,7 +459,9 @@ exports.deleteCoupon = async (req, res, next) => {
 
     await Coupon.findByIdAndDelete(req.params.id);
 
-    logger.info(`Coupon deleted: ${coupon.code} (Offer ID: ${coupon.offerId}) by Admin: ${req.admin.email || req.admin._id}`);
+    const actor =
+      req.admin?.email || req.admin?._id || req.user?.email || req.user?._id || 'unknown';
+    logger.info(`Coupon deleted: ${coupon.code} (Offer ID: ${coupon.offerId}) by ${actor}`);
 
     res.status(200).json({
       success: true,
@@ -482,7 +490,9 @@ exports.toggleCouponStatus = async (req, res, next) => {
     await coupon.save();
 
     const action = coupon.isActive ? 'activated' : 'deactivated';
-    logger.info(`Coupon ${action}: ${coupon.code} (Offer ID: ${coupon.offerId}) by Admin: ${req.admin.email || req.admin._id}`);
+    const actor =
+      req.admin?.email || req.admin?._id || req.user?.email || req.user?._id || 'unknown';
+    logger.info(`Coupon ${action}: ${coupon.code} (Offer ID: ${coupon.offerId}) by ${actor}`);
 
     res.status(200).json({
       success: true,
@@ -523,6 +533,7 @@ exports.getAvailableCoupons = async (req, res, next) => {
       isActive: true,
       $or: [
         { createdByModel: 'Admin' },
+        { createdByModel: 'User' },
         { createdByModel: { $exists: false } }, // Backward compatibility for old coupons
       ],
       minAmount: { $lte: subtotal }, // Cart amount must be >= minAmount

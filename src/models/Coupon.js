@@ -135,7 +135,7 @@ const CouponSchema = new mongoose.Schema({
   },
   createdByModel: {
     type: String,
-    enum: ['Admin', 'Vendor'],
+    enum: ['Admin', 'Vendor', 'User'],
     required: true,
   },
   createdAt: {
