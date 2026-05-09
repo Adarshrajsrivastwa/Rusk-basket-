@@ -301,9 +301,8 @@ router.post(
   '/order/create',
   [
     body('shippingAddress')
+      .optional()
       .trim()
-      .notEmpty()
-      .withMessage('Shipping address is required')
       .isLength({ min: 5, max: 500 })
       .withMessage('Shipping address must be between 5 and 500 characters'),
     body('lat')

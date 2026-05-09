@@ -387,7 +387,7 @@ exports.createOrder = async (req, res, next) => {
     if (savedAddress) {
       // Use saved user address (preferred). No dependency on frontend lat/long.
       shippingAddress = {
-        line1: savedAddress.line1 || (typeof addressString === 'string' ? addressString.split(',')[0]?.trim() : ''),
+        line1: savedAddress.line1 || '',
         line2: savedAddress.line2 || '',
         pinCode: savedAddress.pinCode || '',
         city: savedAddress.city || '',
@@ -398,6 +398,13 @@ exports.createOrder = async (req, res, next) => {
       };
     } else {
       // Fallback: parse the address string: "line1, city, pinCode" and enrich with post office data.
+      if (!addressString) {
+        return res.status(400).json({
+          success: false,
+          error: 'No saved address found. Please add an address in your profile (with latitude & longitude) or send shippingAddress.',
+        });
+      }
+
       const addressParts = String(addressString || '').split(',').map(part => part.trim());
       if (addressParts.length < 3) {
         return res.status(400).json({
