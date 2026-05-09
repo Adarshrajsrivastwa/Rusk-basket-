@@ -16,7 +16,7 @@ const logger = require('../utils/logger');
  * @param {import('mongoose').Types.ObjectId[]|string[]} vendorIds
  * @param {number|undefined} shippingLat
  * @param {number|undefined} shippingLon
- * @returns {Promise<{ totalDeliveryCharge: number, breakdown: Array<object>, warnings: Array<object> }>}
+ * @returns {Promise<{ totalDeliveryCharge: number, breakdown: Array<object>, warnings: [] }>}
  */
 async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   const {
@@ -27,11 +27,10 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   } = require('../utils/distanceUtils');
 
   const breakdown = [];
-  const warnings = [];
   let totalDeliveryCharge = 0;
 
   if (!vendorIds || vendorIds.length === 0) {
-    return { totalDeliveryCharge: 0, breakdown, warnings };
+    return { totalDeliveryCharge: 0, breakdown, warnings: [] };
   }
 
   if (
@@ -40,12 +39,7 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
     shippingLat === '' ||
     shippingLon === ''
   ) {
-    warnings.push({
-      code: 'missing_dropoff_coordinates',
-      message:
-        'No delivery location: save latitude/longitude on your default address, or pass lat & long on the cart request.',
-    });
-    return { totalDeliveryCharge: 0, breakdown, warnings };
+    return { totalDeliveryCharge: 0, breakdown, warnings: [] };
   }
 
   let lat = toNumberCoord(shippingLat);
@@ -57,8 +51,7 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   }
 
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    warnings.push({ code: 'invalid_dropoff_coordinates', message: 'User latitude/longitude are not valid numbers.' });
-    return { totalDeliveryCharge: 0, breakdown, warnings };
+    return { totalDeliveryCharge: 0, breakdown, warnings: [] };
   }
 
   const vendors = await Vendor.find({ _id: { $in: vendorIds } })
@@ -116,34 +109,20 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   for (const idStr of [...new Set(vendorIds.map(id => id.toString()))]) {
     const m = vendorMeta.get(idStr);
     if (!m) {
-      warnings.push({ vendorId: idStr, code: 'vendor_not_found', message: 'Vendor not found for cart item.' });
       continue;
     }
 
     let chargePerKm = m.configuredPerKm > 0 ? m.configuredPerKm : fallbackPerKm;
     if (chargePerKm == null || chargePerKm <= 0) {
-      warnings.push({
-        vendorId: idStr,
-        code: 'missing_delivery_rate',
-        message:
-          'Set deliveryChargePerKm on the vendor profile, or set DEFAULT_DELIVERY_CHARGE_PER_KM in environment.',
-      });
       continue;
     }
 
     if (m.pickupLat == null || m.pickupLon == null) {
-      warnings.push({
-        vendorId: idStr,
-        code: 'missing_pickup_coordinates',
-        message:
-          'Vendor storeAddress latitude/longitude (or a product lat/long for that vendor) is required for distance.',
-      });
       continue;
     }
 
     const distanceKm = calculateDistance(m.pickupLat, m.pickupLon, lat, lon);
     if (distanceKm == null) {
-      warnings.push({ vendorId: idStr, code: 'distance_error', message: 'Could not compute distance.' });
       continue;
     }
 
@@ -162,7 +141,7 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   return {
     totalDeliveryCharge: parseFloat(totalDeliveryCharge.toFixed(2)),
     breakdown,
-    warnings,
+    warnings: [],
   };
 }
 
@@ -708,16 +687,6 @@ exports.getCartWithTotals = async (userId, options = {}) => {
   }
 
   if (!cart || !cart.items || cart.items.length === 0) {
-    const emptyWarnings = [];
-    const latNum = shipLat != null && shipLat !== '' ? Number(shipLat) : NaN;
-    const lonNum = shipLon != null && shipLon !== '' ? Number(shipLon) : NaN;
-    if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
-      emptyWarnings.push({
-        code: 'missing_dropoff_coordinates',
-        message:
-          'Save latitude and longitude on your profile address, or pass lat & long on the cart URL.',
-      });
-    }
     return {
       items: [],
       unavailableItems: [],
@@ -738,7 +707,7 @@ exports.getCartWithTotals = async (userId, options = {}) => {
       deliveryEstimate: {
         totalAmount: 0,
         legs: [],
-        warnings: emptyWarnings,
+        warnings: [],
       },
     };
   }
