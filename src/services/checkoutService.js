@@ -12,6 +12,56 @@ const { sendOrderAssignmentRequestToRiders, notifyRiderOrderUpdate, notifyUserOr
 const logger = require('../utils/logger');
 
 /**
+ * Sum delivery charges for each vendor (store → shipping coordinates).
+ * @param {import('mongoose').Types.ObjectId[]} vendorIds - unique vendor ids from cart/order items
+ * @param {number|undefined} shippingLat
+ * @param {number|undefined} shippingLon
+ * @returns {Promise<number>}
+ */
+async function calculateTotalDeliveryChargeForVendors(vendorIds, shippingLat, shippingLon) {
+  const { calculateDistance, calculateDeliveryCharge } = require('../utils/distanceUtils');
+  let totalDeliveryCharge = 0;
+  if (
+    shippingLat == null ||
+    shippingLon == null ||
+    Number.isNaN(Number(shippingLat)) ||
+    Number.isNaN(Number(shippingLon)) ||
+    !vendorIds ||
+    vendorIds.length === 0
+  ) {
+    return totalDeliveryCharge;
+  }
+
+  const lat = parseFloat(shippingLat);
+  const lon = parseFloat(shippingLon);
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id storeAddress deliveryChargePerKm');
+
+  for (const vendor of vendors) {
+    const vendorLat = vendor.storeAddress?.latitude;
+    const vendorLon = vendor.storeAddress?.longitude;
+    const chargePerKm = vendor.deliveryChargePerKm || 0;
+
+    if (vendorLat != null && vendorLon != null && chargePerKm > 0) {
+      const distance = calculateDistance(vendorLat, vendorLon, lat, lon);
+      if (distance !== null && distance > 0) {
+        totalDeliveryCharge += calculateDeliveryCharge(distance, chargePerKm);
+      }
+    }
+  }
+
+  return totalDeliveryCharge;
+}
+
+/**
+ * Full payable total: items + tax + handling + delivery − discounts (coupon + wallet cashback usage).
+ */
+function computeGrandTotal(pricingSubtotal, pricingDiscount, tax, handlingCharge, deliveryAmount) {
+  return parseFloat(
+    (pricingSubtotal - pricingDiscount + tax + handlingCharge + deliveryAmount).toFixed(2)
+  );
+}
+
+/**
  * Update vendor revenue and product sales tracking
  * @param {Object} order - Order object
  * @param {Array} itemsToTrack - Optional: specific items to track (if not provided, tracks all items)
@@ -469,7 +519,10 @@ exports.removeCoupon = async (userId) => {
   return await Cart.findById(cart._id);
 };
 
-exports.getCartWithTotals = async (userId) => {
+exports.getCartWithTotals = async (userId, options = {}) => {
+  const shipLat = options.latitude ?? options.lat;
+  const shipLon = options.longitude ?? options.long;
+
   // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId }).populate('coupon.couponId');
 
@@ -486,6 +539,9 @@ exports.getCartWithTotals = async (userId) => {
         subtotal: 0,
         discount: 0,
         tax: 0,
+        handlingCharge: 0,
+        deliveryAmount: 0,
+        riderAmount: 0,
         total: 0,
         totalCashback: 0,
       },
@@ -665,16 +721,19 @@ exports.getCartWithTotals = async (userId) => {
     });
   }
 
-  let discount = 0;
+  let couponDiscountOnly = 0;
   if (cart.coupon && cart.coupon.couponId) {
     const coupon = await Coupon.findById(cart.coupon.couponId);
     if (coupon && coupon.isValid()) {
       const discountResult = coupon.calculateDiscount(subtotal);
       if (discountResult.valid) {
-        discount = discountResult.discount;
+        couponDiscountOnly = discountResult.discount;
       }
     }
   }
+
+  const cashbackUsage = cart.cashbackUsage || 0;
+  const discount = couponDiscountOnly + cashbackUsage;
 
   // Calculate handling charge based on vendor's handling charge percentage
   // Group items by vendor and calculate handling charge for each vendor's items
@@ -701,16 +760,24 @@ exports.getCartWithTotals = async (userId) => {
 
   // Tax is calculated from individual product taxes (sum of all item taxes)
   const tax = totalTax;
-  const total = subtotal - discount + tax + totalHandlingCharge;
+
+  const uniqueVendorIds = [...new Set(
+    itemsWithDetails
+      .map(item => item.vendor?.toString?.() || item.vendor)
+      .filter(Boolean)
+  )].map(id => id);
+
+  let deliveryAmount = 0;
+  if (shipLat != null && shipLon != null) {
+    deliveryAmount = await calculateTotalDeliveryChargeForVendors(uniqueVendorIds, shipLat, shipLon);
+  }
+
+  const total = computeGrandTotal(subtotal, discount, tax, totalHandlingCharge, deliveryAmount);
 
   if (unavailableItems.length > 0) {
     const itemIdsToRemove = unavailableItems.map(item => item.itemId);
     cart.items = cart.items.filter(item => !itemIdsToRemove.includes(item._id.toString()));
-    cart.totalPrice = parseFloat(total.toFixed(2));
-    await cart.save();
-  } else {
-    cart.totalPrice = parseFloat(total.toFixed(2));
-    await cart.save();
+    await cart.save(); // pre-save sets totalPrice from line items + discounts only (not tax/delivery)
   }
 
   const cartData = cart.toObject();
@@ -736,8 +803,12 @@ exports.getCartWithTotals = async (userId) => {
     pricing: {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discount: parseFloat(discount.toFixed(2)),
+      couponDiscount: parseFloat(couponDiscountOnly.toFixed(2)),
+      cashbackDiscount: parseFloat(cashbackUsage.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
       handlingCharge: parseFloat(totalHandlingCharge.toFixed(2)),
+      deliveryAmount: parseFloat(deliveryAmount.toFixed(2)),
+      riderAmount: parseFloat(deliveryAmount.toFixed(2)),
       total: parseFloat(total.toFixed(2)),
       totalCashback: parseFloat(totalCashback.toFixed(2)),
     },
@@ -882,54 +953,31 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '')
     return cleanedItem;
   }));
 
-  // Calculate delivery charge based on distance for each vendor
-  // Using shipping address coordinates (not user's default address)
-  const { calculateDistance, calculateDeliveryCharge } = require('../utils/distanceUtils');
-
-  let totalDeliveryCharge = 0;
   const shippingLat = shippingAddress?.latitude;
   const shippingLon = shippingAddress?.longitude;
+  const vendorIdsForDelivery = [...new Set(cleanedItems.map(item => item.vendor.toString()))];
+  const totalDeliveryCharge = await calculateTotalDeliveryChargeForVendors(
+    vendorIdsForDelivery,
+    shippingLat,
+    shippingLon
+  );
 
-  if (shippingLat && shippingLon) {
-    // Get unique vendors from order items
-    const vendorIds = [...new Set(cleanedItems.map(item => item.vendor.toString()))];
-    const vendors = await Vendor.find({ _id: { $in: vendorIds } })
-      .select('_id storeAddress deliveryChargePerKm');
-
-    // Calculate delivery charge for each vendor
-    // Distance = Vendor store address to Shipping address
-    for (const vendor of vendors) {
-      const vendorLat = vendor.storeAddress?.latitude;
-      const vendorLon = vendor.storeAddress?.longitude;
-      const chargePerKm = vendor.deliveryChargePerKm || 0;
-
-      if (vendorLat && vendorLon && chargePerKm > 0) {
-        // Calculate distance from vendor store to shipping address
-        const distance = calculateDistance(vendorLat, vendorLon, shippingLat, shippingLon);
-        if (distance !== null && distance > 0) {
-          const vendorDeliveryCharge = calculateDeliveryCharge(distance, chargePerKm);
-          totalDeliveryCharge += vendorDeliveryCharge;
-        }
-      }
-    }
-  }
-
-  // Get cashback usage from cart
   const cashbackUsage = cart.cashbackUsage || 0;
-
-  // Calculate coupon discount (excluding cashback)
   const couponDiscount = totals.pricing.discount - cashbackUsage;
 
-  // Calculate final total: ONLY subtotal + delivery charge (no tax, no handling, no discount deduction)
-  const finalTotal = parseFloat((totals.pricing.subtotal + totalDeliveryCharge).toFixed(2));
+  const finalTotal = computeGrandTotal(
+    totals.pricing.subtotal,
+    totals.pricing.discount,
+    totals.pricing.tax,
+    totals.pricing.handlingCharge,
+    totalDeliveryCharge
+  );
 
-  // Update pricing with delivery charge and show all breakdown components
   const finalPricing = {
     ...totals.pricing,
     deliveryAmount: parseFloat(totalDeliveryCharge.toFixed(2)),
-    riderAmount: parseFloat(totalDeliveryCharge.toFixed(2)), // riderAmount is same as deliveryAmount (what rider earns)
+    riderAmount: parseFloat(totalDeliveryCharge.toFixed(2)),
     total: finalTotal,
-    discount: Math.max(0, couponDiscount + cashbackUsage), // Combined discount (coupon + cashback)
   };
 
   // Create order

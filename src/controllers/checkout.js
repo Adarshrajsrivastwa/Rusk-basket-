@@ -3,13 +3,27 @@ const cashbackService = require('../services/cashbackService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 
+function cartTotalsOptionsFromQuery(req) {
+  const latRaw = req.query.lat ?? req.query.latitude;
+  const longRaw = req.query.long ?? req.query.longitude;
+  const latitude =
+    latRaw != null && latRaw !== '' && Number.isFinite(parseFloat(latRaw))
+      ? parseFloat(latRaw)
+      : undefined;
+  const longitude =
+    longRaw != null && longRaw !== '' && Number.isFinite(parseFloat(longRaw))
+      ? parseFloat(longRaw)
+      : undefined;
+  return { latitude, longitude };
+}
+
 exports.getCart = async (req, res, next) => {
   try {
     // Ensure we're getting cart for the authenticated user only
     const userId = req.user._id;
     logger.info(`Fetching cart for user: ${userId}`);
 
-    const result = await checkoutService.getCartWithTotals(userId);
+    const result = await checkoutService.getCartWithTotals(userId, cartTotalsOptionsFromQuery(req));
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({
         success: true,
@@ -114,7 +128,7 @@ exports.updateCartItem = async (req, res, next) => {
       });
     } catch (updateError) {
       if (updateError.message.includes('removed from cart')) {
-        const updatedCart = await checkoutService.getCartWithTotals(userId);
+        const updatedCart = await checkoutService.getCartWithTotals(userId, cartTotalsOptionsFromQuery(req));
         return res.status(400).json({
           success: false,
           error: updateError.message,
