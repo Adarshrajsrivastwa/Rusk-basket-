@@ -1,0 +1,1938 @@
+================================================================================
+  API REFERENCE (single file) — Rusk Basket backend
+  Har route: KAAM (work) + saare request fields (param/query/body)
+  Source: express-validator se auto API_FIELDS_REFERENCE.md, phir yeh .txt
+================================================================================
+
+Legend: param = URL path, query = ?string, body = JSON/form fields
+  Nested: dot notation (e.g. items.*.productId = array of objects)
+
+--------------------------------------------------------------------------------
+  /api/admin — `routes/admin.js`
+--------------------------------------------------------------------------------
+
+GET /api/admin/products
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, vendor, category, subCategory, approvalStatus, isActive, search
+
+POST /api/admin/products
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: vendorId, productName, productType, productTypeValue, productTypeUnit, category, subCategory, description, skuHsn, inventory, actualPrice, regularPrice, salePrice, cashback, tax, tags
+
+GET /api/admin/products/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: id
+
+PUT /api/admin/products/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: productName, productType, productTypeValue, productTypeUnit, category, subCategory, description, skuHsn, inventory, actualPrice, regularPrice, salePrice, cashback, tax, isActive, latitude, longitude, tags, skus
+
+GET /api/admin/orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, user, vendor, paymentStatus, paymentMethod, startDate, endDate, search
+
+GET /api/admin/profile
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/admin/profile
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: name, companyName, legalName, website, alternatePhone, contactPerson, designation, bankName, branchName, accountNumber, ifscCode, foundedYear, registrationNumber, gstNumber, panNumber, vision, mission, streetAddress, city, state, pincode, country, latitude, longitude, emailVerified, phoneVerified, yearsInBusiness, totalEmployees, activeClients, totalLeads, mobile, email
+
+GET /api/admin/tickets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, category, createdByModel, search
+
+GET /api/admin/tickets/:ticketId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: ticketId
+
+PATCH /api/admin/tickets/:ticketId/status
+  Kaam (work): Status update.
+  Fields:
+  - param: ticketId
+  - body: status, adminResponse
+
+POST /api/admin/tickets/:ticketId/messages
+  Kaam (work): Ticket par message bhejo.
+  Fields:
+  - param: ticketId
+  - body: message
+
+GET /api/admin/vendors
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, search
+
+GET /api/admin/vendors/wallets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, search, isActive
+
+GET /api/admin/riders/wallets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, search, approvalStatus, isActive
+
+PUT /api/admin/riders/:id/commission
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: type, percentage, fixedAmount, subscriptionAmount, subscriptionPeriod
+
+GET /api/admin/vendors/withdrawal-requests
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, vendorId
+
+PUT /api/admin/vendors/withdrawal-requests/:requestId/approve
+  Kaam (work): Withdrawal request approve karo.
+  Fields:
+  - param: requestId
+
+PUT /api/admin/vendors/withdrawal-requests/:requestId/reject
+  Kaam (work): Withdrawal request reject karo (reason).
+  Fields:
+  - param: requestId
+  - body: rejectionReason
+
+GET /api/admin/vendors/:vendorId/orders
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: vendorId
+  - query: page, limit, status, search
+
+GET /api/admin/vendors/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: id
+
+PUT /api/admin/vendors/:id/suspend
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+
+PUT /api/admin/vendors/:id/documents
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+
+PUT /api/admin/vendors/:id/radius
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: serviceRadius
+
+PUT /api/admin/vendors/:id/handling-charge
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: handlingChargePercentage
+
+DELETE /api/admin/vendors/:id
+  Kaam (work): Record delete.
+  Fields:
+  - param: id
+
+GET /api/admin/riders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, approvalStatus, isActive
+
+GET /api/admin/riders/pending
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit
+
+GET /api/admin/riders/withdrawal-requests
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, riderId
+
+PUT /api/admin/riders/withdrawal-requests/:requestId/approve
+  Kaam (work): Withdrawal request approve karo.
+  Fields:
+  - param: requestId
+
+PUT /api/admin/riders/withdrawal-requests/:requestId/reject
+  Kaam (work): Withdrawal request reject karo (reason).
+  Fields:
+  - param: requestId
+  - body: rejectionReason
+
+GET /api/admin/riders/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: id
+
+PUT /api/admin/riders/:id/approve
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+
+PUT /api/admin/riders/:id/reject
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: rejectionReason
+
+PUT /api/admin/riders/:id/suspend
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+
+GET /api/admin/notifications
+  Kaam (work): Notification list (pagination/filters).
+  Fields:
+  - query: page, limit, isRead, type
+
+GET /api/admin/notifications/unread-count
+  Kaam (work): Unread notification count.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/admin/notifications/:notificationId/read
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - param: notificationId
+
+PUT /api/admin/notifications/:notificationId/read
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - param: notificationId
+
+PATCH /api/admin/notifications/read-all
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/admin/notifications/:notificationId
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - param: notificationId
+
+DELETE /api/admin/notifications
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/admin/fcm-token
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token, deviceId, platform
+
+POST /api/admin/send-custom-push-notification
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: title, message, targetGroup, specificIds
+
+POST /api/admin/fcm-token/remove
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token
+
+POST /api/admin/test-notification
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/admin/add
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: name, mobile, email
+
+GET /api/admin/list
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, isActive, search
+
+GET /api/admin/referral-settings
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/admin/referral-settings
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: userReferrerAmount, userRefereeAmount, riderReferrerAmount, riderRefereeAmount, isActive
+
+GET /api/admin/cashback-settings
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/admin/cashback-settings
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: cashbackPercentage, minimumOrderAmount, maximumCashbackPerOrder, minimumCashbackToUse, maxCashbackUsagePercentage, maxCashbackUsageAmount, isActive
+
+--------------------------------------------------------------------------------
+  /api/analytics — `routes/analytics.js`
+--------------------------------------------------------------------------------
+
+GET /api/analytics/vendor/dashboard
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: period
+
+GET /api/analytics/vendor/sales
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: period, groupBy
+
+GET /api/analytics/vendor/products
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: period, limit
+
+GET /api/analytics/vendor/overview
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/analytics/admin/dashboard
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: period
+
+GET /api/analytics/admin/sales
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: period, groupBy, vendorId
+
+GET /api/analytics/admin/vendors
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: period, limit
+
+GET /api/analytics/admin/products
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: period, limit
+
+GET /api/analytics/admin/dashboard/overview
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/analytics/vendor/product/:productId/inventory
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: productId
+  - body: addedProduct
+
+PUT /api/analytics/vendor/product/:productId/stock
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: productId
+  - body: addedProduct
+
+GET /api/analytics/vendor/product/:productId/inventory
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: productId
+
+GET /api/analytics/admin/product/:productId/inventory
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: productId
+
+GET /api/analytics/vendor/inventory
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, stockStatus
+
+GET /api/analytics/admin/inventory
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, stockStatus
+
+GET /api/analytics/vendor/products/list
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, stockStatus, approvalStatus, search, sortBy, sortOrder
+
+GET /api/analytics/vendor/riders/no-orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/analytics/vendor/product-sales-report
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: startDate, endDate
+
+GET /api/analytics/admin/product-sales-report
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: startDate, endDate, vendorId
+
+--------------------------------------------------------------------------------
+  /api/auth — `routes/auth.js`
+--------------------------------------------------------------------------------
+
+POST /api/auth/login
+  Kaam (work): Login flow: OTP bhejta / start karta hai.
+  Fields:
+  - body: mobile, role
+
+POST /api/auth/verify-otp
+  Kaam (work): OTP verify karke session/token banta hai.
+  Fields:
+  - body: mobile, otp, role
+
+POST /api/auth/admin/logout
+  Kaam (work): Session logout / token hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/banner — `routes/banner.js`
+--------------------------------------------------------------------------------
+
+GET /api/banner/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, isActive
+
+GET /api/banner/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/banner/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: name
+
+DELETE /api/banner/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/banner/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/cashback — `routes/cashback.js`
+--------------------------------------------------------------------------------
+
+GET /api/cashback/admin/settings
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/cashback/admin/settings
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: cashbackPercentage, minimumOrderAmount, maximumCashbackPerOrder, minimumCashbackToUse, maxCashbackUsagePercentage, maxCashbackUsageAmount, isActive
+
+GET /api/cashback/admin/transactions
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, userId
+
+POST /api/cashback/admin/adjust/:userId
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: userId
+  - body: amount, description, expiresInDays
+
+GET /api/cashback/admin/user-stats/:userId
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: userId
+
+GET /api/cashback/user/balance
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/cashback/user/transactions
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, type
+
+GET /api/cashback/user/pending
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/cashback/user/claim
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: pendingCashbackId
+
+POST /api/cashback/user/claim-all
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/cashback/user/calculate
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: orderTotal
+
+--------------------------------------------------------------------------------
+  /api/category — `routes/category.js`
+--------------------------------------------------------------------------------
+
+POST /api/category/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: name, description
+
+GET /api/category/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/category/nearby
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/category/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/category/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: name, description
+
+DELETE /api/category/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/category/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/checkout — `routes/checkout.js`
+--------------------------------------------------------------------------------
+
+GET /api/checkout/vendor/orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/checkout/vendor/order/:orderId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: orderId
+
+GET /api/checkout/vendor/order/:orderId/invoice
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: orderId
+
+PUT /api/checkout/vendor/order/:orderId/status
+  Kaam (work): Status update.
+  Fields:
+  - param: orderId
+  - body: status
+
+PUT /api/checkout/vendor/order/:orderId/out-for-delivery
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: orderId
+  - body: riderId, notes
+
+POST /api/checkout/vendor/order/:orderId/items
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+  - body: items, items.*.productId, items.*.quantity, items.*.sku
+
+GET /api/checkout/cart
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/checkout/cart/add
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: productId, quantity, sku
+
+PUT /api/checkout/cart/item/:itemId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: itemId
+  - body: quantity
+
+PUT /api/checkout/cart/item
+  Kaam (work): Record update (fields).
+  Fields:
+  - query: itemId
+  - body: quantity
+
+DELETE /api/checkout/cart/item/:itemId
+  Kaam (work): Record delete.
+  Fields:
+  - param: itemId
+
+DELETE /api/checkout/cart/item
+  Kaam (work): Record delete.
+  Fields:
+  - query: itemId
+
+DELETE /api/checkout/cart/clear
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/checkout/cart/coupon/apply
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: couponCode
+
+DELETE /api/checkout/cart/coupon/remove
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/checkout/cart/cashback/apply
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: cashbackAmount
+
+DELETE /api/checkout/cart/cashback/remove
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/checkout/order/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: shippingAddress, lat, long, paymentMethod, notes, deliveryInstruction
+
+GET /api/checkout/orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/checkout/order/:orderId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: orderId
+
+GET /api/checkout/order/:orderId/invoice
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: orderId
+
+POST /api/checkout/order/:orderId/cancel
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+  - body: reason
+
+POST /api/checkout/order/:orderId/reorder
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+POST /api/checkout/order/:orderId/confirm-cod
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+--------------------------------------------------------------------------------
+  /api/coupon — `routes/coupon.js`
+--------------------------------------------------------------------------------
+
+GET /api/coupon/today-offers
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/coupon/available
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: cartAmount
+
+POST /api/coupon/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: couponName, offerId, offerType, code, minAmount, maxAmount, discountAmount, discountPercentage, status, validFrom, validUntil, usageLimit
+
+GET /api/coupon/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, status, offerType
+
+GET /api/coupon/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/coupon/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: couponName, offerId, offerType, code, minAmount, maxAmount, discountAmount, discountPercentage, appliedOn, categories, categories.*, prepaidMinAmount, prepaidMaxAmount, prepaidDiscountPercentage, products, products.*, offerAmount, dateRange.startDate, dateRange.endDate, timeRange.startTime, timeRange.endTime, sendNotification, status, validFrom, validUntil, usageLimit, isActive
+
+DELETE /api/coupon/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/coupon/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/daily-order — `routes/dailyOrder.js`
+--------------------------------------------------------------------------------
+
+PUT /api/daily-order/
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: items, items.*.productId, items.*.quantity, items.*.sku, shippingAddress.line1, shippingAddress.pinCode, shippingAddress.city, shippingAddress.state, shippingAddress.phone, shippingAddress.line2, shippingAddress.latitude, shippingAddress.longitude, daysOfWeek, daysOfWeek.*, deliveryTime, startDate, endDate, isActive, notes
+
+GET /api/daily-order/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/daily-order/
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/invoice — `routes/invoice.js`
+--------------------------------------------------------------------------------
+
+GET /api/invoice/:invoiceId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: invoiceId
+
+PUT /api/invoice/order/:orderNumber/update-from-order
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: orderNumber
+
+GET /api/invoice/order/:orderNumber/download-pdf
+  Kaam (work): Invoice PDF download / generate.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/invoice/order/:orderId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: orderId
+
+GET /api/invoice/user/my-invoices
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/invoice/vendor/my-invoices
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/invoice/admin/all
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, status, vendorId, userId
+
+PATCH /api/invoice/:invoiceId/status
+  Kaam (work): Status update.
+  Fields:
+  - param: invoiceId
+  - body: status
+
+PUT /api/invoice/:invoiceId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: invoiceId
+  - body: items, items.*.sku, items.*.hssn, pricing.subtotal, pricing.discount, pricing.itemCost, pricing.cgst, pricing.sgst, pricing.totalGst, pricing.handlingCharge, pricing.totalAmount, pricing.totalCashback, dueDate
+
+POST /api/invoice/order/:orderNumber/generate-pdf
+  Kaam (work): Invoice PDF download / generate.
+  Fields:
+  - param: orderNumber
+
+GET /api/invoice/order-statuses
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/payment — `routes/payment.js`
+--------------------------------------------------------------------------------
+
+POST /api/payment/initialize
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: orderId
+
+POST /api/payment/verify
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: orderId, paymentData, gateway
+
+POST /api/payment/rider/verify
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: orderId, paymentData, gateway
+
+POST /api/payment/phonepay/callback
+  Kaam (work): Payment gateway callback (IPN) handle.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/payment/cashfree/callback
+  Kaam (work): Payment gateway callback (IPN) handle.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/payment/razorpay/callback
+  Kaam (work): Payment gateway callback (IPN) handle.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/payment/retry/:orderId
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+GET /api/payment/gateways
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/payment/create-payment-link
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: amount, name, email, contact, description, callbackUrl, gateway
+
+--------------------------------------------------------------------------------
+  /api/payment-gateway — `routes/paymentGateway.js`
+--------------------------------------------------------------------------------
+
+GET /api/payment-gateway/enabled
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/payment-gateway/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: enabled
+
+GET /api/payment-gateway/:gatewayId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: gatewayId
+
+POST /api/payment-gateway/
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: name, displayName, isEnabled, testMode, priority, description, credentials, testCredentials
+
+PUT /api/payment-gateway/:gatewayId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: gatewayId
+  - body: displayName, isEnabled, testMode, priority, description, credentials, testCredentials
+
+PATCH /api/payment-gateway/:gatewayId/toggle
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: gatewayId
+
+DELETE /api/payment-gateway/:gatewayId
+  Kaam (work): Record delete.
+  Fields:
+  - param: gatewayId
+
+POST /api/payment-gateway/test-credentials
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: gatewayName, credentials, isTestMode
+
+--------------------------------------------------------------------------------
+  /api/payment-request — `routes/paymentRequest.js`
+--------------------------------------------------------------------------------
+
+POST /api/payment-request/send
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: requestedTo, requestedToType, amount, currency, description, paymentMethod, orderId, metadata
+
+GET /api/payment-request/my-requests
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/payment-request/received
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, status
+
+GET /api/payment-request/:requestId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: requestId
+
+POST /api/payment-request/:requestId/approve
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: requestId
+
+POST /api/payment-request/:requestId/reject
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: requestId
+  - body: rejectionReason
+
+POST /api/payment-request/:requestId/cancel
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: requestId
+
+--------------------------------------------------------------------------------
+  /api/product — `routes/product.js`
+--------------------------------------------------------------------------------
+
+GET /api/product/search
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: latitude, longitude, lat, lng, search, radius, page, limit
+
+GET /api/product/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: latitude, longitude, lat, lng, radius, page, limit, category, subCategory, search
+
+GET /api/product/daily-offers
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: latitude, longitude, lat, lng, radius, page, limit, category, subCategory, search, vendorId
+
+GET /api/product/vendors/:vendorId/daily-offers
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit
+
+PUT /api/product/daily-offers/:productId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: productId
+  - body: offerEnabled, offerDiscountPercentage, offerStartDate, offerStartTime, offerEndDate, offerEndTime, isDailyOffer
+
+GET /api/product/admin/list
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, vendor, category, subCategory, approvalStatus, isActive, search
+
+GET /api/product/pending
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, vendor, category, subCategory, isActive, search
+
+GET /api/product/all
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, vendor, category, subCategory, approvalStatus, isActive, search
+
+POST /api/product/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/product/add
+  Kaam (work): Naya record create karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/product/update/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: productName, productType, productTypeValue, productTypeUnit, category, subCategory, description, skuHsn, inventory, actualPrice, regularPrice, salePrice, cashback, tax, handlingCharge, latitude, longitude, tags
+
+DELETE /api/product/vendor/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/product/approve/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/product/reject/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: rejectionReason
+
+PUT /api/product/admin/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: productName, productType, productTypeValue, productTypeUnit, category, subCategory, description, skuHsn, inventory, actualPrice, regularPrice, salePrice, cashback, tax, handlingCharge, latitude, longitude, tags
+
+DELETE /api/product/admin/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/product/scan-qr
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: productId, sku
+
+GET /api/product/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/queue — `routes/queue.js`
+--------------------------------------------------------------------------------
+
+GET /api/queue/stats
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/rider — `routes/rider.js`
+--------------------------------------------------------------------------------
+
+POST /api/rider/login
+  Kaam (work): Login flow: OTP bhejta / start karta hai.
+  Fields:
+  - body: mobileNumber, referralCode
+
+POST /api/rider/verify-login-otp
+  Kaam (work): OTP verify karke session/token banta hai.
+  Fields:
+  - body: mobileNumber, otp, fcmToken, deviceId, platform
+
+GET /api/rider/profile
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider/profile
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: fullName, fathersName, mothersName, dateOfBirth, whatsappNumber, bloodGroup, city, currentAddressLine1, currentAddressLine2, pinCode, latitude, longitude, language, emergencyContactPersonName, emergencyContactPersonRelation, emergencyContactPersonNumber, emergencyContactNumber, workDetails, aadharId, accountNumber, ifsc, bankName, branchName, accountHolderName
+
+GET /api/rider/notifications
+  Kaam (work): Notification list (pagination/filters).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/notifications/unread-count
+  Kaam (work): Unread notification count.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider/notifications/:id/read
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider/notifications/read-all
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/rider/notifications/:id
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/rider/fcm-token
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token, deviceId, platform
+
+POST /api/rider/fcm-token/remove
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token
+
+POST /api/rider/fcm-token/test
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/referral
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/rider/referral/apply
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: referralCode
+
+GET /api/rider/:riderId/orders/delivered
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: riderId
+  - query: page, limit
+
+GET /api/rider/:riderId/orders/current
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: riderId
+
+GET /api/rider/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/pending
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider/:id/approve
+  Kaam (work): Record update (fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider/:id/reject
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: rejectionReason
+
+PUT /api/rider/:id/suspend
+  Kaam (work): Record update (fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/orders/available
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit
+
+POST /api/rider/orders/:orderId/accept
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+POST /api/rider/orders/:orderId/reject
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+  - body: reason
+
+POST /api/rider/orders/:orderId/upload-delivery-image
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+POST /api/rider/orders/:orderId/delivered-image
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+POST /api/rider/orders/:orderId/delivered
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+GET /api/rider/orders/my-orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/rider/orders/delivered
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit
+
+GET /api/rider/orders/current
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider/websocket/status
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/rider/logout
+  Kaam (work): Session logout / token hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/rider/tickets
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: complaint, category, orderId
+
+GET /api/rider/tickets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, category
+
+GET /api/rider/tickets/:ticketId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: ticketId
+
+POST /api/rider/tickets/:ticketId/messages
+  Kaam (work): Ticket par message bhejo.
+  Fields:
+  - param: ticketId
+  - body: message
+
+POST /api/rider/order/:orderId/mark-payment-cash
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: orderId
+
+POST /api/rider/wallet/earning/send
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: amount, description
+
+GET /api/rider/wallet/earning/withdrawal-requests
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+POST /api/rider/wallet/due/request
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: amount, description
+
+--------------------------------------------------------------------------------
+  /api/rider-job-application — `routes/riderJobApplication.js`
+--------------------------------------------------------------------------------
+
+POST /api/rider-job-application/apply
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: jobPostId
+
+GET /api/rider-job-application/my-applications
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/rider-job-application/:applicationId/confirm
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider-job-application/job/:jobPostId
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/rider-job-application/job/:jobPostId/assigned
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider-job-application/:applicationId/review
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: status, rejectionReason
+
+PUT /api/rider-job-application/:applicationId/assign
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: assignmentNotes
+
+GET /api/rider-job-application/:applicationId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/rider-job-post — `routes/riderJobPost.js`
+--------------------------------------------------------------------------------
+
+POST /api/rider-job-post/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+POST /api/rider-job-post/admin/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, vendor, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+GET /api/rider-job-post/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, isActive, city, state, pinCode, search
+
+GET /api/rider-job-post/admin/all
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: vendor, page, limit, isActive
+
+GET /api/rider-job-post/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/rider-job-post/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+PUT /api/rider-job-post/admin/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, vendor, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+DELETE /api/rider-job-post/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/rider-job-post/admin/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/rider-job-post/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/subcategory — `routes/subCategory.js`
+--------------------------------------------------------------------------------
+
+POST /api/subcategory/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: name, description, category
+
+GET /api/subcategory/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/subcategory/by-location
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: latitude, longitude, lat, lng, radius, category
+
+GET /api/subcategory/by-category/:categoryId
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/subcategory/nearby
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/subcategory/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/subcategory/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: name, description, category, isActive
+
+DELETE /api/subcategory/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/subcategory/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/suggestion — `routes/suggestion.js`
+--------------------------------------------------------------------------------
+
+POST /api/suggestion/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: text
+
+GET /api/suggestion/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit
+
+GET /api/suggestion/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: id
+
+PUT /api/suggestion/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: text
+
+DELETE /api/suggestion/:id
+  Kaam (work): Record delete.
+  Fields:
+  - param: id
+
+--------------------------------------------------------------------------------
+  /api/ticket — `routes/ticket.js`
+--------------------------------------------------------------------------------
+
+GET /api/ticket/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, status, category, createdByModel, search
+
+GET /api/ticket/:ticketId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: ticketId
+
+PATCH /api/ticket/:ticketId/status
+  Kaam (work): Status update.
+  Fields:
+  - param: ticketId
+  - body: status, adminResponse
+
+POST /api/ticket/:ticketId/messages
+  Kaam (work): Ticket par message bhejo.
+  Fields:
+  - param: ticketId
+  - body: message
+
+--------------------------------------------------------------------------------
+  /api/user — `routes/user.js`
+--------------------------------------------------------------------------------
+
+POST /api/user/login
+  Kaam (work): Login flow: OTP bhejta / start karta hai.
+  Fields:
+  - body: contactNumber, referralCode
+
+POST /api/user/verify-login-otp
+  Kaam (work): OTP verify karke session/token banta hai.
+  Fields:
+  - body: contactNumber, otp, fcmToken, deviceId, platform
+
+GET /api/user/profile
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/user/profile
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: userName, email, gender, dateOfBirth, addressLine1, addressLine2, pinCode, latitude, longitude, defaultAddressLine1, defaultAddressLine2, defaultAddressPinCode, defaultAddressLabel, defaultAddressLatitude, defaultAddressLongitude
+
+GET /api/user/cashback
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/user/addresses
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: line1, line2, pinCode, label, latitude, longitude, type, isDefault
+
+GET /api/user/addresses
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/user/addresses/:addressId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: addressId
+  - body: line1, line2, pinCode, label, latitude, longitude, type, isDefault
+
+DELETE /api/user/addresses/:addressId
+  Kaam (work): Record delete.
+  Fields:
+  - param: addressId
+
+PATCH /api/user/addresses/:addressId/set-default
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: addressId
+
+POST /api/user/logout
+  Kaam (work): Session logout / token hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/user/products
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, subCategory, category, search, latitude, longitude, lat, lng, radius, tag
+
+POST /api/user/tickets
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: complaint, category, orderId
+
+GET /api/user/tickets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, category
+
+GET /api/user/tickets/:ticketId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: ticketId
+
+PATCH /api/user/tickets/:ticketId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: ticketId
+  - body: complaint, category, orderId
+
+POST /api/user/tickets/:ticketId/messages
+  Kaam (work): Ticket par message bhejo.
+  Fields:
+  - param: ticketId
+  - body: message
+
+GET /api/user/referral
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/user/referral/apply
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: referralCode
+
+--------------------------------------------------------------------------------
+  /api/notifications — `routes/userNotification.js`
+--------------------------------------------------------------------------------
+
+GET /api/notifications/
+  Kaam (work): Notification list (pagination/filters).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/notifications/unread-count
+  Kaam (work): Unread notification count.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/notifications/:id/read
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/notifications/read-all
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/notifications/:id
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/notifications/fcm-token
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token, deviceId, platform
+
+POST /api/notifications/fcm-token/remove
+  Kaam (work): Push notification ke liye FCM device token save/update.
+  Fields:
+  - body: token
+
+POST /api/notifications/test
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/vendor — `routes/vendor.js`
+--------------------------------------------------------------------------------
+
+POST /api/vendor/send-otp
+  Kaam (work): Login flow: OTP bhejta / start karta hai.
+  Fields:
+  - body: contactNumber
+
+POST /api/vendor/verify-otp
+  Kaam (work): OTP verify karke session/token banta hai.
+  Fields:
+  - body: contactNumber, otp
+
+POST /api/vendor/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: vendorName, contactNumber, email, gender, dateOfBirth, storeName, storeAddressLine1, pinCode, city, state, ifsc, accountNumber, bankName, bank_name, serviceRadius, handlingChargePercentage
+
+GET /api/vendor/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, search
+
+GET /api/vendor/orders
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/orders/:id/status
+  Kaam (work): Status update.
+  Fields:
+  - body: status, notes
+
+PUT /api/vendor/orders/:orderId/assign-rider
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: riderId, assignmentNotes, updateStatus
+
+GET /api/vendor/orders/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/vendor/order/:orderId/items
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: items, items.*.productId, items.*.quantity, items.*.sku
+
+GET /api/vendor/products
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/my-job-posts
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, isActive, search, city, state, pinCode
+
+POST /api/vendor/job-posts/create
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+GET /api/vendor/job-posts
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/job-posts/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/job-posts/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: jobTitle, joiningBonus, onboardingFee, locationLine1, locationPinCode, locationLine2, locationCity, locationState, locationLatitude, locationLongitude
+
+DELETE /api/vendor/job-posts/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PATCH /api/vendor/job-posts/:id/toggle-status
+  Kaam (work): Status update.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/job-applications
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/job-posts/:jobPostId/applications
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/job-applications/:applicationId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/job-applications/:applicationId/review
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: status, rejectionReason
+
+PUT /api/vendor/job-applications/:applicationId/assign
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: assignmentNotes
+
+GET /api/vendor/job-posts/:jobPostId/assigned-riders
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/riders/due-amounts
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, isActive, approvalStatus
+
+PUT /api/vendor/riders/:riderId/due-amount
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: riderId
+  - body: dueAmount, orderId, description
+
+GET /api/vendor/inventory
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - query: page, limit, search
+
+GET /api/vendor/inventory/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/inventory/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: inventory, action, skus, skus.*.sku, skus.*.inventory
+
+GET /api/vendor/profile
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/profile
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: vendorName, altContactNumber, email, gender, dateOfBirth, storeName, storeAddressLine1, storeAddressLine2, pinCode, latitude, longitude, ifsc, accountNumber, bankName, bank_name, serviceRadius, handlingChargePercentage, fssaiNumber, deliveryChargePerKm, contactNumber
+
+GET /api/vendor/notifications
+  Kaam (work): Notification list (pagination/filters).
+  Fields:
+  - query: page, limit, isRead, type
+
+GET /api/vendor/notifications/unread-count
+  Kaam (work): Unread notification count.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/notifications/:notificationId/read
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - param: notificationId
+
+PUT /api/vendor/notifications/read-all
+  Kaam (work): Notification ko read mark karo.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+DELETE /api/vendor/notifications/:notificationId
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - param: notificationId
+
+DELETE /api/vendor/notifications
+  Kaam (work): Notification(s) hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/vendor/tickets
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: complaint, category, orderId
+
+GET /api/vendor/tickets
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status, category
+
+GET /api/vendor/tickets/:ticketId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: ticketId
+
+POST /api/vendor/tickets/:ticketId/messages
+  Kaam (work): Ticket par message bhejo.
+  Fields:
+  - param: ticketId
+  - body: message
+
+GET /api/vendor/:id/dashboard
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: id
+
+GET /api/vendor/:id
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/:id
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: vendorName, altContactNumber, email, gender, dateOfBirth, storeName, storeAddressLine1, storeAddressLine2, pinCode, city, state, latitude, longitude, ifsc, accountNumber, bankName, bank_name, serviceRadius, handlingChargePercentage, fssaiNumber, deliveryChargePerKm
+
+PUT /api/vendor/:id/permissions
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: permissions
+
+PUT /api/vendor/:id/documents
+  Kaam (work): Record update (fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/:id/radius
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: serviceRadius
+
+PUT /api/vendor/:id/handling-charge
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: handlingChargePercentage
+
+PUT /api/vendor/:id/suspend
+  Kaam (work): Record update (fields).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/vendor/:id/commission
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - param: id
+
+PUT /api/vendor/:id/commission
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: id
+  - body: type, percentage, fixedAmount, subscriptionAmount, subscriptionPeriod
+
+DELETE /api/vendor/:id
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/products/:productId/offer
+  Kaam (work): Record update (fields).
+  Fields:
+  - body: offerEnabled, offerDiscountPercentage, offerStartDate, offerStartTime, offerEndDate, offerEndTime, isDailyOffer
+
+GET /api/vendor/products/offers
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+GET /api/vendor/products/:productId/offer
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+PUT /api/vendor/daily-offers/:productId
+  Kaam (work): Record update (fields).
+  Fields:
+  - param: productId
+  - body: offerEnabled, offerDiscountPercentage, offerStartDate, offerStartTime, offerEndDate, offerEndTime, isDailyOffer
+
+POST /api/vendor/wallet/earning/send
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - body: amount, description
+
+GET /api/vendor/wallet/earning/withdrawal-requests
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit, status
+
+POST /api/vendor/logout
+  Kaam (work): Session logout / token hatao.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+--------------------------------------------------------------------------------
+  /api/wallet — `routes/wallet.js`
+--------------------------------------------------------------------------------
+
+GET /api/wallet/
+  Kaam (work): Data read (query filters ho sakte hain).
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/wallet/transactions
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - query: page, limit
+
+POST /api/wallet/reset/:userId
+  Kaam (work): Action / submit (body fields).
+  Fields:
+  - param: userId
+  - body: reason
+
+--------------------------------------------------------------------------------
+  /api/wishlist — `routes/wishlist.js`
+--------------------------------------------------------------------------------
+
+GET /api/wishlist/
+  Kaam (work): List + filters / pagination.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+POST /api/wishlist/add
+  Kaam (work): Naya record create karo.
+  Fields:
+  - body: productId
+
+DELETE /api/wishlist/remove/:productId
+  Kaam (work): Record delete.
+  Fields:
+  - param: productId
+
+DELETE /api/wishlist/clear
+  Kaam (work): Record delete.
+  Fields:
+  - *(no body/query/path validators, or only middleware)*
+
+GET /api/wishlist/check/:productId
+  Kaam (work): Ek record detail ID se.
+  Fields:
+  - param: productId
+---
+
+--------------------------------------------------------------------------------
+  Product duplicate mount
+--------------------------------------------------------------------------------
+
+Also mounted at **/api/products/** with the same paths as **/api/product/**.
+
+*Generated by scripts/build-api-fields-md.js — verify critical routes in source files.*
+
+================================================================================
+End of file
+================================================================================

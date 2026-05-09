@@ -23,6 +23,8 @@ const {
   addItemsToOrder,
   getOrderInvoice,
 } = require('../controllers/checkout');
+const { getAvailableCoupons } = require('../controllers/coupon');
+const { getActiveTodayOffers } = require('../controllers/couponNotification');
 const { protect } = require('../middleware/userAuth');
 const { protect: protectVendor } = require('../middleware/vendorAuth');
 const { protectVendorOrAdmin } = require('../middleware/vendorOrAdminAuth');
@@ -159,6 +161,9 @@ router.post(
   addItemsToOrder
 );
 
+// Public: active today's offers (storefront; admin listing remains under /api/coupon)
+router.get('/coupons/today-offers', getActiveTodayOffers);
+
 router.use((req, res, next) => {
   if (req.path.startsWith('/vendor/')) {
     return next();
@@ -260,6 +265,18 @@ router.delete(
 );
 
 router.delete('/cart/clear', clearCart);
+
+// Coupons applicable to the user's cart (authenticated)
+router.get(
+  '/coupons/available',
+  [
+    query('cartAmount')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Cart amount must be a non-negative number'),
+  ],
+  getAvailableCoupons
+);
 
 // Coupon routes
 router.post(
