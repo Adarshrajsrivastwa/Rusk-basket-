@@ -112,11 +112,6 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
       continue;
     }
 
-    let chargePerKm = m.configuredPerKm > 0 ? m.configuredPerKm : fallbackPerKm;
-    if (chargePerKm == null || chargePerKm <= 0) {
-      continue;
-    }
-
     if (m.pickupLat == null || m.pickupLon == null) {
       continue;
     }
@@ -126,7 +121,14 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
       continue;
     }
 
-    const lineTotal = calculateDeliveryCharge(distanceKm, chargePerKm);
+    const chargePerKm =
+      m.configuredPerKm > 0
+        ? m.configuredPerKm
+        : fallbackPerKm != null
+          ? fallbackPerKm
+          : 0;
+
+    const lineTotal = chargePerKm > 0 ? calculateDeliveryCharge(distanceKm, chargePerKm) : 0;
     totalDeliveryCharge += lineTotal;
 
     breakdown.push({
@@ -1156,6 +1158,7 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '',
     user: userId,
     items: cleanedItems,
     pricing: finalPricing,
+    estimatedDelivery: options?.estimatedDelivery instanceof Date ? options.estimatedDelivery : undefined,
     coupon: cart.coupon ? {
       couponId: cart.coupon.couponId,
       code: cart.coupon.code,

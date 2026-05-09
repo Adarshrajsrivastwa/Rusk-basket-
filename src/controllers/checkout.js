@@ -466,6 +466,18 @@ exports.createOrder = async (req, res, next) => {
       dropoffSource: 'order_create',
     });
 
+    const legs = cartTotals?.deliveryEstimate?.legs || [];
+    const maxDistanceKm = legs.reduce((max, leg) => {
+      const d = Number(leg?.distanceKm);
+      if (!Number.isFinite(d)) return max;
+      return Math.max(max, d);
+    }, 0);
+
+    // Simple ETA heuristic (tunable): base 45 mins + 8 mins per km, clamped.
+    const etaMinutesRaw = 45 + maxDistanceKm * 8;
+    const etaMinutes = Math.max(45, Math.min(240, Math.round(etaMinutesRaw)));
+    const estimatedDelivery = new Date(Date.now() + etaMinutes * 60 * 1000);
+
     const order = await checkoutService.createOrder(
       userId,
       shippingAddress,
@@ -473,6 +485,7 @@ exports.createOrder = async (req, res, next) => {
       combinedNotes || undefined,
       {
         deliveryAmount: cartTotals?.pricing?.deliveryAmount ?? 0,
+        estimatedDelivery,
       }
     );
 
