@@ -42,7 +42,8 @@ async function computeDeliveryForVendors(vendorIds, shippingLat, shippingLon) {
   ) {
     warnings.push({
       code: 'missing_dropoff_coordinates',
-      message: 'Pass lat & long (or latitude & longitude) on /cart so delivery can be estimated.',
+      message:
+        'No delivery location: save latitude/longitude on your default address, or pass lat & long on the cart request.',
     });
     return { totalDeliveryCharge: 0, breakdown, warnings };
   }
@@ -169,6 +170,62 @@ async function calculateTotalDeliveryChargeForVendors(vendorIds, shippingLat, sh
   const { totalDeliveryCharge } = await computeDeliveryForVendors(vendorIds, shippingLat, shippingLon);
   return totalDeliveryCharge;
 }
+
+/**
+ * Drop-off point for delivery pricing: request query first, then user's saved address coordinates.
+ * @returns {Promise<{ latitude?: number, longitude?: number, source: string | null }>}
+ */
+exports.resolveDropoffCoordinatesForCart = async (query, userId) => {
+  const { parseClientLatLon, toNumberCoord, correctLatLonIfLikelySwappedForSouthAsia } = require('../utils/distanceUtils');
+
+  const fromQuery = parseClientLatLon(query);
+  if (fromQuery) {
+    return {
+      latitude: fromQuery.latitude,
+      longitude: fromQuery.longitude,
+      source: 'request_query',
+    };
+  }
+
+  const user = await User.findById(userId).select('address addresses').lean();
+  if (!user) {
+    return { latitude: undefined, longitude: undefined, source: null };
+  }
+
+  const hasCoords = (a) =>
+    a &&
+    Number.isFinite(toNumberCoord(a.latitude)) &&
+    Number.isFinite(toNumberCoord(a.longitude));
+
+  const list = Array.isArray(user.addresses) ? user.addresses : [];
+  let addr = list.find((a) => a.isDefault && hasCoords(a));
+  if (!addr) {
+    addr = list.find((a) => hasCoords(a));
+  }
+
+  let lat;
+  let lon;
+  let source = null;
+
+  if (addr) {
+    lat = toNumberCoord(addr.latitude);
+    lon = toNumberCoord(addr.longitude);
+    source = addr.isDefault ? 'user_default_saved_address' : 'user_saved_address';
+  } else if (hasCoords(user.address)) {
+    lat = toNumberCoord(user.address.latitude);
+    lon = toNumberCoord(user.address.longitude);
+    source = 'user_profile_address';
+  } else {
+    return { latitude: undefined, longitude: undefined, source: null };
+  }
+
+  const fixed = correctLatLonIfLikelySwappedForSouthAsia(lat, lon);
+  return {
+    latitude: fixed.latitude,
+    longitude: fixed.longitude,
+    source,
+  };
+};
 
 /**
  * Full payable total: items + tax + handling + delivery − discounts (coupon + wallet cashback usage).
@@ -640,6 +697,7 @@ exports.removeCoupon = async (userId) => {
 exports.getCartWithTotals = async (userId, options = {}) => {
   const shipLat = options.latitude ?? options.lat;
   const shipLon = options.longitude ?? options.long;
+  const dropoffSource = options.dropoffSource ?? null;
 
   // Find cart for the specific user only
   const cart = await Cart.findOne({ user: userId }).populate('coupon.couponId');
@@ -651,10 +709,13 @@ exports.getCartWithTotals = async (userId, options = {}) => {
 
   if (!cart || !cart.items || cart.items.length === 0) {
     const emptyWarnings = [];
-    if (shipLat == null || shipLon == null || shipLat === '' || shipLon === '') {
+    const latNum = shipLat != null && shipLat !== '' ? Number(shipLat) : NaN;
+    const lonNum = shipLon != null && shipLon !== '' ? Number(shipLon) : NaN;
+    if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
       emptyWarnings.push({
         code: 'missing_dropoff_coordinates',
-        message: 'Pass lat & long on /api/checkout/cart for delivery estimate.',
+        message:
+          'Save latitude and longitude on your profile address, or pass lat & long on the cart URL.',
       });
     }
     return {
@@ -673,6 +734,7 @@ exports.getCartWithTotals = async (userId, options = {}) => {
         totalCashback: 0,
       },
       totalPrice: 0,
+      dropoff: { source: dropoffSource },
       deliveryEstimate: {
         totalAmount: 0,
         legs: [],
@@ -943,6 +1005,7 @@ exports.getCartWithTotals = async (userId, options = {}) => {
       totalCashback: parseFloat(totalCashback.toFixed(2)),
     },
     totalPrice: parseFloat(total.toFixed(2)),
+    dropoff: { source: dropoffSource },
     deliveryEstimate: {
       totalAmount: parseFloat(deliveryAmount.toFixed(2)),
       legs: deliveryResult.breakdown,

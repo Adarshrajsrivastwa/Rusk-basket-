@@ -2,13 +2,6 @@ const checkoutService = require('../services/checkoutService');
 const cashbackService = require('../services/cashbackService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
-const { parseClientLatLon } = require('../utils/distanceUtils');
-
-function cartTotalsOptionsFromQuery(req) {
-  const parsed = parseClientLatLon(req.query);
-  if (!parsed) return { latitude: undefined, longitude: undefined };
-  return { latitude: parsed.latitude, longitude: parsed.longitude };
-}
 
 exports.getCart = async (req, res, next) => {
   try {
@@ -16,7 +9,12 @@ exports.getCart = async (req, res, next) => {
     const userId = req.user._id;
     logger.info(`Fetching cart for user: ${userId}`);
 
-    const result = await checkoutService.getCartWithTotals(userId, cartTotalsOptionsFromQuery(req));
+    const dropoff = await checkoutService.resolveDropoffCoordinatesForCart(req.query, userId);
+    const result = await checkoutService.getCartWithTotals(userId, {
+      latitude: dropoff.latitude,
+      longitude: dropoff.longitude,
+      dropoffSource: dropoff.source,
+    });
     if (result.unavailableItems && result.unavailableItems.length > 0) {
       return res.status(200).json({
         success: true,
@@ -121,7 +119,12 @@ exports.updateCartItem = async (req, res, next) => {
       });
     } catch (updateError) {
       if (updateError.message.includes('removed from cart')) {
-        const updatedCart = await checkoutService.getCartWithTotals(userId, cartTotalsOptionsFromQuery(req));
+        const dropoff = await checkoutService.resolveDropoffCoordinatesForCart(req.query, userId);
+        const updatedCart = await checkoutService.getCartWithTotals(userId, {
+          latitude: dropoff.latitude,
+          longitude: dropoff.longitude,
+          dropoffSource: dropoff.source,
+        });
         return res.status(400).json({
           success: false,
           error: updateError.message,
