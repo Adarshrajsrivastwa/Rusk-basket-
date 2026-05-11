@@ -232,20 +232,28 @@ exports.riderVerifyOTP = async (req, res, next) => {
 
     logger.info(`Rider logged in successfully: ${mobileNumber}`);
 
-    const adminApprovalStatus = getRiderAdminApprovalLabel(rider.approvalStatus);
+    // Stored flags only (no inference from uploaded documents)
+    const riderFlags = await Rider.findById(rider._id).select('kyc vendor approvalStatus').lean();
+    const kyc = riderFlags?.kyc === true;
+    const job = Boolean(riderFlags?.vendor);
+    const adminApprovalStatus = getRiderAdminApprovalLabel(
+      riderFlags?.approvalStatus ?? rider.approvalStatus
+    );
 
     res.status(200).json({
       success: true,
       token,
-      job: Boolean(rider.vendor),
-      kyc: Boolean(rider.kyc),
+      job,
+      kyc,
       adminApprovalStatus,
       data: {
         id: rider._id,
         fullName: rider.fullName,
         mobileNumber: rider.mobileNumber,
-        approvalStatus: rider.approvalStatus,
+        approvalStatus: riderFlags?.approvalStatus ?? rider.approvalStatus,
         role: 'rider',
+        job,
+        kyc,
       },
     });
   } catch (error) {
