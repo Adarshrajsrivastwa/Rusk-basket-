@@ -5,37 +5,6 @@ const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
 
-const strOk = (v) => typeof v === 'string' && v.trim().length > 0;
-
-/**
- * KYC: bank details filled + profile photo + address + Aadhaar + PAN + driving licence (matches rider profile / document uploads).
- */
-function isRiderKycComplete(rider) {
-  const bd = rider.documents?.bankDetails;
-  const bankOk =
-    strOk(bd?.accountNumber) &&
-    strOk(bd?.ifsc) &&
-    strOk(bd?.bankName) &&
-    strOk(bd?.accountHolderName);
-
-  const profileOk = Boolean(rider.documents?.profile?.url);
-  const aadharOk =
-    strOk(rider.documents?.aadharCard?.aadharId) ||
-    Boolean(rider.documents?.aadharCard?.photo?.url);
-  const panOk =
-    Boolean(rider.documents?.panCard?.front?.url) &&
-    Boolean(rider.documents?.panCard?.back?.url);
-  const dlOk =
-    Boolean(rider.documents?.drivingLicense?.front?.url) &&
-    Boolean(rider.documents?.drivingLicense?.back?.url);
-  const personalOk =
-    strOk(rider.fullName) &&
-    strOk(rider.currentAddress?.line1) &&
-    strOk(rider.currentAddress?.pinCode);
-
-  return !!(bankOk && profileOk && aadharOk && panOk && dlOk && personalOk);
-}
-
 function getRiderAdminApprovalLabel(approvalStatus) {
   if (approvalStatus === 'approved') return 'Admin approved';
   if (approvalStatus === 'rejected') return 'Rejected';
@@ -263,14 +232,13 @@ exports.riderVerifyOTP = async (req, res, next) => {
 
     logger.info(`Rider logged in successfully: ${mobileNumber}`);
 
-    const kyc = isRiderKycComplete(rider);
     const adminApprovalStatus = getRiderAdminApprovalLabel(rider.approvalStatus);
 
     res.status(200).json({
       success: true,
       token,
       job: Boolean(rider.vendor),
-      kyc,
+      kyc: Boolean(rider.kyc),
       adminApprovalStatus,
       data: {
         id: rider._id,

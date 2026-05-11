@@ -115,7 +115,16 @@ const updateRiderProfileData = async (rider, data, files) => {
     branchName,
     accountHolderName,
     aadharId,
+    kyc,
   } = data;
+
+  if (kyc !== undefined) {
+    rider.kyc =
+      kyc === true ||
+      kyc === 'true' ||
+      kyc === 1 ||
+      kyc === '1';
+  }
 
   if (fullName !== undefined) {
     rider.fullName = fullName;

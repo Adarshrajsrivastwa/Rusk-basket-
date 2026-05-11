@@ -183,6 +183,14 @@ router.put(
     body('accountHolderName')
       .optional()
       .trim(),
+    body('kyc')
+      .optional()
+      .custom((value) => {
+        if (value === true || value === false) return true;
+        if (value === 'true' || value === 'false' || value === '1' || value === '0') return true;
+        if (value === 1 || value === 0) return true;
+        throw new Error('kyc must be a boolean');
+      }),
   ],
   updateProfile
 );

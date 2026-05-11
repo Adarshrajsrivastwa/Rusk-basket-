@@ -94,6 +94,10 @@ const RiderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {},
   },
+  kyc: {
+    type: Boolean,
+    default: false,
+  },
   documents: {
     profile: {
       url: String,

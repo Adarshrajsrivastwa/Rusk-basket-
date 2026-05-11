@@ -39,6 +39,8 @@ exports.getProfile = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
+      job: Boolean(rider.vendor),
+      kyc: Boolean(rider.kyc),
       data: rider,
     });
   } catch (error) {
@@ -94,6 +96,8 @@ exports.updateProfile = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully. Status set to pending for approval.',
+      job: Boolean(rider.vendor),
+      kyc: Boolean(rider.kyc),
       data: rider,
     });
   } catch (error) {
