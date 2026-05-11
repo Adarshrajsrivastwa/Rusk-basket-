@@ -25,6 +25,14 @@ exports.applyForJob = async (req, res, next) => {
       });
     }
 
+    // Already employed with a vendor — cannot apply for another job
+    if (req.rider.vendor) {
+      return res.status(400).json({
+        success: false,
+        error: 'You already have a job. You cannot apply for another position.',
+      });
+    }
+
     const { jobPostId } = req.body;
 
     // Check if job post exists and is active
