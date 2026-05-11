@@ -48,6 +48,7 @@ exports.getProfile = async (req, res, next) => {
       jobApplied: payload.jobApplied,
       data: payload,
     });
+  } catch (error) {
     next(error);
   }
 };
@@ -107,6 +108,7 @@ exports.updateProfile = async (req, res, next) => {
       jobApplied: payload.jobApplied,
       data: payload,
     });
+  } catch (error) {
     if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
       return res.status(400).json({
         success: false,
