@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, query, param } = require('express-validator');
 const { riderLogin, riderVerifyOTP, riderLogout } = require('../controllers/riderAuth');
-const { getProfile, updateProfile, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
+const { getProfile, updateProfile, setOnlineStatus, getRiders, getRider, approveRider, suspendRider, getPendingRiders, getAvailableOrders, acceptOrderAssignment, rejectOrderAssignment, getMyOrders, getDeliveredOrders, getCurrentOrder, markOrderDelivered, uploadDeliveryImage, uploadDeliveredImage, markOrderPaymentAsCash, sendEarningWalletAmount, getMyWithdrawalRequests, createDueAmountRequest } = require('../controllers/rider');
 const {
   updateRiderFCMToken,
   removeRiderFCMToken,
@@ -193,6 +193,23 @@ router.put(
       }),
   ],
   updateProfile
+);
+
+router.patch(
+  '/availability',
+  protect,
+  [
+    body('isOnline')
+      .exists()
+      .withMessage('isOnline is required')
+      .custom((value) => {
+        if (value === true || value === false) return true;
+        if (value === 'true' || value === 'false') return true;
+        if (value === 1 || value === 0) return true;
+        throw new Error('isOnline must be true or false');
+      }),
+  ],
+  setOnlineStatus
 );
 
 // FCM Token and Notification routes (protected)

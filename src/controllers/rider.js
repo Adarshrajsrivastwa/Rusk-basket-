@@ -125,6 +125,60 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
+/** Toggle rider online / offline for deliveries; persisted on Rider */
+exports.setOnlineStatus = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const raw = req.body.isOnline;
+    const isOnline =
+      raw === true ||
+      raw === 'true' ||
+      raw === 1 ||
+      raw === '1';
+
+    const rider = await Rider.findByIdAndUpdate(
+      req.rider._id,
+      {
+        $set: {
+          isOnline,
+          availabilityUpdatedAt: new Date(),
+        },
+      },
+      { new: true, runValidators: true }
+    ).select('isOnline availabilityUpdatedAt mobileNumber');
+
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        error: 'Rider not found',
+      });
+    }
+
+    logger.info(
+      `Rider ${rider.mobileNumber} set availability: ${isOnline ? 'online' : 'offline'}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: isOnline ? 'You are now online' : 'You are now offline',
+      data: {
+        isOnline: rider.isOnline,
+        availabilityUpdatedAt: rider.availabilityUpdatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Set rider online status error:', error);
+    next(error);
+  }
+};
+
 // Admin functions
 exports.getRiders = async (req, res, next) => {
   try {

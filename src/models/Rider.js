@@ -196,6 +196,14 @@ const RiderSchema = new mongoose.Schema({
   assignedToVendorAt: {
     type: Date,
   },
+  /** Rider app: accepting deliveries / on duty */
+  isOnline: {
+    type: Boolean,
+    default: false,
+  },
+  availabilityUpdatedAt: {
+    type: Date,
+  },
   fcmToken: {
     type: String,
     trim: true,
