@@ -10,6 +10,7 @@ const { notifyRiderOrderUpdate } = require('../utils/socket');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { updateRiderProfileData } = require('../services/riderService');
+const { normalizeJobApplied } = require('../utils/riderJobApplied');
 const { uploadToCloudinary } = require('../utils/cloudinary');
 const mongoose = require('mongoose');
 
@@ -37,14 +38,16 @@ exports.getProfile = async (req, res, next) => {
       });
     }
 
+    const payload = rider.toObject();
+    payload.jobApplied = normalizeJobApplied(rider.jobApplied);
+
     res.status(200).json({
       success: true,
       job: Boolean(rider.vendor),
       kyc: Boolean(rider.kyc),
-      data: rider,
+      jobApplied: payload.jobApplied,
+      data: payload,
     });
-  } catch (error) {
-    logger.error('Get rider profile error:', error);
     next(error);
   }
 };
@@ -93,15 +96,17 @@ exports.updateProfile = async (req, res, next) => {
 
     logger.info(`Rider profile updated: ${rider.mobileNumber} (ID: ${rider._id})`);
 
+    const payload = rider.toObject();
+    payload.jobApplied = normalizeJobApplied(rider.jobApplied);
+
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully. Status set to pending for approval.',
       job: Boolean(rider.vendor),
       kyc: Boolean(rider.kyc),
-      data: rider,
+      jobApplied: payload.jobApplied,
+      data: payload,
     });
-  } catch (error) {
-    logger.error('Update rider profile error:', error);
     if (error.message === 'Invalid PIN code' || error.message.includes('PIN code')) {
       return res.status(400).json({
         success: false,

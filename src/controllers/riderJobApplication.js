@@ -63,6 +63,8 @@ exports.applyForJob = async (req, res, next) => {
       status: 'pending',
     });
 
+    await Rider.updateOne({ _id: req.rider._id }, { $set: { jobApplied: 'pending' } });
+
     const populatedApplication = await RiderJobApplication.findById(application._id)
       .populate('jobPost', 'jobTitle joiningBonus onboardingFee location vendor')
       .populate('jobPost.vendor', 'vendorName storeName')
@@ -384,21 +386,31 @@ exports.reviewApplication = async (req, res, next) => {
 
     await application.save();
 
-    // If approved, update rider to work for this vendor
+    if (status === 'rejected') {
+      await Rider.updateOne({ _id: application.rider }, { $set: { jobApplied: 'rejected' } });
+    }
+
+    // If approved, assign rider to vendor + jobApplied (single DB write)
     if (status === 'approved') {
-      const rider = await Rider.findById(application.rider);
-      if (rider) {
-        // Check if rider already works for another vendor
-        if (rider.vendor && rider.vendor.toString() !== req.vendor._id.toString()) {
-          logger.warn(`Rider ${rider.mobileNumber} already works for another vendor. Updating to new vendor.`);
-        }
-        
-        // Assign rider to this vendor
-        rider.vendor = req.vendor._id;
-        rider.assignedToVendorAt = new Date();
-        await rider.save();
-        
-        logger.info(`Rider ${rider.mobileNumber} assigned to vendor ${req.vendor.storeId || req.vendor._id} after application approval`);
+      const riderId = application.rider?._id || application.rider;
+      const updatedRider = await Rider.findByIdAndUpdate(
+        riderId,
+        {
+          $set: {
+            vendor: req.vendor._id,
+            assignedToVendorAt: new Date(),
+            jobApplied: 'approved',
+          },
+        },
+        { new: true }
+      );
+
+      if (updatedRider) {
+        logger.info(
+          `Rider ${updatedRider.mobileNumber} assigned to vendor ${req.vendor.storeId || req.vendor._id} after application approval`
+        );
+      } else {
+        logger.warn(`Rider document missing for application rider id: ${riderId}`);
       }
     }
 

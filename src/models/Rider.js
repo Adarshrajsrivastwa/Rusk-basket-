@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
+const { JOB_APPLIED_VALUES } = require('../utils/riderJobApplied');
 
 const RiderSchema = new mongoose.Schema({
   fullName: {
@@ -97,6 +98,11 @@ const RiderSchema = new mongoose.Schema({
   kyc: {
     type: Boolean,
     default: false,
+  },
+  jobApplied: {
+    type: String,
+    default: 'none',
+    trim: true,
   },
   documents: {
     profile: {
@@ -330,6 +336,25 @@ const RiderSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+});
+
+RiderSchema.pre('validate', function (next) {
+  const v = this.jobApplied;
+  if (typeof v === 'boolean') {
+    this.jobApplied = v ? 'pending' : 'none';
+    return next();
+  }
+  if (v === '') {
+    this.jobApplied = 'none';
+    return next();
+  }
+  if (v != null) {
+    const s = String(v).trim();
+    if (s === 'true') this.jobApplied = 'pending';
+    else if (s === 'false') this.jobApplied = 'none';
+    else if (!JOB_APPLIED_VALUES.includes(s)) this.jobApplied = 'none';
+  }
+  next();
 });
 
 RiderSchema.pre('save', function (next) {

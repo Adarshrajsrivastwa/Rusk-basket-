@@ -4,6 +4,7 @@ const { sendOTP } = require('../utils/smsService');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const { setTokenCookie, clearTokenCookie } = require('../utils/cookieHelper');
+const { normalizeJobApplied } = require('../utils/riderJobApplied');
 
 function getRiderAdminApprovalLabel(approvalStatus) {
   if (approvalStatus === 'approved') return 'Admin approved';
@@ -233,9 +234,12 @@ exports.riderVerifyOTP = async (req, res, next) => {
     logger.info(`Rider logged in successfully: ${mobileNumber}`);
 
     // Stored flags only (no inference from uploaded documents)
-    const riderFlags = await Rider.findById(rider._id).select('kyc vendor approvalStatus').lean();
+    const riderFlags = await Rider.findById(rider._id)
+      .select('kyc vendor approvalStatus jobApplied')
+      .lean();
     const kyc = riderFlags?.kyc === true;
     const job = Boolean(riderFlags?.vendor);
+    const jobApplied = normalizeJobApplied(riderFlags?.jobApplied);
     const adminApprovalStatus = getRiderAdminApprovalLabel(
       riderFlags?.approvalStatus ?? rider.approvalStatus
     );
@@ -245,6 +249,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
       token,
       job,
       kyc,
+      jobApplied,
       adminApprovalStatus,
       data: {
         id: rider._id,
@@ -254,6 +259,7 @@ exports.riderVerifyOTP = async (req, res, next) => {
         role: 'rider',
         job,
         kyc,
+        jobApplied,
       },
     });
   } catch (error) {
