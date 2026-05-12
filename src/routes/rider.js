@@ -305,24 +305,6 @@ router.get(
   getCurrentOrder
 );
 
-// Admin routes
-router.get('/', protectAdmin, getRiders);
-router.get('/pending', protectAdmin, getPendingRiders);
-
-router.get('/:id', protectAdmin, getRider);
-
-router.put('/:id/approve', protectAdmin, approveRider);
-
-router.put('/:id/reject', protectAdmin, [
-  body('rejectionReason')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Rejection reason cannot be more than 500 characters'),
-], approveRider);
-
-router.put('/:id/suspend', protectAdmin, suspendRider);
-
 // Rider order management routes
 router.get(
   '/orders/available',
@@ -649,6 +631,25 @@ router.post(
   ],
   createDueAmountRequest
 );
+
+// Admin routes — MUST stay after all literal paths (e.g. GET /tickets) or `/:id` steals /tickets.
+router.get('/', protectAdmin, getRiders);
+router.get('/pending', protectAdmin, getPendingRiders);
+router.get('/:id', protectAdmin, getRider);
+router.put('/:id/approve', protectAdmin, approveRider);
+router.put(
+  '/:id/reject',
+  protectAdmin,
+  [
+    body('rejectionReason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Rejection reason cannot be more than 500 characters'),
+  ],
+  approveRider
+);
+router.put('/:id/suspend', protectAdmin, suspendRider);
 
 module.exports = router;
 
