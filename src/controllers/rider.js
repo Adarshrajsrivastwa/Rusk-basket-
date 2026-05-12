@@ -40,6 +40,109 @@ const hasActiveOrder = async (riderId) => {
   return !!activeOrder;
 };
 
+/** Dedupe tag for rider delivery → earningWallet credits (single credit per order). */
+const RIDER_DELIVERY_EARNING_TXN_TAG = '[rider-delivery-earning]';
+
+/**
+ * Credit rider earningWallet: (delivery charge − rider commission on delivery).
+ * Idempotent; safe from mark-delivered, delivered-image, or upload-delivery-image flows.
+ */
+async function creditRiderEarningWalletForDeliveredOrder(order, riderId) {
+  const deliveryAmount =
+    Number(order.deliveryAmount) ||
+    Number(order.pricing?.deliveryAmount) ||
+    0;
+  if (!Number.isFinite(deliveryAmount) || deliveryAmount <= 0) {
+    return;
+  }
+
+  try {
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      logger.warn(
+        `Rider ${riderId} not found when updating earning wallet for order ${order.orderNumber}`
+      );
+      return;
+    }
+
+    const alreadyCredited = rider.walletTransactions?.some(
+      (txn) =>
+        txn.orderId &&
+        txn.orderId.toString() === order._id.toString() &&
+        txn.type === 'credit' &&
+        txn.description &&
+        (txn.description.includes(RIDER_DELIVERY_EARNING_TXN_TAG) ||
+          txn.description.includes('Delivery image upload for order'))
+    );
+
+    if (alreadyCredited) {
+      logger.info(
+        `Delivery earning already credited to rider ${riderId} for order ${order.orderNumber}`
+      );
+      return;
+    }
+
+    let commissionAmount = 0;
+    const commission = rider.commission || {
+      type: 'percentage',
+      percentage: 10,
+      fixedAmount: 0,
+    };
+
+    if (commission.type === 'percentage') {
+      commissionAmount =
+        (deliveryAmount * (commission.percentage || 10)) / 100;
+    } else if (commission.type === 'fixed') {
+      commissionAmount = commission.fixedAmount || 0;
+    } else if (commission.type === 'hybrid') {
+      const percentageCommission =
+        (deliveryAmount * (commission.percentage || 10)) / 100;
+      commissionAmount =
+        percentageCommission + (commission.fixedAmount || 0);
+    } else if (commission.type === 'subscription') {
+      commissionAmount = 0;
+    }
+
+    const walletAmount = deliveryAmount - commissionAmount;
+
+    if (walletAmount <= 0) {
+      logger.info(
+        `No rider earning wallet credit for order ${order.orderNumber}: net amount ${walletAmount}`
+      );
+      return;
+    }
+
+    const description = `${RIDER_DELIVERY_EARNING_TXN_TAG} Order ${order.orderNumber}. Delivery: ₹${deliveryAmount.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}`;
+
+    await Rider.findOneAndUpdate(
+      { _id: riderId },
+      {
+        $inc: { earningWallet: walletAmount },
+        $push: {
+          walletTransactions: {
+            type: 'credit',
+            amount: walletAmount,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            description,
+            createdAt: new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    );
+
+    logger.info(
+      `Delivery amount ₹${deliveryAmount.toFixed(2)} (Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}) added to rider ${riderId} earning wallet for order ${order.orderNumber}`
+    );
+  } catch (earningWalletError) {
+    logger.error(
+      'Error adding delivery amount to rider earning wallet:',
+      earningWalletError
+    );
+  }
+}
+
 /** Full pricing + payment summary for rider current-order API */
 const buildCurrentOrderAmountDetails = (order) => {
   const p = order.pricing || {};
@@ -1259,6 +1362,8 @@ exports.markOrderDelivered = async (req, res, next) => {
 
     await order.save();
 
+    await creditRiderEarningWalletForDeliveredOrder(order, riderId);
+
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
       .populate('user', 'userName contactNumber email')
@@ -1512,6 +1617,10 @@ exports.uploadDeliveryImage = async (req, res, next) => {
     }
 
     await order.save();
+
+    if (order.status === 'delivered') {
+      await creditRiderEarningWalletForDeliveredOrder(order, riderId);
+    }
 
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
@@ -1793,77 +1902,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
 
     await order.save();
 
-    // Add delivery amount minus rider commission to rider's earning wallet
-    const deliveryAmount = order.deliveryAmount || order.pricing?.deliveryAmount || 0;
-    if (deliveryAmount > 0) {
-      try {
-        // Get rider to calculate commission
-        const rider = await Rider.findById(riderId);
-        if (!rider) {
-          logger.warn(`Rider ${riderId} not found when updating earning wallet for order ${order.orderNumber}`);
-        } else {
-          // Calculate commission based on rider's commission type
-          let commissionAmount = 0;
-          const commission = rider.commission || { type: 'percentage', percentage: 10, fixedAmount: 0 };
-
-          if (commission.type === 'percentage') {
-            commissionAmount = (deliveryAmount * (commission.percentage || 10)) / 100;
-          } else if (commission.type === 'fixed') {
-            commissionAmount = commission.fixedAmount || 0;
-          } else if (commission.type === 'hybrid') {
-            // Hybrid: percentage + fixed
-            const percentageCommission = (deliveryAmount * (commission.percentage || 10)) / 100;
-            commissionAmount = percentageCommission + (commission.fixedAmount || 0);
-          } else if (commission.type === 'subscription') {
-            // For subscription, per-order commission is 0 (subscription fee is deducted separately)
-            commissionAmount = 0;
-          }
-
-          // Calculate wallet amount: Delivery Amount - Commission
-          const walletAmount = deliveryAmount - commissionAmount;
-
-          // Check if already credited for this order
-          const alreadyCredited = rider.walletTransactions?.some(
-            txn => txn.orderId && txn.orderId.toString() === order._id.toString() &&
-              txn.type === 'credit' &&
-              txn.description && txn.description.includes('Delivery image upload')
-          );
-
-          if (!alreadyCredited && walletAmount > 0) {
-            // Update rider's earning wallet
-            const updatedRider = await Rider.findOneAndUpdate(
-              { _id: riderId },
-              {
-                $inc: { earningWallet: walletAmount },
-                $push: {
-                  walletTransactions: {
-                    type: 'credit',
-                    amount: walletAmount,
-                    orderId: order._id,
-                    orderNumber: order.orderNumber,
-                    description: `Delivery image upload for order ${order.orderNumber}. Delivery: ₹${deliveryAmount.toFixed(2)}, Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}`,
-                    createdAt: new Date(),
-                  }
-                }
-              },
-              {
-                new: true,
-                runValidators: true,
-              }
-            );
-
-            if (updatedRider) {
-              logger.info(`Delivery amount ₹${deliveryAmount.toFixed(2)} (Commission: ₹${commissionAmount.toFixed(2)}, Added: ₹${walletAmount.toFixed(2)}) added to rider ${riderId} earning wallet for order ${order.orderNumber}`);
-            }
-          } else if (alreadyCredited) {
-            logger.info(`Delivery amount already credited to rider ${riderId} for order ${order.orderNumber}`);
-          }
-        }
-      } catch (earningWalletError) {
-        logger.error('Error adding delivery amount to rider earning wallet:', earningWalletError);
-        // Don't fail the request if earning wallet update fails
-      }
-    }
+    await creditRiderEarningWalletForDeliveredOrder(order, riderId);
 
     // Populate order details for response
     const populatedOrder = await Order.findById(orderId)
