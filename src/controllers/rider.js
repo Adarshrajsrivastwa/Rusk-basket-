@@ -13,6 +13,19 @@ const { updateRiderProfileData } = require('../services/riderService');
 const { normalizeJobApplied } = require('../utils/riderJobApplied');
 const { uploadToCloudinary } = require('../utils/cloudinary');
 const mongoose = require('mongoose');
+const {
+  calculateDistance,
+  correctLatLonIfLikelySwappedForSouthAsia,
+} = require('../utils/distanceUtils');
+
+const PAYMENT_METHOD_LABELS = {
+  cod: 'Cash on delivery',
+  cash: 'Cash',
+  prepaid: 'Prepaid',
+  wallet: 'Wallet',
+  upi: 'UPI',
+  card: 'Card',
+};
 
 /**
  * Check if rider has an active order (not delivered, cancelled, or refunded)
@@ -132,6 +145,102 @@ const buildCurrentOrderCustomerDetails = (order) => {
             .join(', '),
         }
       : null,
+  };
+};
+
+/** Single-line shipping for rider UI: "line1 · city, state" */
+const formatActiveOrderShippingLine = (ship) => {
+  if (!ship) return null;
+  const cityState = [ship.city, ship.state].filter(Boolean).join(', ');
+  const head = [ship.line1, ship.line2].filter(Boolean).join(', ');
+  if (head && cityState) return `${head} · ${cityState}`;
+  return head || cityState || null;
+};
+
+/** Rider current location → order drop-off (km) */
+const riderToDropoffKm = (riderDoc, shipping) => {
+  if (!riderDoc?.currentAddress || !shipping) return null;
+  const r = correctLatLonIfLikelySwappedForSouthAsia(
+    riderDoc.currentAddress.latitude,
+    riderDoc.currentAddress.longitude
+  );
+  const s = correctLatLonIfLikelySwappedForSouthAsia(
+    shipping.latitude,
+    shipping.longitude
+  );
+  if (
+    !Number.isFinite(r.latitude) ||
+    !Number.isFinite(r.longitude) ||
+    !Number.isFinite(s.latitude) ||
+    !Number.isFinite(s.longitude)
+  ) {
+    return null;
+  }
+  return calculateDistance(r.latitude, r.longitude, s.latitude, s.longitude);
+};
+
+/**
+ * Flat snapshot for rider apps (matches common ACTIVE ORDER DATA fields).
+ */
+const buildActiveOrderSnapshot = (
+  order,
+  amountDetails,
+  vendors,
+  customerDetails,
+  distanceKm
+) => {
+  const method = order.payment?.method || amountDetails?.payment?.method || null;
+  const total = Number(amountDetails?.totalAmount ?? 0);
+  const isCod = method === 'cod';
+  const ship = order.shippingAddress;
+
+  const customerName =
+    customerDetails?.userName ||
+    customerDetails?.contactNumber ||
+    ship?.phone ||
+    null;
+
+  const pickupAddress = vendors.length
+    ? vendors.map((v) => v.addressLine).filter(Boolean).join(' · ') || null
+    : null;
+
+  const dropAddress =
+    customerDetails?.deliveryAddress?.fullAddress ||
+    formatActiveOrderShippingLine(ship) ||
+    null;
+
+  const shippingLine =
+    formatActiveOrderShippingLine(ship) ||
+    customerDetails?.deliveryAddress?.fullAddress ||
+    null;
+
+  let etaMinutes = null;
+  if (order.estimatedDelivery) {
+    const diff = new Date(order.estimatedDelivery).getTime() - Date.now();
+    if (Number.isFinite(diff)) {
+      etaMinutes = Math.max(0, Math.round(diff / 60000));
+    }
+  }
+
+  return {
+    id: order._id?.toString?.() ?? String(order._id),
+    orderNumber: order.orderNumber,
+    status: order.status,
+    customerName,
+    pickupAddress,
+    dropAddress,
+    shippingLine,
+    itemCount: Array.isArray(order.items) ? order.items.length : 0,
+    riderEarnings: Number(amountDetails?.riderEarnings ?? 0),
+    amount: total,
+    currency: 'INR',
+    etaMinutes,
+    distanceKm,
+    createdAt: order.createdAt || null,
+    paymentType: method,
+    paymentLabel: method ? (PAYMENT_METHOD_LABELS[method] || method) : null,
+    codAmount: isCod ? total : null,
+    cashToCollect: isCod ? total : null,
   };
 };
 
@@ -1016,6 +1125,7 @@ exports.getCurrentOrder = async (req, res, next) => {
         amountDetails: null,
         vendors: [],
         customerDetails: null,
+        activeOrder: null,
       });
     }
 
@@ -1023,6 +1133,19 @@ exports.getCurrentOrder = async (req, res, next) => {
     const vendors = buildCurrentOrderVendors(order);
     const customerDetails = buildCurrentOrderCustomerDetails(order);
     const totalAmount = amountDetails.totalAmount;
+
+    const riderLean = await Rider.findById(riderId)
+      .select('currentAddress.latitude currentAddress.longitude')
+      .lean();
+    const distanceKm = riderToDropoffKm(riderLean, order.shippingAddress);
+
+    const activeOrder = buildActiveOrderSnapshot(
+      order,
+      amountDetails,
+      vendors,
+      customerDetails,
+      distanceKm
+    );
 
     res.status(200).json({
       success: true,
@@ -1033,12 +1156,14 @@ exports.getCurrentOrder = async (req, res, next) => {
         amountDetails,
         vendors,
         customerDetails,
+        activeOrder,
       },
       hasCurrentOrder: true,
       totalAmount,
       amountDetails,
       vendors,
       customerDetails,
+      activeOrder,
     });
   } catch (error) {
     logger.error('Get current order error:', error);
