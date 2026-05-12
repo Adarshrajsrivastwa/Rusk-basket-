@@ -27,6 +27,114 @@ const hasActiveOrder = async (riderId) => {
   return !!activeOrder;
 };
 
+/** Full pricing + payment summary for rider current-order API */
+const buildCurrentOrderAmountDetails = (order) => {
+  const p = order.pricing || {};
+  const pay = order.payment || {};
+  const deliveryLine =
+    p.deliveryAmount ?? order.deliveryAmount ?? 0;
+  const riderEarnings =
+    p.riderAmount ?? p.deliveryAmount ?? order.deliveryAmount ?? 0;
+  const totalAmount = p.total ?? pay.amount ?? 0;
+
+  return {
+    subtotal: p.subtotal ?? 0,
+    discount: p.discount ?? 0,
+    tax: p.tax ?? 0,
+    handlingCharge: p.handlingCharge ?? 0,
+    totalCashback: p.totalCashback ?? 0,
+    cashbackDiscount: p.cashbackDiscount ?? 0,
+    deliveryAmount: deliveryLine,
+    riderEarnings,
+    totalAmount,
+    orderGrandTotal: totalAmount,
+    cashbackUsed: order.cashbackUsed?.amount ?? 0,
+    coupon: order.coupon
+      ? {
+          code: order.coupon.code || null,
+          discount: order.coupon.discount ?? null,
+        }
+      : null,
+    payment: {
+      method: pay.method ?? null,
+      status: pay.status ?? null,
+      amount: pay.amount ?? null,
+      paidAt: pay.paidAt ?? null,
+      transactionId: pay.transactionId || null,
+    },
+  };
+};
+
+/** Unique vendors on order with phone, email, full store address */
+const buildCurrentOrderVendors = (order) => {
+  const map = new Map();
+  for (const item of order.items || []) {
+    const v = item.vendor;
+    if (!v || !v._id) continue;
+    const id = v._id.toString();
+    if (map.has(id)) continue;
+    const addr = v.storeAddress;
+    const addressLine = addr
+      ? [addr.line1, addr.line2, addr.city, addr.state, addr.pinCode]
+          .filter(Boolean)
+          .join(', ')
+      : '';
+    map.set(id, {
+      _id: v._id,
+      vendorName: v.vendorName || null,
+      storeName: v.storeName || null,
+      storeId: v.storeId || null,
+      contactNumber: v.contactNumber || null,
+      altContactNumber: v.altContactNumber || null,
+      email: v.email || null,
+      storeAddress: addr || null,
+      addressLine: addressLine || null,
+      coordinates:
+        addr && (addr.latitude != null || addr.longitude != null)
+          ? { latitude: addr.latitude ?? null, longitude: addr.longitude ?? null }
+          : null,
+    });
+  }
+  return [...map.values()];
+};
+
+/** Customer (user) + delivery drop details */
+const buildCurrentOrderCustomerDetails = (order) => {
+  const u = order.user;
+  const ship = order.shippingAddress;
+  const profileAddr = u?.address;
+  const profileLine = profileAddr
+    ? [profileAddr.line1, profileAddr.line2, profileAddr.city, profileAddr.state, profileAddr.pinCode]
+        .filter(Boolean)
+        .join(', ')
+    : null;
+
+  return {
+    userId: u?._id || order.user || null,
+    userName: u?.userName || null,
+    contactNumber: u?.contactNumber || ship?.phone || null,
+    email: u?.email || null,
+    profileAddress: profileAddr || null,
+    profileAddressLine: profileLine,
+    savedAddresses: Array.isArray(u?.addresses) ? u.addresses : [],
+    deliveryAddress: ship
+      ? {
+          line1: ship.line1 || '',
+          line2: ship.line2 || '',
+          city: ship.city || '',
+          state: ship.state || '',
+          pinCode: ship.pinCode || '',
+          phone: ship.phone || null,
+          latitude: ship.latitude ?? null,
+          longitude: ship.longitude ?? null,
+          fullAddress: [ship.line1, ship.line2, ship.city, ship.state, ship.pinCode]
+            .filter(Boolean)
+            .join(', '),
+        }
+      : null,
+  };
+};
+
 exports.getProfile = async (req, res, next) => {
   try {
     const rider = await Rider.findById(req.rider._id);
@@ -889,9 +997,12 @@ exports.getCurrentOrder = async (req, res, next) => {
     };
 
     const order = await Order.findOne(query)
-      .populate('user', 'userName contactNumber')
+      .populate('user', 'userName contactNumber email address addresses')
+      .populate(
+        'items.vendor',
+        'vendorName storeName storeAddress contactNumber altContactNumber email storeId'
+      )
       .populate('items.product', 'productName thumbnail inventory skus')
-      .populate('items.vendor', 'vendorName storeName storeAddress')
       .sort({ assignedAt: -1, createdAt: -1 })
       .lean();
 
@@ -901,14 +1012,33 @@ exports.getCurrentOrder = async (req, res, next) => {
         message: 'No current order found',
         data: null,
         hasCurrentOrder: false,
+        totalAmount: null,
+        amountDetails: null,
+        vendors: [],
+        customerDetails: null,
       });
     }
+
+    const amountDetails = buildCurrentOrderAmountDetails(order);
+    const vendors = buildCurrentOrderVendors(order);
+    const customerDetails = buildCurrentOrderCustomerDetails(order);
+    const totalAmount = amountDetails.totalAmount;
 
     res.status(200).json({
       success: true,
       message: 'Current order found',
-      data: order,
+      data: {
+        ...order,
+        totalAmount,
+        amountDetails,
+        vendors,
+        customerDetails,
+      },
       hasCurrentOrder: true,
+      totalAmount,
+      amountDetails,
+      vendors,
+      customerDetails,
     });
   } catch (error) {
     logger.error('Get current order error:', error);
