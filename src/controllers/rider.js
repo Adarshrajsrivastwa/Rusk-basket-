@@ -668,7 +668,7 @@ exports.acceptOrderAssignment = async (req, res, next) => {
         rider: populatedOrder.rider,
       };
 
-      notifyRiderOrderUpdate(riderId, orderUpdateData);
+      await notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
     }
@@ -1097,7 +1097,7 @@ exports.markOrderDelivered = async (req, res, next) => {
         deliveredAt: order.deliveredAt,
       };
 
-      notifyRiderOrderUpdate(riderId, orderUpdateData);
+      await notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
     }
@@ -1355,7 +1355,7 @@ exports.uploadDeliveryImage = async (req, res, next) => {
           deliveredAt: order.deliveredAt,
         };
 
-        notifyRiderOrderUpdate(riderId, orderUpdateData);
+        await notifyRiderOrderUpdate(riderId, orderUpdateData);
       } catch (socketError) {
         logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
       }
@@ -1703,7 +1703,7 @@ exports.uploadDeliveredImage = async (req, res, next) => {
         deliveredAt: order.deliveredAt,
       };
 
-      notifyRiderOrderUpdate(riderId, orderUpdateData);
+      await notifyRiderOrderUpdate(riderId, orderUpdateData);
     } catch (socketError) {
       logger.error(`Error sending WebSocket notification to rider: ${socketError.message}`);
     }

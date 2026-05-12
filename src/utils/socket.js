@@ -1,7 +1,47 @@
+const mongoose = require('mongoose');
 const logger = require('./logger');
 const jwt = require('jsonwebtoken');
 const Rider = require('../models/Rider');
 const User = require('../models/User');
+const Order = require('../models/Order');
+const Vendor = require('../models/Vendor');
+const {
+  calculateDistance,
+  correctLatLonIfLikelySwappedForSouthAsia,
+} = require('./distanceUtils');
+
+/** Safe payment summary for sockets (no card/UPI vault data). */
+const paymentSummaryForSocket = (payment) => {
+  if (!payment || typeof payment !== 'object') return null;
+  return {
+    method: payment.method ?? null,
+    status: payment.status ?? null,
+    amount: payment.amount ?? null,
+    paidAt: payment.paidAt ?? null,
+    transactionId: payment.transactionId || null,
+  };
+};
+
+/** Haversine km from rider currentAddress to order shipping (drop-off). */
+const riderToDropoffDistanceKm = (riderDoc, shippingAddress) => {
+  if (!riderDoc?.currentAddress || !shippingAddress) return null;
+  const rLat = riderDoc.currentAddress.latitude;
+  const rLon = riderDoc.currentAddress.longitude;
+  const r = correctLatLonIfLikelySwappedForSouthAsia(rLat, rLon);
+  const s = correctLatLonIfLikelySwappedForSouthAsia(
+    shippingAddress.latitude,
+    shippingAddress.longitude
+  );
+  if (
+    !Number.isFinite(r.latitude) ||
+    !Number.isFinite(r.longitude) ||
+    !Number.isFinite(s.latitude) ||
+    !Number.isFinite(s.longitude)
+  ) {
+    return null;
+  }
+  return calculateDistance(r.latitude, r.longitude, s.latitude, s.longitude);
+};
 
 let io = null;
 let socketIOAvailable = false;
@@ -201,7 +241,100 @@ const getIO = () => {
 };
 
 /**
- * Send order assignment request to a specific rider
+ * Load order + user + vendor pickup details from DB for rider assignment payloads.
+ */
+const fetchOrderPayloadForRiderAssignment = async (orderId) => {
+  try {
+    const order = await Order.findById(orderId).lean();
+    if (!order) {
+      return null;
+    }
+
+    let userDetails = null;
+    if (order.user) {
+      const userId = order.user._id || order.user;
+      const u = await User.findById(userId)
+        .select('userName contactNumber email address addresses')
+        .lean();
+
+      if (u) {
+        userDetails = {
+          userName: u.userName || null,
+          contactNumber: u.contactNumber || null,
+          email: u.email || null,
+          address: u.address || null,
+          addresses: u.addresses || [],
+        };
+      }
+    }
+
+    const vendorIds = [...new Set((order.items || []).map((item) => {
+      const vendorId = item.vendor?._id || item.vendor;
+      return vendorId?.toString();
+    }).filter(Boolean))];
+
+    const vendorAddresses = [];
+    if (vendorIds.length > 0) {
+      const vendors = await Vendor.find({ _id: { $in: vendorIds } })
+        .select('_id vendorName storeName storeAddress contactNumber')
+        .lean();
+
+      for (const vendor of vendors) {
+        if (vendor.storeAddress) {
+          vendorAddresses.push({
+            _id: vendor._id,
+            vendorName: vendor.vendorName || null,
+            storeName: vendor.storeName || null,
+            contactNumber: vendor.contactNumber || null,
+            storeAddress: {
+              line1: vendor.storeAddress.line1 || null,
+              line2: vendor.storeAddress.line2 || null,
+              pinCode: vendor.storeAddress.pinCode || null,
+              city: vendor.storeAddress.city || null,
+              state: vendor.storeAddress.state || null,
+              latitude: vendor.storeAddress.latitude || null,
+              longitude: vendor.storeAddress.longitude || null,
+            },
+          });
+        }
+      }
+    }
+
+    const payment = paymentSummaryForSocket(order.payment);
+
+    return {
+      _id: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      items: order.items,
+      shippingAddress: order.shippingAddress || null,
+      pricing: order.pricing || null,
+      deliveryAmount: order.pricing?.deliveryAmount ?? order.deliveryAmount ?? null,
+      payment,
+      paymentMethod: payment?.method || null,
+      estimatedDelivery: order.estimatedDelivery || null,
+      assignedAt: order.assignedAt || null,
+      deliveredAt: order.deliveredAt || null,
+      cancelledAt: order.cancelledAt || null,
+      cancellationReason: order.cancellationReason || null,
+      cancelledBy: order.cancelledBy || null,
+      notes: order.notes || null,
+      coupon: order.coupon || null,
+      cashbackUsed: order.cashbackUsed || null,
+      rider: order.rider || null,
+      updatedAt: order.updatedAt || null,
+      user: userDetails,
+      vendorAddresses,
+      createdAt: order.createdAt,
+    };
+  } catch (error) {
+    logger.error('fetchOrderPayloadForRiderAssignment failed:', error);
+    return null;
+  }
+};
+
+/**
+ * Send order assignment request to a specific rider (payload must be DB-built, e.g. from fetchOrderPayloadForRiderAssignment).
  */
 const sendOrderAssignmentRequest = async (riderId, orderData) => {
   const riderIdStr = riderId.toString();
@@ -210,10 +343,25 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
     logger.debug(`Socket.io not available. Skipping WebSocket notification for rider ${riderId}`);
     return false;
   }
+
+  if (!orderData || !orderData._id) {
+    logger.warn(`sendOrderAssignmentRequest: invalid order payload for rider ${riderId}`);
+    return false;
+  }
   
   try {
     const ioInstance = getIO();
     const socketId = connectedRiders.get(riderIdStr);
+
+    const riderForDistance = await Rider.findById(riderId)
+      .select('currentAddress.latitude currentAddress.longitude')
+      .lean();
+    const distanceToDropoffKm = riderToDropoffDistanceKm(
+      riderForDistance,
+      orderData.shippingAddress
+    );
+    const paymentMethod =
+      orderData.paymentMethod ?? orderData.payment?.method ?? null;
 
     if (socketId) {
       // Build vendor details string for notification message
@@ -275,10 +423,14 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
         }
       } : null;
 
+      const payLabel = paymentMethod ? `, Pay: ${paymentMethod}` : '';
+      const distLabel =
+        distanceToDropoffKm != null ? `, ~${distanceToDropoffKm} km to drop-off` : '';
+
       const notificationPayload = {
         type: 'order_assignment_request',
         title: 'New Order Assignment Available',
-        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
+        message: `Order ${orderData.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}${payLabel}${distLabel}.${vendorDetailsText}\nWould you like to accept?`,
         data: {
           // Order Basic Info
           _id: orderData._id,
@@ -286,6 +438,12 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           orderNumber: orderData.orderNumber,
           status: orderData.status,
           createdAt: orderData.createdAt,
+          updatedAt: orderData.updatedAt || null,
+          estimatedDelivery: orderData.estimatedDelivery || null,
+          assignedAt: orderData.assignedAt || null,
+          notes: orderData.notes || null,
+          coupon: orderData.coupon || null,
+          cashbackUsed: orderData.cashbackUsed || null,
           
           // Order Items
           items: orderData.items || [],
@@ -303,6 +461,15 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           // Delivery & Earnings
           deliveryAmount: orderData.deliveryAmount || 0,
           riderEarnings: riderEarnings,
+
+          // Payment & distance (rider-specific)
+          payment: orderData.payment || null,
+          paymentMethod,
+          distanceToDropoffKm,
+          distanceToDropoffMeters:
+            distanceToDropoffKm != null
+              ? Math.round(distanceToDropoffKm * 1000)
+              : null,
           
           // Shipping Address & Location (Properly Formatted)
           shippingAddress: formattedShippingAddress,
@@ -318,8 +485,16 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           vendorAddresses: orderData.vendorAddresses || [],
           vendorCount: orderData.vendorAddresses?.length || 0,
           
-          // Full Order Object (for backward compatibility)
-          order: orderData,
+          // Full Order Object (for backward compatibility; includes rider-specific distance)
+          order: {
+            ...orderData,
+            paymentMethod,
+            distanceToDropoffKm,
+            distanceToDropoffMeters:
+              distanceToDropoffKm != null
+                ? Math.round(distanceToDropoffKm * 1000)
+                : null,
+          },
         },
         timestamp: new Date().toISOString(),
       };
@@ -338,88 +513,179 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
 };
 
 /**
- * Send order assignment request to multiple riders
+ * Send order assignment request to multiple riders (orderPayload from fetchOrderPayloadForRiderAssignment).
  */
-const sendOrderAssignmentRequestToRiders = async (riderIds, orderData) => {
+const sendOrderAssignmentRequestToRiders = async (riderIds, orderPayload) => {
   if (!socketIOAvailable || !io) {
     logger.debug(`Socket.io not available. Skipping WebSocket notifications for ${riderIds.length} riders`);
     return 0;
   }
-  
+
+  if (!orderPayload || !orderPayload._id) {
+    logger.warn('sendOrderAssignmentRequestToRiders: missing order payload');
+    return 0;
+  }
+
   const results = await Promise.all(
-    riderIds.map(riderId => sendOrderAssignmentRequest(riderId, orderData))
+    riderIds.map((riderId) => sendOrderAssignmentRequest(riderId, orderPayload))
   );
-  
-  const successCount = results.filter(Boolean).length;
-  
-  return successCount;
+
+  return results.filter(Boolean).length;
 };
 
 /**
- * Notify rider about order status update
+ * Notify rider about order status update (merges latest order from DB when orderId is present).
  */
-const notifyRiderOrderUpdate = (riderId, orderData) => {
+const notifyRiderOrderUpdate = async (riderId, orderData) => {
   if (!socketIOAvailable || !io) {
     logger.debug(`Socket.io not available. Skipping WebSocket notification for rider ${riderId}`);
     return;
   }
-  
+
+  if (!orderData || typeof orderData !== 'object') {
+    return;
+  }
+
   try {
     const ioInstance = getIO();
-    
+    const rid = riderId ? riderId.toString() : null;
+    const orderId = orderData.orderId || orderData._id;
+
+    let merged = { ...orderData };
+    let shippingSrc = orderData.shippingAddress;
+    let pricing = orderData.pricing || {};
+    let payment = paymentSummaryForSocket(orderData.payment);
+    let paymentMethod = orderData.paymentMethod ?? payment?.method ?? null;
+
+    if (orderId && mongoose.Types.ObjectId.isValid(String(orderId))) {
+      const dbOrder = await Order.findById(orderId)
+        .select(
+          'payment shippingAddress pricing deliveryAmount status orderNumber items estimatedDelivery assignedAt deliveredAt cancelledAt cancellationReason cancelledBy notes coupon cashbackUsed rider updatedAt createdAt'
+        )
+        .lean();
+
+      if (dbOrder) {
+        merged = {
+          ...dbOrder,
+          ...orderData,
+          orderId: orderData.orderId || dbOrder._id,
+          orderNumber: orderData.orderNumber ?? dbOrder.orderNumber,
+          status: orderData.status ?? dbOrder.status,
+        };
+        shippingSrc = orderData.shippingAddress || dbOrder.shippingAddress;
+        pricing = { ...(dbOrder.pricing || {}), ...(orderData.pricing || {}) };
+        payment =
+          paymentSummaryForSocket(orderData.payment) ||
+          paymentSummaryForSocket(dbOrder.payment);
+        paymentMethod =
+          orderData.paymentMethod ??
+          payment?.method ??
+          dbOrder.payment?.method ??
+          null;
+      }
+    }
+
+    let distanceToDropoffKm = orderData.distanceToDropoffKm ?? null;
+    if (rid && distanceToDropoffKm == null) {
+      const riderLean = await Rider.findById(rid)
+        .select('currentAddress.latitude currentAddress.longitude')
+        .lean();
+      distanceToDropoffKm = riderToDropoffDistanceKm(riderLean, shippingSrc);
+    }
+
     // Format shipping address properly
-    const formattedShippingAddress = orderData.shippingAddress ? {
-      line1: orderData.shippingAddress.line1 || '',
-      line2: orderData.shippingAddress.line2 || '',
-      city: orderData.shippingAddress.city || '',
-      state: orderData.shippingAddress.state || '',
-      pinCode: orderData.shippingAddress.pinCode || '',
-      phone: orderData.shippingAddress.phone || '',
-      latitude: orderData.shippingAddress.latitude || null,
-      longitude: orderData.shippingAddress.longitude || null,
-    } : null;
+    const formattedShippingAddress = shippingSrc
+      ? {
+          line1: shippingSrc.line1 || '',
+          line2: shippingSrc.line2 || '',
+          city: shippingSrc.city || '',
+          state: shippingSrc.state || '',
+          pinCode: shippingSrc.pinCode || '',
+          phone: shippingSrc.phone || '',
+          latitude: shippingSrc.latitude ?? null,
+          longitude: shippingSrc.longitude ?? null,
+        }
+      : null;
 
     // Build location information
-    const location = formattedShippingAddress ? {
-      address: [
-        formattedShippingAddress.line1,
-        formattedShippingAddress.line2,
-        formattedShippingAddress.city,
-        formattedShippingAddress.state,
-        formattedShippingAddress.pinCode
-      ].filter(Boolean).join(', '),
-      line1: formattedShippingAddress.line1,
-      line2: formattedShippingAddress.line2,
-      city: formattedShippingAddress.city,
-      state: formattedShippingAddress.state,
-      pinCode: formattedShippingAddress.pinCode,
-      phone: formattedShippingAddress.phone,
-      coordinates: {
-        latitude: formattedShippingAddress.latitude,
-        longitude: formattedShippingAddress.longitude,
-      }
-    } : (orderData.location || null);
+    const location = formattedShippingAddress
+      ? {
+          address: [
+            formattedShippingAddress.line1,
+            formattedShippingAddress.line2,
+            formattedShippingAddress.city,
+            formattedShippingAddress.state,
+            formattedShippingAddress.pinCode,
+          ]
+            .filter(Boolean)
+            .join(', '),
+          line1: formattedShippingAddress.line1,
+          line2: formattedShippingAddress.line2,
+          city: formattedShippingAddress.city,
+          state: formattedShippingAddress.state,
+          pinCode: formattedShippingAddress.pinCode,
+          phone: formattedShippingAddress.phone,
+          coordinates: {
+            latitude: formattedShippingAddress.latitude,
+            longitude: formattedShippingAddress.longitude,
+          },
+        }
+      : orderData.location || null;
 
-    // Prepare update payload with amount and location
+    const deliveryAmt =
+      merged.deliveryAmount ??
+      orderData.deliveryAmount ??
+      pricing?.deliveryAmount ??
+      0;
+
     const updatePayload = {
       type: 'order_update',
-      orderId: orderData.orderId,
-      orderNumber: orderData.orderNumber,
-      status: orderData.status,
-      // Amount information
-      amount: orderData.amount || orderData.pricing?.total || 0,
-      deliveryAmount: orderData.deliveryAmount || orderData.pricing?.deliveryAmount || 0,
-      pricing: orderData.pricing || {},
-      // Location information (Properly Formatted)
-      location: location,
+      orderId: merged.orderId || merged._id,
+      orderNumber: merged.orderNumber,
+      status: merged.status,
+      amount:
+        orderData.amount ??
+        merged.pricing?.total ??
+        pricing?.total ??
+        0,
+      deliveryAmount: deliveryAmt,
+      pricing: pricing || {},
+      payment,
+      paymentMethod,
+      distanceToDropoffKm,
+      distanceToDropoffMeters:
+        distanceToDropoffKm != null
+          ? Math.round(distanceToDropoffKm * 1000)
+          : null,
+      estimatedDelivery: merged.estimatedDelivery ?? null,
+      assignedAt: merged.assignedAt ?? null,
+      deliveredAt: merged.deliveredAt ?? orderData.deliveredAt ?? null,
+      cancelledAt: merged.cancelledAt ?? null,
+      cancellationReason: merged.cancellationReason ?? null,
+      cancelledBy: merged.cancelledBy ?? null,
+      notes: merged.notes ?? null,
+      coupon: merged.coupon ?? null,
+      cashbackUsed: merged.cashbackUsed ?? null,
+      location,
       shippingAddress: formattedShippingAddress || {},
-      // Full order data
-      data: orderData,
+      rider: orderData.rider ?? merged.rider ?? null,
+      data: {
+        ...merged,
+        pricing,
+        payment,
+        paymentMethod,
+        shippingAddress: shippingSrc || formattedShippingAddress,
+        distanceToDropoffKm,
+        distanceToDropoffMeters:
+          distanceToDropoffKm != null
+            ? Math.round(distanceToDropoffKm * 1000)
+            : null,
+      },
       timestamp: new Date().toISOString(),
     };
-    
+
     ioInstance.to(`rider:${riderId}`).emit('order_update', updatePayload);
-    
+
     logger.info(`Order update sent to rider ${riderId} via WebSocket`);
   } catch (error) {
     logger.error(`Error sending order update to rider ${riderId}:`, error);
@@ -554,6 +820,7 @@ const getConnectionCounts = () => {
 module.exports = {
   initializeSocket,
   getIO,
+  fetchOrderPayloadForRiderAssignment,
   sendOrderAssignmentRequest,
   sendOrderAssignmentRequestToRiders,
   notifyRiderOrderUpdate,

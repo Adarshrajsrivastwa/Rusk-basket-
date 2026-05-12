@@ -8,7 +8,7 @@ const Rider = require('../models/Rider');
 const RiderJobApplication = require('../models/RiderJobApplication');
 const RiderJobPost = require('../models/RiderJobPost');
 const { notificationQueue } = require('../utils/queue');
-const { sendOrderAssignmentRequestToRiders, notifyRiderOrderUpdate, notifyUserOrderUpdate } = require('../utils/socket');
+const { sendOrderAssignmentRequestToRiders, fetchOrderPayloadForRiderAssignment, notifyRiderOrderUpdate, notifyUserOrderUpdate } = require('../utils/socket');
 const logger = require('../utils/logger');
 
 /**
@@ -2795,67 +2795,15 @@ exports.notifyRidersForOrder = async (order) => {
     order.assignmentRequestSentTo = assignmentRequests;
     await order.save();
 
-    // Fetch user details using order.user
-    let userDetails = null;
-    if (order.user) {
-      const userId = order.user._id || order.user;
-      userDetails = await User.findById(userId).select('userName contactNumber email address addresses');
-
-      if (userDetails) {
-        // Use exact database field names
-        userDetails = {
-          userName: userDetails.userName || null,
-          contactNumber: userDetails.contactNumber || null,
-          email: userDetails.email || null,
-          address: userDetails.address || null,
-          addresses: userDetails.addresses || [],
-        };
-      }
+    const orderPayload = await fetchOrderPayloadForRiderAssignment(order._id);
+    if (!orderPayload) {
+      logger.warn(`notifyRidersForOrder: could not load order ${order._id} for rider socket payload`);
+      return;
     }
-
-    // Fetch vendor addresses for all vendors in the order
-    const vendorAddresses = [];
-    if (vendorIds.length > 0) {
-      const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select('_id vendorName storeName storeAddress contactNumber');
-
-      for (const vendor of vendors) {
-        if (vendor.storeAddress) {
-          vendorAddresses.push({
-            _id: vendor._id,
-            vendorName: vendor.vendorName || null,
-            storeName: vendor.storeName || null,
-            contactNumber: vendor.contactNumber || null,
-            storeAddress: {
-              line1: vendor.storeAddress.line1 || null,
-              line2: vendor.storeAddress.line2 || null,
-              pinCode: vendor.storeAddress.pinCode || null,
-              city: vendor.storeAddress.city || null,
-              state: vendor.storeAddress.state || null,
-              latitude: vendor.storeAddress.latitude || null,
-              longitude: vendor.storeAddress.longitude || null,
-            }
-          });
-        }
-      }
-    }
-
-    // Prepare order data for WebSocket using exact database field names
-    const orderData = {
-      _id: order._id,
-      orderNumber: order.orderNumber,
-      status: order.status,
-      items: order.items,
-      shippingAddress: order.shippingAddress || null,
-      pricing: order.pricing || null,
-      deliveryAmount: order.pricing?.deliveryAmount || order.deliveryAmount || null,
-      user: userDetails,
-      vendorAddresses: vendorAddresses,
-      createdAt: order.createdAt,
-    };
 
     // Send WebSocket notifications to riders
     try {
-      const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderData);
+      const sentCount = await sendOrderAssignmentRequestToRiders(activeRiders, orderPayload);
 
       // Firebase push notifications removed - using socket notifications only
       // Socket notifications are sent via sendOrderAssignmentRequestToRiders above
@@ -2864,8 +2812,8 @@ exports.notifyRidersForOrder = async (order) => {
       if (notificationQueue) {
         // Build vendor details string for notification message
         let vendorDetailsText = '';
-        if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
-          const vendor = orderData.vendorAddresses[0]; // Use first vendor
+        if (orderPayload.vendorAddresses && orderPayload.vendorAddresses.length > 0) {
+          const vendor = orderPayload.vendorAddresses[0]; // Use first vendor
           const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
           const vendorPhone = vendor.contactNumber || '';
           const vendorAddress = vendor.storeAddress ? [
@@ -2886,7 +2834,7 @@ exports.notifyRidersForOrder = async (order) => {
         }
 
         // Rider earnings (delivery amount is what rider earns)
-        const riderEarnings = orderData.deliveryAmount || 0;
+        const riderEarnings = orderPayload.deliveryAmount || 0;
 
         for (const riderId of activeRiders) {
           const rider = await Rider.findById(riderId);
@@ -2895,20 +2843,20 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderPayload.pricing?.total || orderPayload.amount || 0}, Delivery: ₹${orderPayload.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
               data: {
-                _id: orderData._id,
-                orderNumber: orderData.orderNumber,
-                status: orderData.status,
-                items: orderData.items,
-                shippingAddress: orderData.shippingAddress,
-                pricing: orderData.pricing,
-                deliveryAmount: orderData.deliveryAmount,
-                user: orderData.user || null,
-                vendorAddresses: orderData.vendorAddresses || [],
-                createdAt: orderData.createdAt,
+                _id: orderPayload._id,
+                orderNumber: orderPayload.orderNumber,
+                status: orderPayload.status,
+                items: orderPayload.items,
+                shippingAddress: orderPayload.shippingAddress,
+                pricing: orderPayload.pricing,
+                deliveryAmount: orderPayload.deliveryAmount,
+                user: orderPayload.user || null,
+                vendorAddresses: orderPayload.vendorAddresses || [],
+                createdAt: orderPayload.createdAt,
                 type: 'rider',
-                order: orderData,
+                order: orderPayload,
               },
             };
 
@@ -2921,8 +2869,8 @@ exports.notifyRidersForOrder = async (order) => {
       if (notificationQueue) {
         // Build vendor details string for notification message
         let vendorDetailsText = '';
-        if (orderData.vendorAddresses && orderData.vendorAddresses.length > 0) {
-          const vendor = orderData.vendorAddresses[0]; // Use first vendor
+        if (orderPayload.vendorAddresses && orderPayload.vendorAddresses.length > 0) {
+          const vendor = orderPayload.vendorAddresses[0]; // Use first vendor
           const vendorName = vendor.vendorName || vendor.storeName || 'Vendor';
           const vendorPhone = vendor.contactNumber || '';
           const vendorAddress = vendor.storeAddress ? [
@@ -2943,7 +2891,7 @@ exports.notifyRidersForOrder = async (order) => {
         }
 
         // Rider earnings (delivery amount is what rider earns)
-        const riderEarnings = orderData.deliveryAmount || 0;
+        const riderEarnings = orderPayload.deliveryAmount || 0;
 
         for (const riderId of activeRiders) {
           const rider = await Rider.findById(riderId);
@@ -2952,20 +2900,20 @@ exports.notifyRidersForOrder = async (order) => {
               userId: riderId,
               type: 'order_assignment_request',
               title: 'New Order Assignment Available',
-              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderData.pricing?.total || orderData.amount || 0}, Delivery: ₹${orderData.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
+              message: `Order ${order.orderNumber} is ready for delivery. Amount: ₹${orderPayload.pricing?.total || orderPayload.amount || 0}, Delivery: ₹${orderPayload.deliveryAmount || 0}, Rider Earnings: ₹${riderEarnings}.${vendorDetailsText}\nWould you like to accept?`,
               data: {
-                _id: orderData._id,
-                orderNumber: orderData.orderNumber,
-                status: orderData.status,
-                items: orderData.items,
-                shippingAddress: orderData.shippingAddress,
-                pricing: orderData.pricing,
-                deliveryAmount: orderData.deliveryAmount,
-                user: orderData.user || null,
-                vendorAddresses: orderData.vendorAddresses || [],
-                createdAt: orderData.createdAt,
+                _id: orderPayload._id,
+                orderNumber: orderPayload.orderNumber,
+                status: orderPayload.status,
+                items: orderPayload.items,
+                shippingAddress: orderPayload.shippingAddress,
+                pricing: orderPayload.pricing,
+                deliveryAmount: orderPayload.deliveryAmount,
+                user: orderPayload.user || null,
+                vendorAddresses: orderPayload.vendorAddresses || [],
+                createdAt: orderPayload.createdAt,
                 type: 'rider',
-                order: orderData,
+                order: orderPayload,
               },
             });
           }
@@ -3244,7 +3192,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
   // Notify rider via WebSocket
   if (assignedRider) {
     try {
-      notifyRiderOrderUpdate(assignedRider, socketData);
+      await notifyRiderOrderUpdate(assignedRider, socketData);
     } catch (socketError) {
       logger.error('Error sending rider WebSocket notification for cancellation:', socketError);
     }

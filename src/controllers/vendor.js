@@ -1170,7 +1170,7 @@ exports.updateOrderStatus = async (req, res, next) => {
           },
         };
         
-        notifyRiderOrderUpdate(order.rider, orderUpdateData);
+        await notifyRiderOrderUpdate(order.rider, orderUpdateData);
       } catch (notifyError) {
       }
     }
@@ -1582,7 +1582,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
         rider: populatedOrder.rider,
       };
       
-      notifyRiderOrderUpdate(riderId.toString(), orderUpdateData);
+      await notifyRiderOrderUpdate(riderId.toString(), orderUpdateData);
     } catch (riderNotifyError) {
       logger.error('Error sending notification to rider for assignment:', riderNotifyError);
     }
