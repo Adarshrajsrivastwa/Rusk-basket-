@@ -1234,11 +1234,13 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '',
     logger.info(`No cashback to add for order ${orderNumber} (totalCashback: ${totalCashback})`);
   }
 
-  // Clear cart
-  cart.items = [];
-  cart.coupon = undefined;
-  cart.cashbackUsage = 0;
-  await cart.save();
+  // Clear cart only for COD; for prepaid, cart is cleared after payment verification
+  if (paymentMethod === 'cod') {
+    cart.items = [];
+    cart.coupon = undefined;
+    cart.cashbackUsage = 0;
+    await cart.save();
+  }
 
   // Update vendor revenue tracking
   await updateVendorRevenue(order);

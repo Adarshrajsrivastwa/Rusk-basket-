@@ -19,6 +19,27 @@ const PaymentGateway = require('../models/PaymentGateway');
 const router = express.Router();
 
 /**
+ * Clear user cart after a successful prepaid payment.
+ * Silently logs errors instead of throwing so the payment flow is not disrupted.
+ */
+const clearCartAfterPayment = async (userId, orderNumber) => {
+  if (!userId) return;
+  try {
+    const Cart = require('../models/Cart');
+    const cart = await Cart.findOne({ user: userId });
+    if (cart && cart.items && cart.items.length > 0) {
+      cart.items = [];
+      cart.coupon = undefined;
+      cart.cashbackUsage = 0;
+      await cart.save();
+      logger.info(`Cart cleared for user ${userId} after payment for order ${orderNumber}`);
+    }
+  } catch (err) {
+    logger.error(`Error clearing cart after payment for order ${orderNumber}:`, err);
+  }
+};
+
+/**
  * Helper function to update vendor wallets when payment is verified
  * Formula: Total Amount - Delivery Charge - Commission = Vendor Wallet Amount
  */
@@ -454,6 +475,8 @@ router.post(
         // Update rider wallet (Delivery portion)
         await updateRiderWalletOnPaymentVerification(order);
 
+        await clearCartAfterPayment(userId, order.orderNumber);
+
         logger.info(`Payment verified for order ${order.orderNumber} via ${gateway}`);
 
         res.status(200).json({
@@ -674,6 +697,8 @@ router.post(
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
           await updateVendorWalletsOnPaymentVerification(order);
 
+          await clearCartAfterPayment(order.user, order.orderNumber);
+
           logger.info(`PhonePe payment callback processed for order ${order.orderNumber}`);
         }
       }
@@ -713,6 +738,8 @@ router.post(
 
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
           await updateVendorWalletsOnPaymentVerification(order);
+
+          await clearCartAfterPayment(order.user, order.orderNumber);
 
           logger.info(`Cashfree payment callback processed for order ${order.orderNumber}`);
         }
@@ -758,6 +785,8 @@ router.post(
 
             // Update vendor wallets: Total Amount - Delivery Charge - Commission
             await updateVendorWalletsOnPaymentVerification(order);
+
+            await clearCartAfterPayment(order.user, order.orderNumber);
 
             logger.info(`Razorpay payment link callback processed for order ${order.orderNumber}`);
           }
