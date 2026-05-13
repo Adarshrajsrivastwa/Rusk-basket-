@@ -218,6 +218,113 @@ function computeGrandTotal(pricingSubtotal, pricingDiscount, tax, handlingCharge
 }
 
 /**
+ * Side effects that should run only after payment is confirmed (COD = immediately, prepaid = after verify).
+ * Includes: vendor revenue, invoice generation, vendor notifications, cashback earned.
+ */
+const runPostPaymentSideEffects = async (order) => {
+  // 1. Update vendor revenue tracking
+  await updateVendorRevenue(order);
+
+  // 2. Generate invoices for each vendor
+  try {
+    const { createInvoice } = require('../controllers/invoice');
+    const uniqueVendors = [...new Set(order.items.map(item => {
+      const vendor = item.vendor?._id || item.vendor;
+      return vendor.toString();
+    }))];
+
+    for (const vendorId of uniqueVendors) {
+      try {
+        await createInvoice(order._id, vendorId);
+        logger.info(`Invoice generated for vendor ${vendorId} on order ${order.orderNumber}`);
+      } catch (invoiceError) {
+        logger.error(`Failed to generate invoice for vendor ${vendorId}:`, invoiceError);
+      }
+    }
+  } catch (error) {
+    logger.error('Error generating invoices for order:', error);
+  }
+
+  // 3. Vendor notifications
+  try {
+    const Notification = require('../models/Notification');
+    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
+
+    const vendorItemsMap = new Map();
+    order.items.forEach(item => {
+      const vendorId = (item.vendor?._id || item.vendor).toString();
+      if (!vendorItemsMap.has(vendorId)) {
+        vendorItemsMap.set(vendorId, []);
+      }
+      vendorItemsMap.get(vendorId).push(item);
+    });
+
+    for (const [vendorId, vendorItems] of vendorItemsMap) {
+      try {
+        const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+        const itemCount = vendorItems.length;
+        const itemNames = vendorItems.map(item => item.productName).join(', ');
+
+        await Notification.create({
+          recipient: vendorId,
+          recipientModel: 'Vendor',
+          type: 'order_created',
+          title: 'New Order Received',
+          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s): ${itemNames.substring(0, 100)}${itemNames.length > 100 ? '...' : ''}. Total: ₹${vendorTotal.toFixed(2)}`,
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: order.shippingAddress,
+            paymentMethod: order.payment?.method,
+            createdAt: order.createdAt,
+          },
+          order: order._id,
+          isRead: false,
+        });
+
+        await sendVendorPushNotification(vendorId, {
+          type: 'order_created',
+          title: 'New Order Received',
+          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          data: {
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            itemCount,
+            total: vendorTotal,
+            items: vendorItems.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+            shippingAddress: order.shippingAddress,
+            paymentMethod: order.payment?.method,
+            createdAt: order.createdAt,
+          },
+          order: order._id,
+        });
+
+        logger.info(`Notification sent to vendor ${vendorId} for order ${order.orderNumber}`);
+      } catch (notificationError) {
+        logger.error(`Failed to notify vendor ${vendorId}:`, notificationError);
+      }
+    }
+  } catch (error) {
+    logger.error('Error sending vendor notifications:', error);
+  }
+};
+
+/**
  * Update vendor revenue and product sales tracking
  * @param {Object} order - Order object
  * @param {Array} itemsToTrack - Optional: specific items to track (if not provided, tracks all items)
@@ -985,6 +1092,8 @@ exports.getCartWithTotals = async (userId, options = {}) => {
   };
 };
 
+exports.runPostPaymentSideEffects = runPostPaymentSideEffects;
+
 /**
  * Create order from cart
  */
@@ -1209,11 +1318,11 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '',
   }
 
   // Add cashback to user account (ecashback) - earned from order
+  // For prepaid: defer until payment is verified
   const totalCashback = totals.pricing?.totalCashback || 0;
 
-  if (totalCashback > 0) {
+  if (paymentMethod === 'cod' && totalCashback > 0) {
     try {
-      // Use cashback helper to add cashback and create transaction record
       const { addCashbackToUser } = require('../utils/cashbackHelper');
       const result = await addCashbackToUser(
         userId,
@@ -1227,9 +1336,10 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '',
         logger.warn(`Failed to add cashback for order ${orderNumber}: ${result.error}`);
       }
     } catch (error) {
-      // Don't throw error, just log it - order should still be created
       logger.error(`Error adding cashback to user ${userId} for order ${orderNumber}:`, error);
     }
+  } else if (paymentMethod !== 'cod') {
+    logger.info(`Cashback (₹${totalCashback}) deferred for prepaid order ${orderNumber} until payment verification`);
   } else {
     logger.info(`No cashback to add for order ${orderNumber} (totalCashback: ${totalCashback})`);
   }
@@ -1242,124 +1352,11 @@ exports.createOrder = async (userId, shippingAddress, paymentMethod, notes = '',
     await cart.save();
   }
 
-  // Update vendor revenue tracking
-  await updateVendorRevenue(order);
-
-  /**
-   * Automatically generate invoices for each vendor when order is placed by user
-   * This ensures that invoices are created immediately upon order placement
-   * Each vendor in the order gets a separate invoice
-   */
-  try {
-    const { createInvoice } = require('../controllers/invoice');
-
-    // Get unique vendors from order items
-    const uniqueVendors = [...new Set(order.items.map(item => {
-      const vendor = item.vendor?._id || item.vendor;
-      return vendor.toString();
-    }))];
-
-    // Create invoice for each vendor
-    for (const vendorId of uniqueVendors) {
-      try {
-        await createInvoice(order._id, vendorId);
-        logger.info(`Invoice automatically generated for vendor ${vendorId} on order ${order.orderNumber}`);
-      } catch (invoiceError) {
-        // Log error but don't fail the order creation
-        logger.error(`Failed to generate invoice for vendor ${vendorId}:`, invoiceError);
-      }
-    }
-  } catch (error) {
-    // Log error but don't fail the order creation
-    logger.error('Error generating invoices for order:', error);
-  }
-
-  /**
-   * Create notifications and send socket.io notifications to vendors when order is created
-   * Each vendor in the order gets a notification about the new order
-   */
-  try {
-    const Notification = require('../models/Notification');
-    const { sendVendorPushNotification } = require('../utils/firebaseNotification');
-
-    // Get unique vendors from order items with their items
-    const vendorItemsMap = new Map();
-    order.items.forEach(item => {
-      const vendorId = (item.vendor?._id || item.vendor).toString();
-      if (!vendorItemsMap.has(vendorId)) {
-        vendorItemsMap.set(vendorId, []);
-      }
-      vendorItemsMap.get(vendorId).push(item);
-    });
-
-    // Create notification and send push notification for each vendor
-    for (const [vendorId, vendorItems] of vendorItemsMap) {
-      try {
-        // Calculate vendor-specific total
-        const vendorTotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-        const itemCount = vendorItems.length;
-        const itemNames = vendorItems.map(item => item.productName).join(', ');
-
-        // Create notification in database
-        const notification = await Notification.create({
-          recipient: vendorId,
-          recipientModel: 'Vendor',
-          type: 'order_created',
-          title: 'New Order Received',
-          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s): ${itemNames.substring(0, 100)}${itemNames.length > 100 ? '...' : ''}. Total: ₹${vendorTotal.toFixed(2)}`,
-          data: {
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            itemCount: itemCount,
-            total: vendorTotal,
-            items: vendorItems.map(item => ({
-              productName: item.productName,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-            })),
-            shippingAddress: order.shippingAddress,
-            paymentMethod: order.payment?.method,
-            createdAt: order.createdAt,
-          },
-          order: order._id,
-          isRead: false,
-        });
-
-        // Send push notification to vendor
-        await sendVendorPushNotification(vendorId, {
-          type: 'order_created',
-          title: 'New Order Received',
-          message: `You have received a new order #${order.orderNumber} with ${itemCount} item(s). Total: ₹${vendorTotal.toFixed(2)}`,
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          data: {
-            orderId: order._id.toString(),
-            orderNumber: order.orderNumber,
-            itemCount: itemCount,
-            total: vendorTotal,
-            items: vendorItems.map(item => ({
-              productName: item.productName,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-            })),
-            shippingAddress: order.shippingAddress,
-            paymentMethod: order.payment?.method,
-            createdAt: order.createdAt,
-          },
-          order: order._id,
-        });
-
-        logger.info(`Notification created and sent to vendor ${vendorId} for order ${order.orderNumber}`);
-      } catch (notificationError) {
-        // Log error but don't fail the order creation
-        logger.error(`Failed to create/send notification to vendor ${vendorId}:`, notificationError);
-      }
-    }
-  } catch (error) {
-    // Log error but don't fail the order creation
-    logger.error('Error creating/sending notifications to vendors:', error);
+  // For prepaid: defer vendor revenue, invoices, and vendor notifications until payment verification
+  if (paymentMethod === 'cod') {
+    await runPostPaymentSideEffects(order);
+  } else {
+    logger.info(`Post-payment side effects deferred for prepaid order ${orderNumber} until payment verification`);
   }
 
   return await Order.findById(order._id)

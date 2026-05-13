@@ -15,12 +15,12 @@ const { protectUniversal } = require('../middleware/universalAuth');
 const logger = require('../utils/logger');
 const Order = require('../models/Order');
 const PaymentGateway = require('../models/PaymentGateway');
+const { runPostPaymentSideEffects } = require('../services/checkoutService');
 
 const router = express.Router();
 
 /**
  * Clear user cart after a successful prepaid payment.
- * Silently logs errors instead of throwing so the payment flow is not disrupted.
  */
 const clearCartAfterPayment = async (userId, orderNumber) => {
   if (!userId) return;
@@ -36,6 +36,44 @@ const clearCartAfterPayment = async (userId, orderNumber) => {
     }
   } catch (err) {
     logger.error(`Error clearing cart after payment for order ${orderNumber}:`, err);
+  }
+};
+
+/**
+ * Run all deferred side effects for a prepaid order after payment verification:
+ * cart clear, cashback earned, vendor revenue, invoices, vendor notifications.
+ */
+const completePrepaidOrderSideEffects = async (order) => {
+  const userId = order.user?._id || order.user;
+  const orderNumber = order.orderNumber;
+
+  await clearCartAfterPayment(userId, orderNumber);
+
+  // Cashback earned (was deferred at order creation for prepaid)
+  try {
+    const totalCashback = order.pricing?.totalCashback || 0;
+    if (totalCashback > 0) {
+      const { addCashbackToUser } = require('../utils/cashbackHelper');
+      const result = await addCashbackToUser(
+        userId,
+        totalCashback,
+        order._id,
+        orderNumber,
+        `Cashback earned from order ${orderNumber}`
+      );
+      if (!result.success) {
+        logger.warn(`Failed to add cashback for prepaid order ${orderNumber}: ${result.error}`);
+      }
+    }
+  } catch (err) {
+    logger.error(`Error adding cashback after payment verify for order ${orderNumber}:`, err);
+  }
+
+  // Vendor revenue, invoices, notifications
+  try {
+    await runPostPaymentSideEffects(order);
+  } catch (err) {
+    logger.error(`Error running post-payment side effects for order ${orderNumber}:`, err);
   }
 };
 
@@ -475,7 +513,7 @@ router.post(
         // Update rider wallet (Delivery portion)
         await updateRiderWalletOnPaymentVerification(order);
 
-        await clearCartAfterPayment(userId, order.orderNumber);
+        await completePrepaidOrderSideEffects(order);
 
         logger.info(`Payment verified for order ${order.orderNumber} via ${gateway}`);
 
@@ -697,7 +735,7 @@ router.post(
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
           await updateVendorWalletsOnPaymentVerification(order);
 
-          await clearCartAfterPayment(order.user, order.orderNumber);
+          await completePrepaidOrderSideEffects(order);
 
           logger.info(`PhonePe payment callback processed for order ${order.orderNumber}`);
         }
@@ -739,7 +777,7 @@ router.post(
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
           await updateVendorWalletsOnPaymentVerification(order);
 
-          await clearCartAfterPayment(order.user, order.orderNumber);
+          await completePrepaidOrderSideEffects(order);
 
           logger.info(`Cashfree payment callback processed for order ${order.orderNumber}`);
         }
@@ -786,7 +824,7 @@ router.post(
             // Update vendor wallets: Total Amount - Delivery Charge - Commission
             await updateVendorWalletsOnPaymentVerification(order);
 
-            await clearCartAfterPayment(order.user, order.orderNumber);
+            await completePrepaidOrderSideEffects(order);
 
             logger.info(`Razorpay payment link callback processed for order ${order.orderNumber}`);
           }
