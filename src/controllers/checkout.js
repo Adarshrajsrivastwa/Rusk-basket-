@@ -504,58 +504,142 @@ exports.createOrder = async (req, res, next) => {
       // Don't fail the request if push notification fails
     }
 
-    // Initialize payment gateway for prepaid payments (not COD)
-    let paymentData = null;
+    // Initialize payment link for prepaid payments (not COD)
+    // Uses the same payment-link approach as /api/payment/create-payment-link
+    let paymentLinkResult = null;
     let paymentError = null;
     if (paymentMethod !== 'cod') {
       try {
-        const { initializePayment } = require('../services/paymentService');
+        const { getActivePaymentGateway, createRazorpayPaymentLink } = require('../services/paymentService');
+        const crypto = require('crypto');
+        const axios = require('axios');
+        const PaymentGateway = require('../models/PaymentGateway');
         const User = require('../models/User');
-        const user = await User.findById(userId).select('email');
+        const user = await User.findById(userId).select('email userName');
 
-        const orderData = {
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          userId: userId.toString(),
-          amount: order.payment.amount,
-          email: user?.email || '',
-          phone: shippingAddress.phone,
-          shippingAddress: shippingAddress,
-          items: order.items.map(item => ({
-            title: item.productName,
-            quantity: item.quantity,
-            price: item.salePrice || item.unitPrice,
-          })),
-          redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`,
-        };
+        const gateway = await getActivePaymentGateway();
 
-        paymentData = await initializePayment(orderData);
+        let credentials = { ...gateway.credentials };
+        if (gateway.testMode && gateway.testCredentials) {
+          Object.keys(gateway.testCredentials).forEach(key => {
+            if (gateway.testCredentials[key] && gateway.testCredentials[key].trim()) {
+              credentials[key] = gateway.testCredentials[key];
+            }
+          });
+        }
 
-        // Update order with payment gateway transaction ID
-        order.payment.transactionId = paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId;
-        await order.save();
+        const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`;
 
-        logger.info(`Payment initialized for order ${order.orderNumber}`);
+        if (gateway.name === 'razorpay') {
+          const linkData = {
+            amount: order.payment.amount,
+            currency: 'INR',
+            description: `Payment for Order ${order.orderNumber}`,
+            name: user?.userName || '',
+            email: user?.email || '',
+            contact: shippingAddress.phone || '',
+            callbackUrl,
+            callbackMethod: 'get',
+            notes: { orderId: order._id.toString(), orderNumber: order.orderNumber, userId: userId.toString() },
+            notify: { sms: true, email: true },
+          };
+          const result = await createRazorpayPaymentLink(linkData, credentials);
+          order.payment.transactionId = result.paymentLinkId;
+          await order.save();
+          paymentLinkResult = { payment_url: result.payment_url, gateway: 'razorpay', amount: result.amount };
+
+        } else if (gateway.name === 'phonepay') {
+          const baseUrl = gateway.testMode
+            ? 'https://api-preprod.phonepe.com/apis/pg-sandbox'
+            : 'https://api.phonepe.com/apis/hermes';
+          const merchantTransactionId = `TXN${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+          const amountInPaise = Math.round(order.payment.amount * 100);
+          const payload = {
+            merchantId: credentials.phonepayMerchantId,
+            merchantTransactionId,
+            merchantUserId: userId.toString(),
+            amount: amountInPaise,
+            redirectUrl: callbackUrl,
+            redirectMode: 'REDIRECT',
+            callbackUrl: `${process.env.API_URL || 'http://localhost:3000'}/api/payment/phonepay/callback`,
+            mobileNumber: shippingAddress.phone || '',
+            paymentInstrument: { type: 'PAY_PAGE' },
+          };
+          const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
+          const sha256Hash = crypto.createHash('sha256').update(`${base64Payload}/pg/v1/pay${credentials.phonepaySaltKey}`).digest('hex');
+          const xVerify = `${sha256Hash}###${credentials.phonepaySaltIndex || '1'}`;
+          const response = await axios.post(`${baseUrl}/pg/v1/pay`, { request: base64Payload }, {
+            headers: { 'Content-Type': 'application/json', 'X-VERIFY': xVerify, Accept: 'application/json' },
+          });
+          if (response.data?.success && response.data?.data) {
+            order.payment.transactionId = merchantTransactionId;
+            await order.save();
+            paymentLinkResult = {
+              payment_url: response.data.data.instrumentResponse.redirectInfo.url,
+              gateway: 'phonepay',
+              amount: amountInPaise / 100,
+            };
+          } else {
+            throw new Error('PhonePe payment initialization failed');
+          }
+
+        } else if (gateway.name === 'cashfree') {
+          const appId = (credentials.cashfreeAppId || '').trim();
+          const secretKey = (credentials.cashfreeSecretKey || '').trim();
+          const isTest = appId.toUpperCase().startsWith('TEST');
+          const cfBaseUrl = isTest ? 'https://sandbox.cashfree.com/pg' : 'https://api.cashfree.com/pg';
+          const apiVersion = credentials.cashfreeApiVersion || '2023-08-01';
+          const cfOrderId = `order_${Date.now()}`;
+          const amountInPaise = Math.round(order.payment.amount * 100);
+          const cfPayload = {
+            order_id: cfOrderId,
+            order_amount: amountInPaise,
+            order_currency: 'INR',
+            customer_details: {
+              customer_id: userId.toString(),
+              customer_email: user?.email || 'test@gmail.com',
+              customer_phone: shippingAddress.phone || '9999999999',
+            },
+            order_meta: { return_url: callbackUrl + `?order_id=${cfOrderId}` },
+          };
+          const cfResponse = await axios.post(`${cfBaseUrl}/orders`, cfPayload, {
+            headers: { 'Content-Type': 'application/json', 'x-api-version': apiVersion, 'x-client-id': appId, 'x-client-secret': secretKey },
+            timeout: 15000,
+          });
+          if (cfResponse.data?.payment_session_id) {
+            let sessionId = String(cfResponse.data.payment_session_id).trim().replace(/\s+/g, '');
+            const domain = isTest ? 'sandbox.cashfree.com' : 'cashfree.com';
+            const paymentUrl = cfResponse.data.payment_link || `https://${domain}/pg/view/payment/${sessionId}`;
+            order.payment.transactionId = cfOrderId;
+            await order.save();
+            paymentLinkResult = { payment_url: paymentUrl, gateway: 'cashfree', amount: amountInPaise / 100 };
+          } else {
+            throw new Error('Cashfree payment initialization failed');
+          }
+
+        } else {
+          throw new Error(`Unsupported payment gateway: ${gateway.name}`);
+        }
+
+        logger.info(`Payment link created for order ${order.orderNumber} via ${paymentLinkResult.gateway}`);
       } catch (err) {
         paymentError = err.message || 'Payment initialization failed';
-        logger.error('Payment initialization error:', {
+        logger.error('Payment link creation error:', {
           message: err.message,
           stack: err.stack,
           orderId: order._id.toString(),
-          orderNumber: order.orderNumber
+          orderNumber: order.orderNumber,
         });
-        // Don't fail order creation if payment initialization fails
-        // Payment can be initialized later via /api/payment/initialize
       }
     }
 
     // For prepaid: return only payment URL (like /api/payment/create-payment-link)
-    if (paymentMethod !== 'cod' && paymentData) {
+    if (paymentMethod !== 'cod' && paymentLinkResult) {
       return res.status(201).json({
         success: true,
         message: 'Order created. Complete payment to confirm.',
-        payment_url: paymentData.redirectUrl || paymentData.checkoutUrl || null,
-        gateway: paymentData.paymentGateway,
+        payment_url: paymentLinkResult.payment_url,
+        gateway: paymentLinkResult.gateway,
         orderId: order._id.toString(),
         orderNumber: order.orderNumber,
         amount: order.payment.amount,
