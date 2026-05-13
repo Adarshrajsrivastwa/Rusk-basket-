@@ -549,32 +549,21 @@ exports.createOrder = async (req, res, next) => {
       }
     }
 
-    const responseData = {
-      success: true,
-      message: 'Order created successfully',
-      data: order,
-    };
-
-    // Include payment data if payment was initialized
-    if (paymentData) {
-      responseData.payment = {
+    // For prepaid: return only payment URL (like /api/payment/create-payment-link)
+    if (paymentMethod !== 'cod' && paymentData) {
+      return res.status(201).json({
+        success: true,
+        message: 'Order created. Complete payment to confirm.',
+        payment_url: paymentData.redirectUrl || paymentData.checkoutUrl || null,
         gateway: paymentData.paymentGateway,
-        orderId: paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId,
-        redirectUrl: paymentData.redirectUrl,
-        keyId: paymentData.keyId,
-        checkoutUrl: paymentData.checkoutUrl,
-        // Frontend ke liye gateway-specific structured data
-        frontendData: paymentData.frontendData || {
-          gateway: paymentData.paymentGateway,
-          orderId: paymentData.orderId || paymentData.merchantTransactionId || paymentData.checkoutId,
-          redirectUrl: paymentData.redirectUrl,
-          keyId: paymentData.keyId,
-          amount: paymentData.amount,
-        },
-      };
-    } else if (paymentMethod !== 'cod' && paymentError) {
-      // If payment initialization failed, include error message
-      // Remove sensitive error details but keep helpful message
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        amount: order.payment.amount,
+        currency: 'INR',
+      });
+    }
+
+    if (paymentMethod !== 'cod' && paymentError) {
       let userFriendlyError = paymentError;
       if (paymentError.includes('key_id') || paymentError.includes('Key ID')) {
         userFriendlyError = 'Razorpay credentials are missing or invalid. Please configure Razorpay Key ID and Key Secret in admin panel.';
@@ -582,17 +571,26 @@ exports.createOrder = async (req, res, next) => {
         userFriendlyError = 'No payment gateway is enabled. Please enable a payment gateway from admin panel.';
       }
 
-      responseData.payment = {
-        error: userFriendlyError,
-        message: 'Payment gateway initialization failed. You can retry payment using /api/payment/retry endpoint.',
-        canRetry: true,
-        retryEndpoint: '/api/payment/retry',
+      return res.status(201).json({
+        success: true,
+        message: 'Order created but payment initialization failed. Retry via /api/payment/retry.',
         orderId: order._id.toString(),
         orderNumber: order.orderNumber,
-      };
+        amount: order.payment.amount,
+        payment: {
+          error: userFriendlyError,
+          canRetry: true,
+          retryEndpoint: '/api/payment/retry',
+        },
+      });
     }
 
-    res.status(201).json(responseData);
+    // COD: return full order data
+    res.status(201).json({
+      success: true,
+      message: 'Order created successfully',
+      data: order,
+    });
   } catch (error) {
     logger.error('Create order error:', error);
     res.status(400).json({
