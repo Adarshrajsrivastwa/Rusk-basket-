@@ -544,6 +544,156 @@ router.post(
 );
 
 /**
+ * Verify payment by Payment Link ID (for mobile apps where callback params are not available)
+ * Fetches payment status directly from Razorpay API
+ */
+router.post(
+  '/verify-by-link',
+  protect,
+  [
+    body('paymentLinkId')
+      .notEmpty()
+      .withMessage('Payment Link ID is required')
+      .bail()
+      .isString()
+      .withMessage('Payment Link ID must be a string'),
+    body('orderId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid order ID format'),
+  ],
+  async (req, res, next) => {
+    try {
+      const errors = require('express-validator').validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      const { paymentLinkId, orderId } = req.body;
+      const userId = req.user._id;
+
+      // Get Razorpay credentials
+      const paymentGateway = await PaymentGateway.findOne({
+        name: 'razorpay',
+        isEnabled: true
+      });
+
+      if (!paymentGateway) {
+        return res.status(400).json({
+          success: false,
+          error: 'Razorpay gateway is not enabled',
+        });
+      }
+
+      let credentials = { ...paymentGateway.credentials };
+      if (paymentGateway.testMode && paymentGateway.testCredentials) {
+        Object.keys(paymentGateway.testCredentials).forEach(key => {
+          if (paymentGateway.testCredentials[key] && paymentGateway.testCredentials[key].trim()) {
+            credentials[key] = paymentGateway.testCredentials[key];
+          }
+        });
+      }
+
+      const Razorpay = require('razorpay');
+      const razorpay = new Razorpay({
+        key_id: credentials.razorpayKeyId.trim(),
+        key_secret: credentials.razorpayKeySecret.trim(),
+      });
+
+      // Fetch payment link details from Razorpay
+      const paymentLink = await razorpay.paymentLink.fetch(paymentLinkId);
+
+      if (!paymentLink) {
+        return res.status(404).json({
+          success: false,
+          error: 'Payment link not found on Razorpay',
+        });
+      }
+
+      // Check if payment is done
+      if (paymentLink.status !== 'paid') {
+        return res.status(400).json({
+          success: false,
+          error: `Payment not completed. Current status: ${paymentLink.status}`,
+          paymentLinkStatus: paymentLink.status,
+        });
+      }
+
+      // Find order
+      let order = null;
+      if (orderId) {
+        order = await Order.findOne({ _id: orderId, user: userId });
+      } else if (paymentLink.notes && paymentLink.notes.orderId) {
+        order = await Order.findOne({ _id: paymentLink.notes.orderId, user: userId });
+      } else {
+        // Try to find by transactionId (paymentLinkId stored during creation)
+        order = await Order.findOne({ 'payment.transactionId': paymentLinkId, user: userId });
+      }
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: 'Order not found for this payment link',
+        });
+      }
+
+      if (order.payment.status === 'completed') {
+        return res.status(200).json({
+          success: true,
+          message: 'Payment already verified',
+          data: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            paymentStatus: order.payment.status,
+          },
+        });
+      }
+
+      // Get payment ID from Razorpay payment link
+      const payments = paymentLink.payments || [];
+      const paymentId = payments.length > 0
+        ? payments[payments.length - 1].payment_id
+        : paymentLink.id;
+
+      // Update order
+      order.payment.status = 'completed';
+      order.payment.transactionId = paymentId || paymentLinkId;
+      order.payment.paidAt = new Date(paymentLink.paid_at * 1000) || new Date();
+      order.payment.gateway = 'razorpay';
+      await order.save();
+
+      await updateVendorWalletsOnPaymentVerification(order);
+      await updateRiderWalletOnPaymentVerification(order);
+      await completePrepaidOrderSideEffects(order);
+
+      logger.info(`Payment verified by link for order ${order.orderNumber}, paymentLinkId: ${paymentLinkId}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Payment verified successfully',
+        data: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          paymentStatus: order.payment.status,
+          transactionId: order.payment.transactionId,
+          gateway: 'razorpay',
+          paidAt: order.payment.paidAt,
+        },
+      });
+    } catch (error) {
+      logger.error('Verify by link error:', error);
+      res.status(400).json({
+        success: false,
+        error: error.message || 'Payment verification failed',
+      });
+    }
+  }
+);
+
+/**
  * Verify payment for Rider (same logic as verify but for riders)
  * POST /api/payment/rider/verify
  */
