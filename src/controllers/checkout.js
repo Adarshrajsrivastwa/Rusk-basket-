@@ -355,7 +355,7 @@ exports.createOrder = async (req, res, next) => {
       });
     }
 
-    const { shippingAddress: addressString, lat, long, paymentMethod, notes, deliveryInstruction } = req.body;
+    const { shippingAddress: addressString, lat, long, paymentMethod, notes, deliveryInstruction, callbackUrl: userCallbackUrl } = req.body;
 
     // Ensure we're creating order from the authenticated user's cart only
     const userId = req.user._id;
@@ -528,7 +528,7 @@ exports.createOrder = async (req, res, next) => {
           });
         }
 
-        const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`;
+        const callbackUrl = userCallbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/callback`;
 
         if (gateway.name === 'razorpay') {
           const linkData = {

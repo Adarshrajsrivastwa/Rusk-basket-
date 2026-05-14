@@ -329,6 +329,11 @@ router.post(
       .trim()
       .isLength({ max: 500 })
       .withMessage('Delivery instruction cannot be more than 500 characters'),
+    body('callbackUrl')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Callback URL cannot be more than 500 characters'),
   ],
   createOrder
 );
