@@ -129,10 +129,13 @@ const createRazorpayPaymentLink = async (paymentData, credentials) => {
       key_secret: credentials.razorpayKeySecret.trim(),
     });
 
+    const referenceId = paymentData.referenceId || `ref_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
     const paymentLinkOptions = {
       amount: Math.round(paymentData.amount * 100), // Amount in paise
       currency: paymentData.currency || 'INR',
       description: paymentData.description || 'Payment',
+      reference_id: referenceId,
       customer: {
         name: paymentData.name || '',
         email: paymentData.email || '',
@@ -154,6 +157,7 @@ const createRazorpayPaymentLink = async (paymentData, credentials) => {
       paymentGateway: 'razorpay',
       payment_url: paymentLink.short_url,
       paymentLinkId: paymentLink.id,
+      referenceId: referenceId,
       amount: paymentLink.amount / 100,
       currency: paymentLink.currency,
       status: paymentLink.status,
@@ -175,6 +179,8 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_payment_link_id,
+      razorpay_payment_link_reference_id,
+      razorpay_payment_link_status,
       razorpay_signature
     } = paymentData;
 
@@ -187,6 +193,8 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
     const paymentId = razorpay_payment_id ? razorpay_payment_id.toString().trim() : '';
     const signature = razorpay_signature ? razorpay_signature.toString().trim() : '';
     const paymentLinkId = razorpay_payment_link_id ? razorpay_payment_link_id.toString().trim() : '';
+    const referenceId = razorpay_payment_link_reference_id ? razorpay_payment_link_reference_id.toString().trim() : '';
+    const linkStatus = razorpay_payment_link_status ? razorpay_payment_link_status.toString().trim() : '';
     const orderId = razorpay_order_id ? razorpay_order_id.toString().trim() : '';
     const secretKey = credentials.razorpayKeySecret ? credentials.razorpayKeySecret.toString().trim() : '';
 
@@ -199,14 +207,23 @@ const verifyRazorpayPayment = async (paymentData, credentials) => {
 
     // Attempt 1: Based on provided IDs (Priority to Payment Link if present)
     if (paymentLinkId) {
+      if (referenceId && linkStatus) {
+        // Razorpay Payment Links full signature: plink_id|reference_id|status|payment_id
+        attempts.push({
+          name: 'Payment Link Flow (full)',
+          text: `${paymentLinkId}|${referenceId}|${linkStatus}|${paymentId}`,
+          id: paymentLinkId
+        });
+      }
+      // Fallback: simple payment link format (plink_id|payment_id)
       attempts.push({
-        name: 'Payment Link Flow',
+        name: 'Payment Link Flow (simple)',
         text: `${paymentLinkId}|${paymentId}`,
         id: paymentLinkId
       });
     }
 
-    // Attempt 2: If order_id is present, try it as well
+    // Attempt: If order_id is present, try Orders API format
     if (orderId) {
       attempts.push({
         name: 'Orders API Flow',

@@ -1101,7 +1101,7 @@ router.post(
 
         const paymentLink = await createRazorpayPaymentLink(paymentLinkData, credentials);
 
-        logger.info(`Payment link created for entity ${entityId} via Razorpay: ${paymentLink.paymentLinkId}`);
+        logger.info(`Payment link created for entity ${entityId} via Razorpay: ${paymentLink.paymentLinkId}, referenceId: ${paymentLink.referenceId}`);
 
         // Simple response format for Flutter
         res.status(200).json({
@@ -1110,6 +1110,8 @@ router.post(
           gateway: 'razorpay',
           amount: paymentLink.amount,
           currency: paymentLink.currency || 'INR',
+          referenceId: paymentLink.referenceId,
+          paymentLinkId: paymentLink.paymentLinkId,
         });
       } else if (paymentGateway.name === 'phonepay') {
         // PhonePe doesn't have payment links, use redirect URL approach
