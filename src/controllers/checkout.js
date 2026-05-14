@@ -546,7 +546,7 @@ exports.createOrder = async (req, res, next) => {
           const result = await createRazorpayPaymentLink(linkData, credentials);
           order.payment.transactionId = result.paymentLinkId;
           await order.save();
-          paymentLinkResult = { payment_url: result.payment_url, gateway: 'razorpay', amount: result.amount };
+          paymentLinkResult = { payment_url: result.payment_url, gateway: 'razorpay', amount: result.amount, referenceId: result.referenceId, paymentLinkId: result.paymentLinkId };
 
         } else if (gateway.name === 'phonepay') {
           const baseUrl = gateway.testMode
@@ -635,7 +635,7 @@ exports.createOrder = async (req, res, next) => {
 
     // For prepaid: return only payment URL (like /api/payment/create-payment-link)
     if (paymentMethod !== 'cod' && paymentLinkResult) {
-      return res.status(201).json({
+      const responseData = {
         success: true,
         message: 'Order created. Complete payment to confirm.',
         payment_url: paymentLinkResult.payment_url,
@@ -644,7 +644,14 @@ exports.createOrder = async (req, res, next) => {
         orderNumber: order.orderNumber,
         amount: order.payment.amount,
         currency: 'INR',
-      });
+      };
+      if (paymentLinkResult.referenceId) {
+        responseData.referenceId = paymentLinkResult.referenceId;
+      }
+      if (paymentLinkResult.paymentLinkId) {
+        responseData.paymentLinkId = paymentLinkResult.paymentLinkId;
+      }
+      return res.status(201).json(responseData);
     }
 
     if (paymentMethod !== 'cod' && paymentError) {
