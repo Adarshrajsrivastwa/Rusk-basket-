@@ -661,7 +661,7 @@ router.post(
       // Update order
       order.payment.status = 'completed';
       order.payment.transactionId = paymentId || paymentLinkId;
-      order.payment.paidAt = new Date(paymentLink.paid_at * 1000) || new Date();
+      order.payment.paidAt = paymentLink.paid_at ? new Date(paymentLink.paid_at * 1000) : new Date();
       order.payment.gateway = 'razorpay';
       await order.save();
 
