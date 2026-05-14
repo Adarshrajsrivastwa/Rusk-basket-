@@ -504,7 +504,7 @@ router.post(
         order.payment.status = 'completed';
         order.payment.transactionId = verificationResult.paymentId || verificationResult.orderId || verificationResult.merchantTransactionId;
         order.payment.paidAt = new Date();
-        order.payment.method = gateway; // Store payment gateway used
+        order.payment.gateway = gateway;
         await order.save();
 
         // Update vendor wallets (Product portion)
@@ -526,6 +526,7 @@ router.post(
             paymentStatus: order.payment.status,
             transactionId: order.payment.transactionId,
             paymentMethod: order.payment.method,
+            gateway: order.payment.gateway,
             paidAt: order.payment.paidAt,
           },
         });
@@ -672,7 +673,7 @@ router.post(
         order.payment.status = 'completed';
         order.payment.transactionId = verificationResult.paymentId || verificationResult.orderId || verificationResult.merchantTransactionId;
         order.payment.paidAt = new Date();
-        order.payment.method = gateway;
+        order.payment.gateway = gateway;
         await order.save();
 
         // Update vendor wallets (Product portion)
@@ -692,6 +693,7 @@ router.post(
             paymentStatus: order.payment.status,
             transactionId: order.payment.transactionId,
             paymentMethod: order.payment.method,
+            gateway: order.payment.gateway,
             paidAt: order.payment.paidAt,
           },
         });
@@ -729,7 +731,7 @@ router.post(
           order.payment.status = 'completed';
           order.payment.transactionId = transactionId || merchantTransactionId;
           order.payment.paidAt = new Date();
-          order.payment.method = 'phonepay'; // Store payment gateway used
+          order.payment.gateway = 'phonepay';
           await order.save();
 
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
@@ -771,7 +773,7 @@ router.post(
           order.payment.status = 'completed';
           order.payment.transactionId = order_id;
           order.payment.paidAt = new Date();
-          order.payment.method = 'cashfree';
+          order.payment.gateway = 'cashfree';
           await order.save();
 
           // Update vendor wallets: Total Amount - Delivery Charge - Commission
@@ -818,7 +820,7 @@ router.post(
             order.payment.status = 'completed';
             order.payment.transactionId = payment.id;
             order.payment.paidAt = new Date();
-            order.payment.method = 'razorpay';
+            order.payment.gateway = 'razorpay';
             await order.save();
 
             // Update vendor wallets: Total Amount - Delivery Charge - Commission

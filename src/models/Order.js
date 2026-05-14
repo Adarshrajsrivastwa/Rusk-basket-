@@ -204,6 +204,10 @@ const OrderSchema = new mongoose.Schema({
       type: String,
       trim: true,
     },
+    gateway: {
+      type: String,
+      enum: ['razorpay', 'phonepay', 'cashfree', 'shopify'],
+    },
     paidAt: {
       type: Date,
     },
