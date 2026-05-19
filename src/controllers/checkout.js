@@ -1006,6 +1006,38 @@ exports.cancelOrder = async (req, res, next) => {
   }
 };
 
+exports.cancelOrderByVendor = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    const vendorId = req.vendor._id;
+
+    const order = await checkoutService.cancelOrderByVendor(orderId, vendorId, reason);
+
+    logger.info(`Order cancelled: ${order.orderNumber} by Vendor: ${vendorId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Order cancelled successfully',
+      data: order,
+    });
+  } catch (error) {
+    logger.error('Vendor cancel order error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to cancel order',
+    });
+  }
+};
+
 exports.addItemsToOrder = async (req, res, next) => {
   try {
     const errors = validationResult(req);

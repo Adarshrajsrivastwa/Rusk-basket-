@@ -3,7 +3,7 @@ const { body, query, param } = require('express-validator');
 const { sendOTP, verifyOTP } = require('../controllers/vendorOTP');
 const { vendorLogout } = require('../controllers/vendorAuth');
 const { createVendor, getVendors, getVendor, updateVendorPermissions, updateVendorDocuments, updateVendorRadius, updateVendorHandlingCharge, suspendVendor, deleteVendor, getVendorOrders, getVendorOrderById, updateOrderStatus, assignRiderToOrder, updateVendorProfile, getVendorProfile, getVendorDashboardForAdmin, sendEarningWalletAmount, getMyWithdrawalRequests, getVendorCommission, updateVendorCommission, updateVendorByAdmin } = require('../controllers/vendor');
-const { addItemsToOrder } = require('../controllers/checkout');
+const { addItemsToOrder, cancelOrderByVendor } = require('../controllers/checkout');
 const { getVendorProducts } = require('../controllers/productGet');
 const { createJobPost, getJobPosts, getJobPost, updateJobPost, deleteJobPost, toggleJobPostStatus, getMyJobPosts } = require('../controllers/riderJobPost');
 const { getAllVendorApplications, getJobApplications, reviewApplication, assignRider, getAssignedRiders, getApplication } = require('../controllers/riderJobApplication');
@@ -209,6 +209,25 @@ router.put(
     // No manual deliveryAmount input required
   ],
   updateOrderStatus
+);
+
+router.put(
+  '/orders/:orderId/cancel',
+  protectVendor,
+  [
+    param('orderId')
+      .notEmpty()
+      .withMessage('Order ID is required')
+      .bail()
+      .isMongoId()
+      .withMessage('Invalid order ID'),
+    body('reason')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Cancellation reason cannot be more than 500 characters'),
+  ],
+  cancelOrderByVendor
 );
 
 router.put(

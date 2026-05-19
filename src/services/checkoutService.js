@@ -3304,6 +3304,182 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
 };
 
 /**
+ * Cancel order (vendor) — allowed until order is out for delivery
+ */
+exports.cancelOrderByVendor = async (orderId, vendorId, reason = '') => {
+  const order = await Order.findById(orderId);
+
+  if (!order) {
+    throw new Error('Order not found');
+  }
+
+  const hasVendorItems = order.items.some((item) => {
+    const itemVendorId = item.vendor?._id || item.vendor;
+    return itemVendorId && itemVendorId.toString() === vendorId.toString();
+  });
+
+  if (!hasVendorItems) {
+    throw new Error('Order does not belong to this vendor');
+  }
+
+  if (order.status === 'cancelled') {
+    throw new Error('Order is already cancelled');
+  }
+
+  const cancellableStatuses = ['pending', 'order_placed', 'confirmed', 'processing', 'ready', 'rider_assign'];
+  if (!cancellableStatuses.includes(order.status)) {
+    throw new Error(
+      `Order cannot be cancelled at this stage (${order.status}). Cancellation is only allowed before out for delivery.`
+    );
+  }
+
+  const userId = order.user;
+
+  for (const item of order.items) {
+    const product = await Product.findById(item.product);
+    if (product) {
+      if (product.skus && product.skus.length > 0 && item.sku) {
+        const skuItem = product.skus.find((s) => s.sku === item.sku);
+        if (skuItem) {
+          skuItem.inventory += item.quantity;
+        }
+      } else {
+        product.inventory += item.quantity;
+      }
+      await product.save();
+    }
+  }
+
+  if (order.payment.method !== 'cod' && order.payment.status === 'completed') {
+    try {
+      const Wallet = require('../models/Wallet');
+      let wallet = await Wallet.findOne({ user: userId });
+      if (!wallet) {
+        wallet = await Wallet.create({ user: userId, balance: 0 });
+      }
+
+      const refundAmount = order.payment.amount || 0;
+      if (refundAmount > 0) {
+        wallet.balance += refundAmount;
+        wallet.transactions.push({
+          type: 'credit',
+          amount: refundAmount,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          description: `Refund for order #${order.orderNumber} cancelled by vendor`,
+          createdAt: new Date(),
+        });
+        await wallet.save();
+        logger.info(
+          `Refunded ₹${refundAmount.toFixed(2)} to user ${userId} wallet for vendor-cancelled order ${order.orderNumber}`
+        );
+      }
+    } catch (refundError) {
+      logger.error(`Automatic refund failed for vendor-cancelled order ${order.orderNumber}:`, refundError);
+    }
+  }
+
+  const assignedRider = order.rider;
+
+  order.status = 'cancelled';
+  order.cancelledAt = new Date();
+  order.cancelledBy = 'vendor';
+  order.cancellationReason = reason;
+  order.payment.status = order.payment.method === 'cod' ? 'failed' : 'refunded';
+  order.rider = undefined;
+
+  if (order.assignmentRequestSentTo && order.assignmentRequestSentTo.length > 0) {
+    order.assignmentRequestSentTo.forEach((req) => {
+      if (req.status === 'pending' || req.status === 'accepted') {
+        req.status = 'expired';
+        req.respondedAt = new Date();
+      }
+    });
+  }
+
+  await order.save();
+
+  const socketData = {
+    orderId: order._id,
+    orderNumber: order.orderNumber,
+    status: 'cancelled',
+    cancelledBy: 'vendor',
+    cancellationReason: reason,
+    amount: order.pricing?.total || 0,
+    deliveryAmount: order.deliveryAmount || order.pricing?.deliveryAmount || 0,
+    pricing: order.pricing,
+    shippingAddress: order.shippingAddress,
+  };
+
+  try {
+    notifyUserOrderUpdate(userId.toString(), socketData);
+  } catch (socketError) {
+    logger.error('Error sending user WebSocket notification for vendor cancellation:', socketError);
+  }
+
+  if (assignedRider) {
+    try {
+      await notifyRiderOrderUpdate(assignedRider, socketData);
+    } catch (socketError) {
+      logger.error('Error sending rider WebSocket notification for vendor cancellation:', socketError);
+    }
+  }
+
+  const orderCashback = order.pricing?.totalCashback || 0;
+  if (orderCashback > 0) {
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        user.cashback = Math.max(0, (user.cashback || 0) - orderCashback);
+        await user.save();
+      }
+    } catch (error) {
+      logger.error(`Error deducting cashback for vendor-cancelled order ${order.orderNumber}:`, error);
+    }
+  }
+
+  try {
+    const { sendOrderStatusNotification } = require('../utils/firebaseNotification');
+    await sendOrderStatusNotification(order.user, {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      status: 'cancelled',
+    });
+  } catch (pushError) {
+    logger.error('Error sending push notification to user for vendor cancellation:', pushError);
+  }
+
+  if (assignedRider) {
+    try {
+      const { sendRiderPushNotification } = require('../utils/firebaseNotification');
+      await sendRiderPushNotification(assignedRider.toString(), {
+        type: 'order_cancelled',
+        title: 'Order Cancelled',
+        message: `Order #${order.orderNumber} has been cancelled by the vendor.`,
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        status: 'cancelled',
+        data: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          status: 'cancelled',
+          cancelledBy: 'vendor',
+        },
+      });
+    } catch (riderNotifyError) {
+      logger.error(`Error notifying rider about vendor cancellation:`, riderNotifyError);
+    }
+  }
+
+  return await Order.findById(order._id)
+    .populate('user', 'name email contactNumber')
+    .populate('items.product', 'productName thumbnail')
+    .populate('items.vendor', 'storeName storeId')
+    .populate('coupon.couponId', 'couponName code')
+    .populate('rider', 'fullName mobileNumber');
+};
+
+/**
  * Add items to existing order (vendor only)
  * Only allowed if order status is NOT "ready"
  */

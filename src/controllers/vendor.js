@@ -1104,6 +1104,13 @@ exports.updateOrderStatus = async (req, res, next) => {
       });
     }
 
+    if (status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        error: 'Use PUT /api/vendor/orders/:orderId/cancel to cancel an order (allowed only before out for delivery)',
+      });
+    }
+
     const previousStatus = order.status;
 
     order.status = status;
@@ -1111,9 +1118,6 @@ exports.updateOrderStatus = async (req, res, next) => {
     if (status === 'delivered' && !order.deliveredAt) {
       order.deliveredAt = new Date();
       // Note: Wallet update now happens on payment verification, not on delivery status
-    } else if (status === 'cancelled' && !order.cancelledAt) {
-      order.cancelledAt = new Date();
-      order.cancelledBy = 'vendor';
     }
 
     if (notes !== undefined) {
