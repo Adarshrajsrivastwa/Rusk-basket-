@@ -1,8 +1,86 @@
 const axios = require('axios');
+const https = require('https');
 const logger = require('./logger');
 
+/** Third-party api.postalpincode.in often serves an expired TLS cert; use only on cert failure. */
+const postalPincodeHttpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+});
+
+const isCertificateError = (error) => {
+  const message = (error.message || '').toLowerCase();
+  const code = error.code || '';
+  return (
+    code === 'CERT_HAS_EXPIRED' ||
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    message.includes('certificate') ||
+    message.includes('cert')
+  );
+};
+
+const parsePostalPincodeResponse = (data, cleanPinCode) => {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return {
+      success: false,
+      error: `Invalid PIN code: ${cleanPinCode}. Unable to validate`,
+    };
+  }
+
+  const record = data[0];
+
+  if (record.Status === 'Success' && record.PostOffice && record.PostOffice.length > 0) {
+    const firstOffice = record.PostOffice[0];
+    const city = firstOffice.District || firstOffice.Name || '';
+    const state = firstOffice.State || '';
+
+    if (city && state) {
+      return {
+        city,
+        state,
+        success: true,
+      };
+    }
+  }
+
+  if (
+    record.Status === 'Error' ||
+    (record.Status === 'Success' && (!record.PostOffice || record.PostOffice.length === 0))
+  ) {
+    return {
+      success: false,
+      error: `Invalid PIN code: ${cleanPinCode}. No post office found for this PIN code`,
+    };
+  }
+
+  return {
+    success: false,
+    error: `Invalid PIN code: ${cleanPinCode}. Unable to validate`,
+  };
+};
+
+const fetchPostalPincode = async (cleanPinCode, { useInsecureTls = false } = {}) => {
+  const config = {
+    timeout: 10000,
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'RuskBasket/1.0',
+    },
+  };
+
+  if (useInsecureTls) {
+    config.httpsAgent = postalPincodeHttpsAgent;
+  }
+
+  const response = await axios.get(
+    `https://api.postalpincode.in/pincode/${cleanPinCode}`,
+    config
+  );
+
+  return parsePostalPincodeResponse(response.data, cleanPinCode);
+};
+
 const getPostOfficeDetails = async (pinCode, retries = 3) => {
-  // Validate PIN code format first
   if (!pinCode || typeof pinCode !== 'string' || !/^\d{6}$/.test(pinCode.trim())) {
     return {
       success: false,
@@ -12,74 +90,63 @@ const getPostOfficeDetails = async (pinCode, retries = 3) => {
 
   const cleanPinCode = pinCode.trim();
   let lastError = null;
+  let triedInsecureTls = false;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      logger.info(`Fetching post office details for PIN: ${cleanPinCode} (Attempt ${attempt}/${retries})`);
-      
-      const response = await axios.get(`https://api.postalpincode.in/pincode/${cleanPinCode}`, {
-        timeout: 10000, // Increased timeout to 10 seconds
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0',
-        },
+      logger.info(
+        `Fetching post office details for PIN: ${cleanPinCode} (Attempt ${attempt}/${retries}${triedInsecureTls ? ', TLS fallback' : ''})`
+      );
+
+      const result = await fetchPostalPincode(cleanPinCode, {
+        useInsecureTls: triedInsecureTls,
       });
 
-      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-        const data = response.data[0];
-        
-        if (data.Status === 'Success' && data.PostOffice && data.PostOffice.length > 0) {
-          const firstOffice = data.PostOffice[0];
-          const city = firstOffice.District || firstOffice.Name || '';
-          const state = firstOffice.State || '';
-
-          if (city && state) {
-            logger.info(`Successfully fetched post office details for PIN ${cleanPinCode}: ${city}, ${state}`);
-            return {
-              city: city,
-              state: state,
-              success: true,
-            };
-          }
-        }
-
-        // If Status is not Success or no PostOffice data
-        if (data.Status === 'Error' || (data.Status === 'Success' && (!data.PostOffice || data.PostOffice.length === 0))) {
-          return {
-            success: false,
-            error: `Invalid PIN code: ${cleanPinCode}. No post office found for this PIN code`,
-          };
-        }
+      if (result.success) {
+        logger.info(
+          `Successfully fetched post office details for PIN ${cleanPinCode}: ${result.city}, ${result.state}`
+        );
       }
 
-      // If response structure is unexpected
-      logger.warn(`Unexpected response structure for PIN ${cleanPinCode}:`, response.data);
-      return {
-        success: false,
-        error: `Invalid PIN code: ${cleanPinCode}. Unable to validate`,
-      };
-
+      return result;
     } catch (error) {
       lastError = error;
       const errorMessage = error.message || 'Unknown error';
-      // Include ECONNRESET, ECONNRESET, and other connection errors
-      const isNetworkError = error.code === 'ECONNABORTED' || 
-                            error.code === 'ETIMEDOUT' || 
-                            error.code === 'ENOTFOUND' || 
-                            error.code === 'ECONNREFUSED' ||
-                            error.code === 'ECONNRESET' ||
-                            error.message.includes('ECONNRESET') ||
-                            error.message.includes('timeout') ||
-                            error.message.includes('network');
+
+      if (!triedInsecureTls && isCertificateError(error)) {
+        triedInsecureTls = true;
+        logger.warn(
+          `Post Office API TLS certificate error for PIN ${cleanPinCode}; retrying with certificate verification disabled`
+        );
+        try {
+          const result = await fetchPostalPincode(cleanPinCode, { useInsecureTls: true });
+          if (result.success) {
+            logger.info(
+              `Fetched post office details for PIN ${cleanPinCode} via TLS fallback: ${result.city}, ${result.state}`
+            );
+          }
+          return result;
+        } catch (fallbackError) {
+          lastError = fallbackError;
+        }
+      }
+
+      const isNetworkError =
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ENOTFOUND' ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ECONNRESET' ||
+        errorMessage.includes('ECONNRESET') ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('network');
 
       logger.error(`Post Office API error (Attempt ${attempt}/${retries}) for PIN ${cleanPinCode}:`, {
         message: errorMessage,
         code: error.code,
-        isNetworkError: isNetworkError,
-        stack: error.stack,
+        isNetworkError,
       });
 
-      // If it's the last attempt, return error
       if (attempt === retries) {
         if (isNetworkError) {
           return {
@@ -89,18 +156,15 @@ const getPostOfficeDetails = async (pinCode, retries = 3) => {
         }
         return {
           success: false,
-          error: `Failed to fetch post office details for PIN ${cleanPinCode}. ${errorMessage}`,
+          error: `Failed to fetch post office details for PIN ${cleanPinCode}. ${lastError?.message || errorMessage}`,
         };
       }
 
-      // Wait before retrying (exponential backoff)
       const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-      logger.info(`Retrying in ${waitTime}ms...`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
     }
   }
 
-  // Fallback error
   return {
     success: false,
     error: `Failed to fetch post office details for PIN ${cleanPinCode} after ${retries} attempts. ${lastError ? lastError.message : 'Unknown error'}`,
@@ -108,4 +172,3 @@ const getPostOfficeDetails = async (pinCode, retries = 3) => {
 };
 
 module.exports = { getPostOfficeDetails };
-

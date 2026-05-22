@@ -169,11 +169,22 @@ const updateRiderProfileData = async (rider, data, files) => {
     if (pinCode !== undefined) {
       const postOfficeData = await getPostOfficeDetails(pinCode);
       if (!postOfficeData.success) {
-        throw new Error(postOfficeData.error || 'Invalid PIN code');
+        const manualCity = (city !== undefined && String(city).trim()) || rider.city;
+        const manualState = state !== undefined && String(state).trim();
+        if (!manualCity || !manualState) {
+          throw new Error(
+            postOfficeData.error ||
+              'Invalid PIN code. Provide both city and state manually if PIN lookup is unavailable.'
+          );
+        }
+        rider.currentAddress.pinCode = pinCode;
+        rider.currentAddress.city = String(manualCity).trim();
+        rider.currentAddress.state = String(manualState).trim();
+      } else {
+        rider.currentAddress.pinCode = pinCode;
+        rider.currentAddress.city = postOfficeData.city;
+        rider.currentAddress.state = postOfficeData.state;
       }
-      rider.currentAddress.pinCode = pinCode;
-      rider.currentAddress.city = postOfficeData.city;
-      rider.currentAddress.state = postOfficeData.state;
     }
     if (state !== undefined) {
       rider.currentAddress.state = state.trim();
