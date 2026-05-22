@@ -98,6 +98,7 @@ const updateRiderProfileData = async (rider, data, files) => {
     whatsappNumber,
     bloodGroup,
     city,
+    state,
     currentAddressLine1,
     currentAddressLine2,
     pinCode,
@@ -149,7 +150,14 @@ const updateRiderProfileData = async (rider, data, files) => {
   }
 
   // Handle current address updates
-  if (currentAddressLine1 !== undefined || currentAddressLine2 !== undefined || pinCode !== undefined || latitude !== undefined || longitude !== undefined) {
+  if (
+    currentAddressLine1 !== undefined ||
+    currentAddressLine2 !== undefined ||
+    pinCode !== undefined ||
+    state !== undefined ||
+    latitude !== undefined ||
+    longitude !== undefined
+  ) {
     rider.currentAddress = rider.currentAddress || {};
     
     if (currentAddressLine1 !== undefined) {
@@ -166,6 +174,9 @@ const updateRiderProfileData = async (rider, data, files) => {
       rider.currentAddress.pinCode = pinCode;
       rider.currentAddress.city = postOfficeData.city;
       rider.currentAddress.state = postOfficeData.state;
+    }
+    if (state !== undefined) {
+      rider.currentAddress.state = state.trim();
     }
     if (latitude !== undefined) {
       rider.currentAddress.latitude = latitude ? parseFloat(latitude) : undefined;

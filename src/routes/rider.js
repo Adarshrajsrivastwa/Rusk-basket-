@@ -106,6 +106,11 @@ router.put(
     body('city')
       .optional()
       .trim(),
+    body('state')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('State cannot be empty if provided'),
     body('currentAddressLine1')
       .optional()
       .trim(),
