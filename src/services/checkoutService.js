@@ -3183,7 +3183,7 @@ exports.cancelOrder = async (orderId, userId, reason = '') => {
 
   // Notify user via WebSocket
   try {
-    notifyUserOrderUpdate(userId, socketData);
+    await notifyUserOrderUpdate(userId, socketData);
   } catch (socketError) {
     logger.error('Error sending user WebSocket notification for cancellation:', socketError);
   }
@@ -3412,7 +3412,7 @@ exports.cancelOrderByVendor = async (orderId, vendorId, reason = '') => {
   };
 
   try {
-    notifyUserOrderUpdate(userId.toString(), socketData);
+    await notifyUserOrderUpdate(userId.toString(), socketData);
   } catch (socketError) {
     logger.error('Error sending user WebSocket notification for vendor cancellation:', socketError);
   }

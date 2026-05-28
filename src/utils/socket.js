@@ -22,6 +22,70 @@ const paymentSummaryForSocket = (payment) => {
   };
 };
 
+/**
+ * Format order line items for socket payloads (user + rider apps).
+ * @param {Array} items - Order.items from DB or populated order
+ */
+const formatOrderItemsForSocket = (items = []) => {
+  const list = Array.isArray(items) ? items : [];
+  const products = list.map((item) => {
+    const productId = item.product?._id || item.product || null;
+    const vendorId = item.vendor?._id || item.vendor || null;
+    const thumbnailUrl =
+      item.thumbnail?.url ||
+      (typeof item.thumbnail === 'string' ? item.thumbnail : null) ||
+      item.product?.thumbnail?.url ||
+      item.image?.url ||
+      null;
+
+    return {
+      productId: productId ? String(productId) : null,
+      vendorId: vendorId ? String(vendorId) : null,
+      vendorName: item.vendor?.storeName || item.vendor?.vendorName || null,
+      productName:
+        item.productName ||
+        item.product?.productName ||
+        item.product?.name ||
+        null,
+      quantity: Number(item.quantity) || 0,
+      unitPrice: item.unitPrice ?? null,
+      salePrice: item.salePrice ?? null,
+      totalPrice: item.totalPrice ?? null,
+      cashback: item.cashback ?? 0,
+      tax: item.tax ?? 0,
+      sku: item.sku || null,
+      thumbnail: thumbnailUrl,
+      image: item.image?.url || item.image || null,
+    };
+  });
+
+  const totalItems = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+
+  return {
+    items: products,
+    products,
+    itemCount: products.length,
+    uniqueProductCount: products.length,
+    totalItems,
+  };
+};
+
+/** Load order items from DB when socket payload omits them. */
+const loadOrderItemsForSocket = async (orderId, existingItems) => {
+  if (existingItems && existingItems.length > 0) {
+    return existingItems;
+  }
+  if (!orderId || !mongoose.Types.ObjectId.isValid(String(orderId))) {
+    return [];
+  }
+  const dbOrder = await Order.findById(orderId)
+    .select('items')
+    .populate('items.product', 'productName name thumbnail')
+    .populate('items.vendor', 'storeName vendorName')
+    .lean();
+  return dbOrder?.items || [];
+};
+
 /** Haversine km from rider currentAddress to order shipping (drop-off). */
 const riderToDropoffDistanceKm = (riderDoc, shippingAddress) => {
   if (!riderDoc?.currentAddress || !shippingAddress) return null;
@@ -301,12 +365,17 @@ const fetchOrderPayloadForRiderAssignment = async (orderId) => {
     }
 
     const payment = paymentSummaryForSocket(order.payment);
+    const productSummary = formatOrderItemsForSocket(order.items);
 
     return {
       _id: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
-      items: order.items,
+      items: productSummary.items,
+      products: productSummary.products,
+      itemCount: productSummary.itemCount,
+      uniqueProductCount: productSummary.uniqueProductCount,
+      totalItems: productSummary.totalItems,
       shippingAddress: order.shippingAddress || null,
       pricing: order.pricing || null,
       deliveryAmount: order.pricing?.deliveryAmount ?? order.deliveryAmount ?? null,
@@ -389,6 +458,7 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
 
       // Rider earnings (delivery amount is what rider earns)
       const riderEarnings = orderData.deliveryAmount || 0;
+      const productSummary = formatOrderItemsForSocket(orderData.items);
 
       // Build properly formatted shipping address
       const formattedShippingAddress = orderData.shippingAddress ? {
@@ -445,9 +515,12 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
           coupon: orderData.coupon || null,
           cashbackUsed: orderData.cashbackUsed || null,
           
-          // Order Items
-          items: orderData.items || [],
-          itemCount: orderData.items?.length || 0,
+          // Order Items / Products purchased by user
+          items: productSummary.items,
+          products: productSummary.products,
+          itemCount: productSummary.itemCount,
+          uniqueProductCount: productSummary.uniqueProductCount,
+          totalItems: productSummary.totalItems,
           
           // Pricing Details
           pricing: orderData.pricing || {},
@@ -638,11 +711,22 @@ const notifyRiderOrderUpdate = async (riderId, orderData) => {
       pricing?.deliveryAmount ??
       0;
 
+    const itemsForSocket = await loadOrderItemsForSocket(
+      orderId,
+      merged.items || orderData.items
+    );
+    const productSummary = formatOrderItemsForSocket(itemsForSocket);
+
     const updatePayload = {
       type: 'order_update',
       orderId: merged.orderId || merged._id,
       orderNumber: merged.orderNumber,
       status: merged.status,
+      items: productSummary.items,
+      products: productSummary.products,
+      itemCount: productSummary.itemCount,
+      uniqueProductCount: productSummary.uniqueProductCount,
+      totalItems: productSummary.totalItems,
       amount:
         orderData.amount ??
         merged.pricing?.total ??
@@ -671,6 +755,7 @@ const notifyRiderOrderUpdate = async (riderId, orderData) => {
       rider: orderData.rider ?? merged.rider ?? null,
       data: {
         ...merged,
+        ...productSummary,
         pricing,
         payment,
         paymentMethod,
@@ -757,26 +842,81 @@ const sendUserNotification = async (userId, notificationData) => {
 
 
 /**
- * Send order update to user
+ * Send order update to user (includes all purchased products).
  */
-const notifyUserOrderUpdate = (userId, orderData) => {
+const notifyUserOrderUpdate = async (userId, orderData) => {
   if (!socketIOAvailable || !io) {
     logger.debug(`Socket.io not available. Skipping WebSocket notification for user ${userId}`);
     return;
   }
-  
+
+  if (!orderData || typeof orderData !== 'object') {
+    return;
+  }
+
   try {
     const ioInstance = getIO();
-    
+    const orderId = orderData.orderId || orderData._id;
+
+    let merged = { ...orderData };
+    let pricing = orderData.pricing || {};
+    let payment = paymentSummaryForSocket(orderData.payment);
+
+    if (orderId && mongoose.Types.ObjectId.isValid(String(orderId))) {
+      const dbOrder = await Order.findById(orderId)
+        .select(
+          'items payment shippingAddress pricing deliveryAmount status orderNumber estimatedDelivery assignedAt deliveredAt cancelledAt cancellationReason cancelledBy notes coupon cashbackUsed rider updatedAt createdAt'
+        )
+        .lean();
+
+      if (dbOrder) {
+        merged = {
+          ...dbOrder,
+          ...orderData,
+          orderId: orderData.orderId || dbOrder._id,
+          orderNumber: orderData.orderNumber ?? dbOrder.orderNumber,
+          status: orderData.status ?? dbOrder.status,
+        };
+        pricing = { ...(dbOrder.pricing || {}), ...(orderData.pricing || {}) };
+        payment =
+          paymentSummaryForSocket(orderData.payment) ||
+          paymentSummaryForSocket(dbOrder.payment);
+      }
+    }
+
+    const itemsForSocket = await loadOrderItemsForSocket(
+      orderId,
+      merged.items || orderData.items
+    );
+    const productSummary = formatOrderItemsForSocket(itemsForSocket);
+
     const updatePayload = {
       type: 'order_update',
-      orderId: orderData.orderId,
-      orderNumber: orderData.orderNumber,
-      status: orderData.status,
-      data: orderData,
+      orderId: merged.orderId || merged._id,
+      orderNumber: merged.orderNumber,
+      status: merged.status,
+      amount: orderData.amount ?? pricing?.total ?? 0,
+      deliveryAmount:
+        merged.deliveryAmount ?? orderData.deliveryAmount ?? pricing?.deliveryAmount ?? 0,
+      pricing,
+      payment,
+      items: productSummary.items,
+      products: productSummary.products,
+      itemCount: productSummary.itemCount,
+      uniqueProductCount: productSummary.uniqueProductCount,
+      totalItems: productSummary.totalItems,
+      shippingAddress: orderData.shippingAddress || merged.shippingAddress || {},
+      cancelledBy: merged.cancelledBy ?? orderData.cancelledBy ?? null,
+      cancellationReason: merged.cancellationReason ?? orderData.cancellationReason ?? null,
+      data: {
+        ...merged,
+        ...productSummary,
+        pricing,
+        payment,
+      },
       timestamp: new Date().toISOString(),
     };
-    
+
     ioInstance.to(`user:${userId}`).emit('order_update', updatePayload);
     logger.info(`Order update sent to user ${userId} via WebSocket`);
   } catch (error) {
@@ -820,6 +960,7 @@ const getConnectionCounts = () => {
 module.exports = {
   initializeSocket,
   getIO,
+  formatOrderItemsForSocket,
   fetchOrderPayloadForRiderAssignment,
   sendOrderAssignmentRequest,
   sendOrderAssignmentRequestToRiders,

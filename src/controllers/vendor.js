@@ -1532,7 +1532,7 @@ exports.assignRiderToOrder = async (req, res, next) => {
             mobileNumber: populatedOrder.rider?.mobileNumber,
           },
         };
-        notifyUserOrderUpdate(populatedOrder.user._id.toString(), orderUpdateData);
+        await notifyUserOrderUpdate(populatedOrder.user._id.toString(), orderUpdateData);
       } catch (userNotifyError) {
         logger.error('Error sending notification to user for rider assignment:', userNotifyError);
       }
