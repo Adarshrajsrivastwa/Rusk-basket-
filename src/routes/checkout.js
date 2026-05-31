@@ -12,6 +12,7 @@ const {
   removeCashback,
   createOrder,
   getOrders,
+  getCurrentOrder,
   getOrder,
   cancelOrder,
   reorder,
@@ -356,6 +357,8 @@ router.get(
   ],
   getOrders
 );
+
+router.get('/orders/current', getCurrentOrder);
 
 router.get(
   '/order/:orderId',

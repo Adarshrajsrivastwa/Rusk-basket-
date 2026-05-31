@@ -1034,8 +1034,10 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
     if (orderId && mongoose.Types.ObjectId.isValid(String(orderId))) {
       const dbOrder = await Order.findById(orderId)
         .select(
-          'items payment shippingAddress pricing deliveryAmount status orderNumber estimatedDelivery assignedAt deliveredAt cancelledAt cancellationReason cancelledBy notes coupon cashbackUsed rider updatedAt createdAt'
+          'items payment shippingAddress pricing deliveryAmount status orderNumber estimatedDelivery assignedAt deliveredAt cancelledAt cancellationReason cancelledBy notes coupon cashbackUsed rider assignmentRequestSentTo updatedAt createdAt'
         )
+        .populate('rider', 'fullName mobileNumber')
+        .populate('assignmentRequestSentTo.rider', 'fullName mobileNumber')
         .lean();
 
       if (dbOrder) {
@@ -1066,11 +1068,26 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
       vendorAddresses,
     });
 
+    let riderName = orderData.riderName ?? null;
+    let riderPhone = orderData.riderPhone ?? null;
+    if (!riderName && !riderPhone && merged) {
+      const acceptedReq = merged.assignmentRequestSentTo?.find?.(
+        (req) => req.status === 'accepted' && req.rider
+      );
+      const riderDoc = acceptedReq?.rider || merged.rider;
+      if (riderDoc && typeof riderDoc === 'object') {
+        riderName = riderDoc.fullName || null;
+        riderPhone = riderDoc.mobileNumber || null;
+      }
+    }
+
     const updatePayload = {
       type: 'order_update',
       orderId: merged.orderId || merged._id,
       orderNumber: merged.orderNumber,
       status: merged.status,
+      riderName,
+      riderPhone,
       amount: orderData.amount ?? pricing?.total ?? 0,
       deliveryAmount:
         merged.deliveryAmount ?? orderData.deliveryAmount ?? pricing?.deliveryAmount ?? 0,
@@ -1096,6 +1113,8 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
         pricing,
         payment,
         shippingAddress: shippingSrc,
+        riderName,
+        riderPhone,
       },
       timestamp: new Date().toISOString(),
     };

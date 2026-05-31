@@ -714,6 +714,25 @@ exports.getOrders = async (req, res, next) => {
   }
 };
 
+exports.getCurrentOrder = async (req, res, next) => {
+  try {
+    const result = await checkoutService.getUserCurrentOrder(req.user._id);
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      hasCurrentOrder: result.hasCurrentOrder,
+      data: result.order,
+      order: result.order,
+      riderName: result.order?.riderName ?? null,
+      riderPhone: result.order?.riderPhone ?? null,
+    });
+  } catch (error) {
+    logger.error('Get current order error:', error);
+    next(error);
+  }
+};
+
 exports.getOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;

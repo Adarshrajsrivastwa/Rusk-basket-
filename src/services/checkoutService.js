@@ -1712,6 +1712,161 @@ exports.reorder = async (userId, orderId) => {
 };
 
 /**
+ * Resolve assigned rider for user-facing order APIs (name + phone).
+ */
+const resolveOrderRiderInfo = async (order) => {
+  let riderInfo = null;
+
+  if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
+    const acceptedRequest = order.assignmentRequestSentTo.find(
+      (req) => req.status === 'accepted' && req.rider
+    );
+    if (acceptedRequest?.rider) {
+      const rider = acceptedRequest.rider;
+      riderInfo = {
+        name: rider.fullName || null,
+        phone: rider.mobileNumber || null,
+        address: rider.currentAddress || null,
+      };
+    }
+  }
+
+  if (!riderInfo && order.rider) {
+    riderInfo = {
+      name: order.rider.fullName || null,
+      phone: order.rider.mobileNumber || null,
+      address: order.rider.currentAddress || null,
+    };
+  }
+
+  if (!riderInfo && order.items?.length > 0) {
+    try {
+      const mongoose = require('mongoose');
+      const firstItem = order.items[0];
+      if (firstItem?.vendor) {
+        const vendorId = firstItem.vendor._id ? firstItem.vendor._id : firstItem.vendor;
+        const vendorObjectId = mongoose.Types.ObjectId.isValid(vendorId)
+          ? (typeof vendorId === 'string' ? new mongoose.Types.ObjectId(vendorId) : vendorId)
+          : null;
+
+        if (vendorObjectId) {
+          const jobPosts = await RiderJobPost.find({
+            vendor: vendorObjectId,
+            isActive: true,
+          })
+            .select('_id')
+            .lean();
+
+          if (jobPosts?.length > 0) {
+            const jobPostIds = jobPosts.map((jp) => jp._id);
+            let assignedApplication = await RiderJobApplication.findOne({
+              jobPost: { $in: jobPostIds },
+              status: { $in: ['assigned', 'approved'] },
+              confirmed: true,
+            })
+              .populate('rider', 'fullName mobileNumber currentAddress')
+              .sort({ confirmedAt: -1, assignedAt: -1 })
+              .lean();
+
+            if (!assignedApplication) {
+              assignedApplication = await RiderJobApplication.findOne({
+                jobPost: { $in: jobPostIds },
+                status: { $in: ['assigned', 'approved'] },
+              })
+                .populate('rider', 'fullName mobileNumber currentAddress')
+                .sort({ assignedAt: -1 })
+                .lean();
+            }
+
+            if (assignedApplication?.rider) {
+              const rider = assignedApplication.rider;
+              riderInfo = {
+                name: rider.fullName || null,
+                phone: rider.mobileNumber || null,
+                address: rider.currentAddress || null,
+              };
+            }
+          } else {
+            const confirmedApplication = await RiderJobApplication.findOne({
+              confirmedForVendor: vendorObjectId,
+              confirmed: true,
+            })
+              .populate('rider', 'fullName mobileNumber currentAddress')
+              .sort({ confirmedAt: -1 })
+              .lean();
+
+            if (confirmedApplication?.rider) {
+              const rider = confirmedApplication.rider;
+              riderInfo = {
+                name: rider.fullName || null,
+                phone: rider.mobileNumber || null,
+                address: rider.currentAddress || null,
+              };
+            }
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Error fetching rider from vendor:', error);
+    }
+  }
+
+  return {
+    rider: riderInfo,
+    riderName: riderInfo?.name ?? null,
+    riderPhone: riderInfo?.phone ?? null,
+  };
+};
+
+const USER_ORDER_POPULATE = [
+  {
+    path: 'items.product',
+    select:
+      'productName productNumber productType category subCategory thumbnail images description skus inventory initialInventory skuHsn actualPrice regularPrice salePrice cashback tax discountPercentage tags vendor latitude longitude approvalStatus isActive offerEnabled offerDiscountPercentage offerStartDate offerEndDate isDailyOffer originalSalePrice createdAt updatedAt',
+    populate: [
+      { path: 'category', select: 'name' },
+      { path: 'subCategory', select: 'name' },
+      { path: 'vendor', select: 'vendorName storeName storeId' },
+    ],
+  },
+  { path: 'items.vendor', select: 'vendorName storeName contactNumber storeAddress' },
+  { path: 'rider', select: 'fullName mobileNumber currentAddress' },
+  { path: 'assignmentRequestSentTo.rider', select: 'fullName mobileNumber currentAddress' },
+];
+
+const USER_ORDER_SELECT =
+  'orderNumber status items pricing payment shippingAddress coupon rider assignedAt assignedBy assignmentNotes assignmentRequestSentTo estimatedDelivery deliveredAt cancelledAt cancellationReason cancelledBy notes deliveryAmount deliveryImage deliveredImage invoicePdf createdAt updatedAt';
+
+/**
+ * Get user's current/active order (not delivered, cancelled, or refunded).
+ */
+exports.getUserCurrentOrder = async (userId) => {
+  const order = await Order.findOne({
+    user: userId,
+    status: { $nin: ['delivered', 'cancelled', 'refunded'] },
+  })
+    .populate(USER_ORDER_POPULATE)
+    .select(USER_ORDER_SELECT)
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  if (!order) {
+    return {
+      hasCurrentOrder: false,
+      order: null,
+      message: 'No current order found',
+    };
+  }
+
+  const formatted = await exports.getOrderById(order._id, userId);
+  return {
+    hasCurrentOrder: true,
+    order: formatted,
+    message: 'Current order found',
+  };
+};
+
+/**
  * Get user orders
  */
 exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
@@ -1766,111 +1921,7 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
       }
     });
 
-    // Get rider info (check assignmentRequestSentTo first, then order.rider, then from vendor's assigned riders)
-    let riderInfo = null;
-    if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
-      const acceptedRequest = order.assignmentRequestSentTo.find(
-        req => req.status === 'accepted' && req.rider
-      );
-      if (acceptedRequest && acceptedRequest.rider) {
-        const rider = acceptedRequest.rider;
-        riderInfo = {
-          name: rider.fullName || null,
-          phone: rider.mobileNumber || null,
-          address: rider.currentAddress || null,
-        };
-      }
-    }
-
-    if (!riderInfo && order.rider) {
-      riderInfo = {
-        name: order.rider.fullName || null,
-        phone: order.rider.mobileNumber || null,
-        address: order.rider.currentAddress || null,
-      };
-    }
-
-    // If rider is still null, get rider from product's vendor assigned riders
-    if (!riderInfo && order.items && order.items.length > 0) {
-      try {
-        // Get first product's vendor
-        const firstItem = order.items[0];
-        if (firstItem && firstItem.vendor) {
-          const mongoose = require('mongoose');
-          const vendorId = firstItem.vendor._id ? firstItem.vendor._id : firstItem.vendor;
-
-          // Convert to ObjectId if it's a string
-          const vendorObjectId = mongoose.Types.ObjectId.isValid(vendorId)
-            ? (typeof vendorId === 'string' ? new mongoose.Types.ObjectId(vendorId) : vendorId)
-            : null;
-
-          if (vendorObjectId) {
-            // Find vendor's job posts
-            const jobPosts = await RiderJobPost.find({
-              vendor: vendorObjectId,
-              isActive: true
-            }).select('_id').lean();
-
-            if (jobPosts && jobPosts.length > 0) {
-              const jobPostIds = jobPosts.map(jp => jp._id);
-
-              // Find assigned/confirmed riders for this vendor's job posts
-              // Try confirmed first, then any assigned/approved
-              let assignedApplication = await RiderJobApplication.findOne({
-                jobPost: { $in: jobPostIds },
-                status: { $in: ['assigned', 'approved'] },
-                confirmed: true,
-              })
-                .populate('rider', 'fullName mobileNumber currentAddress')
-                .sort({ confirmedAt: -1, assignedAt: -1 })
-                .lean();
-
-              // If no confirmed rider, try any assigned/approved rider
-              if (!assignedApplication) {
-                assignedApplication = await RiderJobApplication.findOne({
-                  jobPost: { $in: jobPostIds },
-                  status: { $in: ['assigned', 'approved'] },
-                })
-                  .populate('rider', 'fullName mobileNumber currentAddress')
-                  .sort({ assignedAt: -1 })
-                  .lean();
-              }
-
-              if (assignedApplication && assignedApplication.rider) {
-                const rider = assignedApplication.rider;
-                riderInfo = {
-                  name: rider.fullName || null,
-                  phone: rider.mobileNumber || null,
-                  address: rider.currentAddress || null,
-                };
-              }
-            } else {
-              // If no job posts, try to find any rider assigned to this vendor through applications
-              // Check for riders confirmed for this vendor
-              const confirmedApplication = await RiderJobApplication.findOne({
-                confirmedForVendor: vendorObjectId,
-                confirmed: true,
-              })
-                .populate('rider', 'fullName mobileNumber currentAddress')
-                .sort({ confirmedAt: -1 })
-                .lean();
-
-              if (confirmedApplication && confirmedApplication.rider) {
-                const rider = confirmedApplication.rider;
-                riderInfo = {
-                  name: rider.fullName || null,
-                  phone: rider.mobileNumber || null,
-                  address: rider.currentAddress || null,
-                };
-              }
-            }
-          }
-        }
-      } catch (error) {
-        logger.error('Error fetching rider from vendor:', error);
-        // Continue with null rider if error occurs
-      }
-    }
+    const { rider: riderInfo, riderName, riderPhone } = await resolveOrderRiderInfo(order);
 
     // Format product details with all product information and pricing
     const products = order.items.map((item, index) => {
@@ -2083,6 +2134,8 @@ exports.getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
 
       // Rider information
       rider: riderInfo,
+      riderName,
+      riderPhone,
       assignedAt: order.assignedAt || null,
       estimatedDelivery: order.estimatedDelivery || null,
 
@@ -2199,29 +2252,7 @@ exports.getOrderById = async (orderId, userId = null) => {
     }
   });
 
-  // Get rider info
-  let riderInfo = null;
-  if (order.assignmentRequestSentTo && Array.isArray(order.assignmentRequestSentTo)) {
-    const acceptedRequest = order.assignmentRequestSentTo.find(
-      req => req.status === 'accepted' && req.rider
-    );
-    if (acceptedRequest && acceptedRequest.rider) {
-      const rider = acceptedRequest.rider;
-      riderInfo = {
-        name: rider.fullName || null,
-        phone: rider.mobileNumber || null,
-        address: rider.currentAddress || null,
-      };
-    }
-  }
-
-  if (!riderInfo && order.rider) {
-    riderInfo = {
-      name: order.rider.fullName || null,
-      phone: order.rider.mobileNumber || null,
-      address: order.rider.currentAddress || null,
-    };
-  }
+  const { rider: riderInfo, riderName, riderPhone } = await resolveOrderRiderInfo(order);
 
   // Format pricing
   const pricing = {
@@ -2290,6 +2321,8 @@ exports.getOrderById = async (orderId, userId = null) => {
 
     // Rider information
     rider: riderInfo,
+    riderName,
+    riderPhone,
     assignedAt: order.assignedAt || null,
     estimatedDelivery: order.estimatedDelivery || null,
 
