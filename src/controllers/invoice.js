@@ -987,6 +987,121 @@ exports.updateInvoiceFromOrder = async (req, res, next) => {
 };
 
 /**
+ * Build invoice PDF buffer for an order (shared by generate + download)
+ */
+const createOrderInvoicePdfBuffer = async (orderNumber) => {
+  const order = await Order.findOne({ orderNumber })
+    .populate('user', 'userName contactNumber email address addresses')
+    .populate('rider', 'fullName mobileNumber')
+    .populate('items.vendor', 'vendorName storeName contactNumber altContactNumber email storeAddress');
+
+  if (!order) {
+    const err = new Error('Order not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const vendorIds = [
+    ...new Set(
+      order.items.map((item) => {
+        const vendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+        return vendorId;
+      })
+    ),
+  ];
+
+  if (vendorIds.length === 0) {
+    const err = new Error('No vendors found in order');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const vendorId = vendorIds[0];
+  const vendor = order.items.find((item) => {
+    const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+    return itemVendorId === vendorId;
+  })?.vendor;
+
+  if (!vendor) {
+    const err = new Error('Vendor not found');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const invoice = await Invoice.findOne({
+    order: order._id,
+    vendor: vendorId,
+  });
+
+  const pricing = invoice?.pricing || order.pricing || {};
+  let finalPricing = pricing;
+
+  if (!invoice && order.pricing) {
+    const vendorItems = order.items.filter((item) => {
+      const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
+      return itemVendorId === vendorId;
+    });
+    const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    const orderSubtotal = order.pricing.subtotal || 0;
+    const totalDeliveryAmount = order.pricing.deliveryAmount || 0;
+
+    let deliveryCharges = 0;
+    if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
+      deliveryCharges = parseFloat(((totalDeliveryAmount * vendorSubtotal) / orderSubtotal).toFixed(2));
+    } else if (totalDeliveryAmount > 0) {
+      const invoiceCount = await Invoice.countDocuments({ order: order._id });
+      if (invoiceCount === 0) {
+        deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
+      }
+    }
+
+    finalPricing = {
+      ...order.pricing,
+      deliveryCharges,
+      totalAmount: order.pricing.total || 0,
+    };
+  }
+
+  const orderData = {
+    ...order.toObject(),
+    vendor,
+    user: order.user,
+    pricing: finalPricing,
+    invoiceCode:
+      invoice?.code ||
+      `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
+    invoiceNumber:
+      invoice?.invoiceNumber ||
+      `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
+    invoiceDate: invoice?.date || order.createdAt,
+    dueDate:
+      invoice?.dueDate ||
+      (() => {
+        const date = new Date(order.createdAt);
+        date.setDate(date.getDate() + 30);
+        return date;
+      })(),
+  };
+
+  const pdfBuffer = await generateInvoicePDF(orderData);
+  const invoicesDir = path.join(__dirname, '../../uploads/invoices');
+  await fs.mkdir(invoicesDir, { recursive: true });
+
+  const filename = `invoice-${order.orderNumber}.pdf`;
+  const filePath = path.join(invoicesDir, filename);
+  await fs.writeFile(filePath, pdfBuffer);
+
+  order.invoicePdf = {
+    url: `/api/invoice/order/${order.orderNumber}/download-pdf`,
+    filePath,
+    filename,
+  };
+  await order.save();
+
+  return { pdfBuffer, order, filename, filePath };
+};
+
+/**
  * Generate invoice PDF for an order and upload to Cloudinary
  * Updates the order with the PDF URL
  */
@@ -1001,134 +1116,8 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
     }
 
     const { orderNumber } = req.params;
-
-    // Find order by order number with populated user and vendor
-    const order = await Order.findOne({ orderNumber })
-      .populate('user', 'userName contactNumber email')
-      .populate('items.vendor', 'vendorName storeName contactNumber altContactNumber email storeAddress');
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        error: 'Order not found',
-      });
-    }
-
-    // Get unique vendors from order items
-    const vendorIds = [...new Set(order.items.map(item => {
-      const vendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
-      return vendorId;
-    }))];
-
-    if (vendorIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No vendors found in order',
-      });
-    }
-
-    // For now, we'll generate one PDF for the entire order
-    // If you need separate PDFs per vendor, we can modify this
-    const vendorId = vendorIds[0];
-    const vendor = order.items.find(item => {
-      const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
-      return itemVendorId === vendorId;
-    })?.vendor;
-
-    if (!vendor) {
-      return res.status(400).json({
-        success: false,
-        error: 'Vendor not found',
-      });
-    }
-
-    // Get invoice for this vendor to use correct pricing with delivery charges
-    const invoice = await Invoice.findOne({ 
-      order: order._id, 
-      vendor: vendorId 
-    });
-
-    // Prepare order data for PDF generation
-    // Use invoice pricing if available (includes delivery charges), otherwise use order pricing
-    const pricing = invoice?.pricing || order.pricing || {};
-    
-    // If invoice exists, use invoice data; otherwise calculate delivery charges
-    let finalPricing = pricing;
-    if (!invoice && order.pricing) {
-      // Calculate delivery charges for this vendor
-      const vendorItems = order.items.filter(item => {
-        const itemVendorId = item.vendor?._id ? item.vendor._id.toString() : item.vendor?.toString();
-        return itemVendorId === vendorId;
-      });
-      const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-      const orderSubtotal = order.pricing.subtotal || 0;
-      const totalDeliveryAmount = order.pricing.deliveryAmount || 0;
-      
-      let deliveryCharges = 0;
-      if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
-        const deliveryChargeRatio = vendorSubtotal / orderSubtotal;
-        deliveryCharges = parseFloat((totalDeliveryAmount * deliveryChargeRatio).toFixed(2));
-      } else if (totalDeliveryAmount > 0) {
-        const invoiceCount = await Invoice.countDocuments({ order: order._id });
-        if (invoiceCount === 0) {
-          deliveryCharges = parseFloat(totalDeliveryAmount.toFixed(2));
-        }
-      }
-      
-      // Update pricing with delivery charges
-      finalPricing = {
-        ...order.pricing,
-        deliveryCharges: deliveryCharges,
-        totalAmount: (order.pricing.total || 0) + deliveryCharges,
-      };
-    }
-
-    const orderData = {
-      ...order.toObject(),
-      vendor: vendor,
-      user: order.user,
-      pricing: finalPricing,
-      // Use invoice code and number if available
-      invoiceCode: invoice?.code || `INV${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
-      invoiceNumber: invoice?.invoiceNumber || `RUSH-INV-${new Date().getFullYear()}-${String(order.orderNumber?.replace('RB', '') || Date.now()).padStart(6, '0')}`,
-      invoiceDate: invoice?.date || order.createdAt,
-      dueDate: invoice?.dueDate || (() => {
-        const date = new Date(order.createdAt);
-        date.setDate(date.getDate() + 30);
-        return date;
-      })(),
-    };
-
-    // Generate PDF buffer
     logger.info(`Generating PDF invoice for order: ${orderNumber}`);
-    const pdfBuffer = await generateInvoicePDF(orderData);
-
-    // Create invoices directory if it doesn't exist
-    const invoicesDir = path.join(__dirname, '../../uploads/invoices');
-    try {
-      await fs.mkdir(invoicesDir, { recursive: true });
-    } catch (error) {
-      logger.error('Error creating invoices directory:', error);
-    }
-
-    // Save PDF to server filesystem
-    const filename = `invoice-${order.orderNumber}.pdf`;
-    const filePath = path.join(invoicesDir, filename);
-    
-    logger.info(`Saving PDF to server: ${filePath}`);
-    await fs.writeFile(filePath, pdfBuffer);
-
-    // Create server URL for download/view (with /api prefix)
-    const invoiceUrl = `/api/invoice/order/${order.orderNumber}/download-pdf`;
-
-    // Save file path in order
-    order.invoicePdf = {
-      url: invoiceUrl,
-      filePath: filePath, // Server file path
-      filename: filename,
-    };
-
-    await order.save();
+    const { order, filePath } = await createOrderInvoicePdfBuffer(orderNumber);
 
     logger.info(`Invoice PDF saved to server for order: ${orderNumber} at path: ${filePath}`);
 
@@ -1138,16 +1127,16 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
       data: {
         orderNumber: order.orderNumber,
         invoicePdf: {
-          url: invoiceUrl, // Server endpoint (without /api)
-          downloadUrl: invoiceUrl, // Same URL for both view and download
+          url: order.invoicePdf.url,
+          downloadUrl: order.invoicePdf.url,
         },
       },
     });
   } catch (error) {
     logger.error('Generate order invoice PDF error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      error: 'Failed to generate invoice PDF',
+      error: error.statusCode === 404 ? error.message : 'Failed to generate invoice PDF',
       message: error.message,
     });
   }
@@ -1160,77 +1149,32 @@ exports.generateOrderInvoicePDF = async (req, res, next) => {
 exports.downloadInvoicePDF = async (req, res, next) => {
   try {
     const { orderNumber } = req.params;
-    const { download } = req.query; // If download=true, force download instead of view
+    const { download } = req.query;
 
-    // Find order by order number
-    const order = await Order.findOne({ orderNumber }).select('invoicePdf orderNumber');
+    logger.info(`Serving fresh invoice PDF for order: ${orderNumber}`);
+    const { pdfBuffer, order, filename } = await createOrderInvoicePdfBuffer(orderNumber);
 
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        error: 'Order not found',
-      });
+    res.setHeader('Content-Type', 'application/pdf');
+
+    if (download === 'true') {
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    } else {
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     }
 
-    if (!order.invoicePdf || !order.invoicePdf.filePath) {
-      return res.status(404).json({
-        success: false,
-        error: 'Invoice PDF not found for this order. Please generate it first.',
-      });
-    }
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
 
-    try {
-      const filePath = order.invoicePdf.filePath;
-      const filename = order.invoicePdf.filename || `invoice-${order.orderNumber}.pdf`;
-
-      // Check if file exists
-      try {
-        await fs.access(filePath);
-      } catch (error) {
-        logger.error(`PDF file not found at path: ${filePath}`);
-        return res.status(404).json({
-          success: false,
-          error: 'Invoice PDF file not found on server. Please regenerate invoice.',
-        });
-      }
-
-      // Read PDF file from server
-      logger.info(`Reading PDF from server: ${filePath}`);
-      const pdfBuffer = await fs.readFile(filePath);
-
-      // Set appropriate headers BEFORE sending data
-      res.setHeader('Content-Type', 'application/pdf');
-      
-      if (download === 'true') {
-        // Force download
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      } else {
-        // Open in browser (inline)
-        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-      }
-
-      res.setHeader('Content-Length', pdfBuffer.length);
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-      res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
-      res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME type sniffing
-
-      logger.info(`Sending PDF (${pdfBuffer.length} bytes) with Content-Type: application/pdf`);
-
-      // Send PDF buffer
-      res.end(pdfBuffer);
-    } catch (fileError) {
-      logger.error('Error reading PDF file from server:', fileError);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to read invoice PDF from server',
-        message: fileError.message,
-      });
-    }
+    logger.info(`Sending PDF (${pdfBuffer.length} bytes) for order ${order.orderNumber}`);
+    res.end(pdfBuffer);
   } catch (error) {
     logger.error('Download invoice PDF error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      error: 'Failed to download invoice PDF',
+      error: error.statusCode === 404 ? error.message : 'Failed to download invoice PDF',
       message: error.message,
     });
   }
