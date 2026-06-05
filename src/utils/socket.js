@@ -54,12 +54,21 @@ const resolveItemImageForSocket = (item) => {
 /**
  * Format order line items for socket payloads (user + rider apps).
  * @param {Array} items - Order.items from DB or populated order
+ * @param {Array} [vendorAddresses] - Optional vendor list with distanceToShopKm
  */
-const formatOrderItemsForSocket = (items = []) => {
+const formatOrderItemsForSocket = (items = [], vendorAddresses = []) => {
   const list = Array.isArray(items) ? items : [];
+  const vendorDistanceMap = new Map(
+    (Array.isArray(vendorAddresses) ? vendorAddresses : []).map((vendor) => [
+      String(vendor._id),
+      vendor.distanceToShopKm ?? null,
+    ])
+  );
+
   const products = list.map((item) => {
     const productId = item.product?._id || item.product || null;
     const vendorId = item.vendor?._id || item.vendor || null;
+    const vendorIdStr = vendorId ? String(vendorId) : null;
     const image = resolveItemImageForSocket(item);
     const extraImages = (Array.isArray(item.product?.images) ? item.product.images : [])
       .filter((img) => img && img.url)
@@ -94,6 +103,11 @@ const formatOrderItemsForSocket = (items = []) => {
       thumbnail: image.url,
       imageUrl: image.url,
       images,
+      distanceToShopKm: vendorIdStr ? vendorDistanceMap.get(vendorIdStr) ?? null : null,
+      distanceToShopMeters:
+        vendorIdStr && vendorDistanceMap.get(vendorIdStr) != null
+          ? Math.round(vendorDistanceMap.get(vendorIdStr) * 1000)
+          : null,
     };
   });
 
@@ -108,9 +122,13 @@ const formatOrderItemsForSocket = (items = []) => {
   };
 };
 
-/** Load order items from DB (with product images) for socket payloads. */
+/** Load order items from DB (with line-item + product images) for socket payloads. */
 const loadOrderItemsForSocket = async (orderId, existingItems) => {
-  if (orderId && mongoose.Types.ObjectId.isValid(String(orderId))) {
+  const needsDbLoad =
+    !existingItems?.length ||
+    existingItems.some((item) => !resolveItemImageForSocket(item).url);
+
+  if (orderId && mongoose.Types.ObjectId.isValid(String(orderId)) && needsDbLoad) {
     const dbOrder = await Order.findById(orderId)
       .select('items')
       .populate('items.product', 'productName name thumbnail images')
@@ -191,14 +209,69 @@ const buildOrderDistanceForSocket = ({
   const deliveryDistanceKm = vendorToDropoffDistanceKm(vendorAddresses, shippingAddress);
   const distanceKm = distanceToDropoffKm ?? deliveryDistanceKm ?? null;
 
+  const distanceToShopKm = deliveryDistanceKm;
+  const distanceToShopMeters =
+    deliveryDistanceKm != null ? Math.round(deliveryDistanceKm * 1000) : null;
+
   return {
     distanceKm,
     distanceToDropoffKm,
     distanceToDropoffMeters:
       distanceToDropoffKm != null ? Math.round(distanceToDropoffKm * 1000) : null,
     deliveryDistanceKm,
-    deliveryDistanceMeters:
-      deliveryDistanceKm != null ? Math.round(deliveryDistanceKm * 1000) : null,
+    deliveryDistanceMeters: distanceToShopMeters,
+    distanceToShopKm,
+    distanceToShopMeters,
+  };
+};
+
+/** Per-vendor store → customer drop-off distance (km). */
+const enrichVendorAddressesWithDistance = (vendorAddresses = [], shippingAddress) => {
+  if (!shippingAddress || !Array.isArray(vendorAddresses)) {
+    return vendorAddresses;
+  }
+
+  const s = correctLatLonIfLikelySwappedForSouthAsia(
+    shippingAddress.latitude,
+    shippingAddress.longitude
+  );
+  if (!Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) {
+    return vendorAddresses;
+  }
+
+  return vendorAddresses.map((vendor) => {
+    const store = vendor.storeAddress || vendor;
+    const v = correctLatLonIfLikelySwappedForSouthAsia(store.latitude, store.longitude);
+    let distanceToShopKm = null;
+    if (Number.isFinite(v.latitude) && Number.isFinite(v.longitude)) {
+      distanceToShopKm = parseFloat(
+        calculateDistance(v.latitude, v.longitude, s.latitude, s.longitude).toFixed(2)
+      );
+    }
+    return {
+      ...vendor,
+      distanceToShopKm,
+      distanceToShopMeters:
+        distanceToShopKm != null ? Math.round(distanceToShopKm * 1000) : null,
+    };
+  });
+};
+
+/** User profile fields for socket payloads. */
+const loadUserDetailsForSocket = async (userId) => {
+  if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) {
+    return null;
+  }
+  const user = await User.findById(userId)
+    .select('userName contactNumber email')
+    .lean();
+  if (!user) return null;
+  return {
+    userId: String(user._id),
+    userName: user.userName || null,
+    contactNumber: user.contactNumber || null,
+    mobileNumber: user.contactNumber || null,
+    email: user.email || null,
   };
 };
 
@@ -1059,14 +1132,34 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
       orderId,
       merged.items || orderData.items
     );
-    const vendorAddresses = await loadVendorAddressesForOrderItems(itemsForSocket);
-    const productSummary = formatOrderItemsForSocket(itemsForSocket);
+    const vendorAddressesRaw = await loadVendorAddressesForOrderItems(itemsForSocket);
     const shippingSrc = orderData.shippingAddress || merged.shippingAddress;
+    const vendorAddresses = enrichVendorAddressesWithDistance(vendorAddressesRaw, shippingSrc);
+    const productSummary = formatOrderItemsForSocket(itemsForSocket, vendorAddresses);
     const timing = buildOrderTimingForSocket(merged);
     const distance = buildOrderDistanceForSocket({
       shippingAddress: shippingSrc,
-      vendorAddresses,
+      vendorAddresses: vendorAddressesRaw,
     });
+
+    const userDetails =
+      orderData.user && typeof orderData.user === 'object' && orderData.user.contactNumber
+        ? {
+            userId: orderData.user._id ? String(orderData.user._id) : String(userId),
+            userName: orderData.user.userName || null,
+            contactNumber: orderData.user.contactNumber || null,
+            mobileNumber: orderData.user.contactNumber || null,
+            email: orderData.user.email || null,
+          }
+        : await loadUserDetailsForSocket(userId);
+
+    const userMobileNumber =
+      userDetails?.contactNumber ||
+      userDetails?.mobileNumber ||
+      shippingSrc?.phone ||
+      orderData.userMobileNumber ||
+      orderData.contactNumber ||
+      null;
 
     let riderName = orderData.riderName ?? null;
     let riderPhone = orderData.riderPhone ?? null;
@@ -1088,6 +1181,9 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
       status: merged.status,
       riderName,
       riderPhone,
+      userMobileNumber,
+      contactNumber: userMobileNumber,
+      user: userDetails,
       amount: orderData.amount ?? pricing?.total ?? 0,
       deliveryAmount:
         merged.deliveryAmount ?? orderData.deliveryAmount ?? pricing?.deliveryAmount ?? 0,
@@ -1115,6 +1211,9 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
         shippingAddress: shippingSrc,
         riderName,
         riderPhone,
+        userMobileNumber,
+        contactNumber: userMobileNumber,
+        user: userDetails,
       },
       timestamp: new Date().toISOString(),
     };

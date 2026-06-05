@@ -1042,8 +1042,11 @@ const createOrderInvoicePdfBuffer = async (orderNumber) => {
       return itemVendorId === vendorId;
     });
     const vendorSubtotal = vendorItems.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    const vendorTax = vendorItems.reduce((sum, item) => sum + (item.tax || 0), 0);
     const orderSubtotal = order.pricing.subtotal || 0;
     const totalDeliveryAmount = order.pricing.deliveryAmount || 0;
+    const discount = order.pricing.discount || 0;
+    const handlingCharge = order.pricing.handlingCharge || 0;
 
     let deliveryCharges = 0;
     if (totalDeliveryAmount > 0 && orderSubtotal > 0) {
@@ -1055,10 +1058,20 @@ const createOrderInvoicePdfBuffer = async (orderNumber) => {
       }
     }
 
+    const vendorTotal = parseFloat(
+      (vendorSubtotal + handlingCharge + vendorTax + deliveryCharges - discount).toFixed(2)
+    );
+
     finalPricing = {
       ...order.pricing,
+      subtotal: vendorSubtotal,
+      itemCost: vendorSubtotal,
+      tax: vendorTax,
+      handlingCharge,
       deliveryCharges,
-      totalAmount: order.pricing.total || 0,
+      deliveryAmount: deliveryCharges,
+      totalAmount: vendorTotal,
+      total: vendorTotal,
     };
   }
 
