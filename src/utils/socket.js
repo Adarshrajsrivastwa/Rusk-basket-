@@ -814,6 +814,7 @@ const sendOrderAssignmentRequest = async (riderId, orderData) => {
       };
 
       ioInstance.to(`rider:${riderId}`).emit('order_assignment_request', notificationPayload);
+      console.log("SOCKET PAYLOAD RIDER ASSIGNMENT:", JSON.stringify(notificationPayload, null, 2));
       logger.info(`Order assignment request sent to rider ${riderId} via WebSocket`);
       return true;
     } else {
@@ -1013,6 +1014,7 @@ const notifyRiderOrderUpdate = async (riderId, orderData) => {
 
     ioInstance.to(`rider:${riderId}`).emit('order_update', updatePayload);
 
+    console.log("SOCKET PAYLOAD RIDER:", JSON.stringify(updatePayload, null, 2));
     logger.info(`Order update sent to rider ${riderId} via WebSocket`);
   } catch (error) {
     logger.error(`Error sending order update to rider ${riderId}:`, error);
@@ -1219,6 +1221,7 @@ const notifyUserOrderUpdate = async (userId, orderData) => {
     };
 
     ioInstance.to(`user:${userId}`).emit('order_update', updatePayload);
+    console.log("SOCKET PAYLOAD USER:", JSON.stringify(updatePayload, null, 2));
     logger.info(`Order update sent to user ${userId} via WebSocket`);
   } catch (error) {
     logger.error(`Error sending order update to user ${userId}:`, error);
