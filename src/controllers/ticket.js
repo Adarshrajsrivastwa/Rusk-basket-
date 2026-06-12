@@ -231,6 +231,7 @@ exports.createTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in createTicket:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to create ticket',
@@ -292,6 +293,7 @@ exports.getTickets = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in getTickets:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',
@@ -342,6 +344,7 @@ exports.getTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in getTicket:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch ticket',
@@ -407,6 +410,7 @@ exports.updateTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in updateTicket:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to update ticket',
@@ -519,6 +523,7 @@ exports.addTicketMessage = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in addTicketMessage:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to add message',
@@ -1392,6 +1397,7 @@ exports.createRiderTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in createRiderTicket:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to create ticket',
@@ -1454,6 +1460,7 @@ exports.getRiderTickets = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in getRiderTickets:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch tickets',
@@ -1505,6 +1512,7 @@ exports.getRiderTicket = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in getRiderTicket:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch ticket',
@@ -1575,6 +1583,7 @@ exports.addRiderTicketMessage = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error in addRiderTicketMessage:", error);
     res.status(500).json({
       success: false,
       error: 'Failed to add message',
