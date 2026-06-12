@@ -3087,7 +3087,7 @@ exports.updateOrderStatus = async (orderId, vendorId, status) => {
       };
 
       await sendVendorPushNotification(vendorId, {
-        type: 'order_status_updated',
+        type: 'order_status_update',
         title: 'Order Status Updated',
         message: `Order #${order.orderNumber} status changed from ${previousStatus} to ${status}. ${statusMessages[status] || 'Status updated'}`,
         orderId: order._id.toString(),
