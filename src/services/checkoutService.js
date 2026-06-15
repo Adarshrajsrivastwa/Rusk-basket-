@@ -940,7 +940,7 @@ exports.getCartWithTotals = async (userId, options = {}) => {
     const itemTotal = item.totalPrice || (unitPrice * item.quantity);
     const itemCashback = (product.cashback || 0) * item.quantity;
     // Calculate tax amount from percentage: (itemTotal * tax%) / 100
-    const itemTax = (itemTotal * (product.tax || 0)) / 100;
+    const itemTax = 0;
 
     subtotal += itemTotal;
     totalCashback += itemCashback;
